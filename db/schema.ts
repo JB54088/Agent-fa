@@ -44,6 +44,10 @@ export const deadlineTypeEnum = pgEnum("deadline_type", ["FIXED_DATE", "UNTIL_FI
 export const opportunityEventTimeStatusEnum = pgEnum("opportunity_event_time_status", ["CONFIRMED", "ESTIMATED", "NOT_ANNOUNCED", "CHANGED", "ENDED"]);
 export const opportunityRequirementTypeEnum = pgEnum("opportunity_requirement_type", ["EDUCATION", "DEGREE", "MAJOR", "MAJOR_CATEGORY", "DISCIPLINE", "GRADUATION_YEAR", "FRESH_GRADUATE_STATUS", "AGE", "HOUSEHOLD_REGISTRATION", "POLITICAL_STATUS", "WORK_EXPERIENCE", "BASIC_LEVEL_EXPERIENCE", "CERTIFICATE", "LANGUAGE_LEVEL", "GENDER", "PHYSICAL_CONDITION", "WORK_REGION", "OTHER"]);
 export const adminRoleEnum = pgEnum("admin_role", ["SUPER_ADMIN", "CONTENT_ADMIN", "DATA_ENTRY", "REVIEWER", "READ_ONLY"]);
+export const sourceDiscoveryStatusEnum = pgEnum("source_discovery_status", ["AUTO_ALLOWED", "ATTACHMENT_ONLY", "MANUAL_ONLY", "NEEDS_REVIEW", "BLOCKED", "INACTIVE", "UNKNOWN"]);
+export const sourceRunStatusEnum = pgEnum("source_run_status", ["RUNNING", "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "SKIPPED", "BLOCKED"]);
+export const collectionReviewStatusEnum = pgEnum("collection_review_status", ["PENDING", "IN_REVIEW", "APPROVED", "REJECTED", "DUPLICATE", "NEEDS_MORE_INFORMATION"]);
+export const collectionReviewTaskTypeEnum = pgEnum("collection_review_task_type", ["NEW_ITEM", "CHANGED_ITEM", "POSSIBLE_DUPLICATE", "PARSE_FAILURE", "SOURCE_AUDIT", "SOURCE_HEALTH"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -101,8 +105,12 @@ export const organizations = pgTable("organizations", {
   name: text("name").notNull(),
   shortName: text("short_name"),
   organizationType: text("organization_type").notNull(),
+  industry: text("industry"),
   level: text("level"),
   officialWebsite: text("official_website"),
+  recruitmentWebsite: text("recruitment_website"),
+  logoUrl: text("logo_url"),
+  priority: text("priority").default("P2").notNull(),
   status: text("status").default("active").notNull(),
   ...timestamps,
 }, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType)]);
@@ -110,11 +118,41 @@ export const organizations = pgTable("organizations", {
 export const dataSources = pgTable("data_sources", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id),
   companyId: uuid("company_id").references(() => companies.id),
   level: sourceLevelEnum("level").notNull(),
   sourceType: sourceTypeEnum("source_type"),
   collectionMethod: collectionMethodEnum("collection_method"),
   sourceUrl: text("source_url"),
+  sourceDomain: text("source_domain"),
+  crawlerStrategy: text("crawler_strategy"),
+  listPageUrl: text("list_page_url"),
+  detailUrlPattern: text("detail_url_pattern"),
+  apiUrl: text("api_url"),
+  rssUrl: text("rss_url"),
+  robotsUrl: text("robots_url"),
+  robotsCheckedAt: timestamp("robots_checked_at", { withTimezone: true }),
+  robotsResult: text("robots_result"),
+  termsUrl: text("terms_url"),
+  termsCheckedAt: timestamp("terms_checked_at", { withTimezone: true }),
+  termsResult: text("terms_result"),
+  requiresJavascript: boolean("requires_javascript").default(false).notNull(),
+  requiresLogin: boolean("requires_login").default(false).notNull(),
+  hasCaptcha: boolean("has_captcha").default(false).notNull(),
+  allowedPaths: jsonb("allowed_paths").$type<string[]>().default([]).notNull(),
+  prohibitedPaths: jsonb("prohibited_paths").$type<string[]>().default([]).notNull(),
+  requestIntervalSeconds: integer("request_interval_seconds").default(10).notNull(),
+  maxRequestsPerRun: integer("max_requests_per_run").default(20).notNull(),
+  maxRequestsPerDay: integer("max_requests_per_day").default(100).notNull(),
+  userAgent: text("user_agent"),
+  contactEmail: text("contact_email"),
+  lastFailedFetchAt: timestamp("last_failed_fetch_at", { withTimezone: true }),
+  consecutiveFailureCount: integer("consecutive_failure_count").default(0).notNull(),
+  legalNotes: text("legal_notes"),
+  technicalNotes: text("technical_notes"),
+  discoveryStatus: sourceDiscoveryStatusEnum("discovery_status").default("NEEDS_REVIEW").notNull(),
+  automationAllowed: boolean("automation_allowed").default(false).notNull(),
+  lastVerifiedAt: timestamp("source_last_verified_at", { withTimezone: true }),
   publisher: text("publisher"),
   checkFrequency: text("check_frequency").default("manual").notNull(),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
@@ -126,7 +164,7 @@ export const dataSources = pgTable("data_sources", {
   lastError: text("last_error"),
   adminNote: text("admin_note"),
   ...timestamps,
-}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_status_idx").on(table.status)]);
+}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus)]);
 
 export const opportunities = pgTable("opportunities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -138,6 +176,8 @@ export const opportunities = pgTable("opportunities", {
   targetGraduationYears: jsonb("target_graduation_years").$type<number[]>().default([]).notNull(),
   batchName: text("batch_name"),
   description: text("description"),
+  workLocations: jsonb("work_locations").$type<string[]>().default([]).notNull(),
+  recruitmentNumber: integer("recruitment_number"),
   educationRequirements: jsonb("education_requirements").$type<string[]>().default([]).notNull(),
   degreeRequirements: jsonb("degree_requirements").$type<string[]>().default([]).notNull(),
   majorRequirementText: text("major_requirement_text"),
@@ -154,6 +194,7 @@ export const opportunities = pgTable("opportunities", {
   manualStatus: projectStatusEnum("manual_status"),
   statusOverride: boolean("status_override").default(false).notNull(),
   deadlineType: deadlineTypeEnum("deadline_type").default("NOT_ANNOUNCED").notNull(),
+  dataCredibility: text("data_credibility").default("待评估").notNull(),
   isDemo: boolean("is_demo").default(false).notNull(),
   ...timestamps,
 }, (table) => [index("opportunities_type_status_idx").on(table.opportunityType, table.calculatedStatus), index("opportunities_org_idx").on(table.organizationId), index("opportunities_year_idx").on(table.recruitmentYear), index("opportunities_source_idx").on(table.sourceId)]);
@@ -167,6 +208,7 @@ export const opportunityEvents = pgTable("opportunity_events", {
   endTime: timestamp("end_time", { withTimezone: true }),
   timeStatus: opportunityEventTimeStatusEnum("time_status").default("NOT_ANNOUNCED").notNull(),
   description: text("description"),
+  originalText: text("original_text"),
   isConfirmed: boolean("is_confirmed").default(false).notNull(),
   sourceUrl: text("source_url"),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
@@ -420,6 +462,25 @@ export const collectionRuns = pgTable("collection_runs", {
   ...timestamps,
 }, (table) => [index("collection_runs_source_idx").on(table.dataSourceId, table.startedAt), index("collection_runs_status_idx").on(table.status)]);
 
+export const sourceFetchRuns = pgTable("source_fetch_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  dataSourceId: uuid("data_source_id").notNull().references(() => dataSources.id),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  runStatus: sourceRunStatusEnum("run_status").default("RUNNING").notNull(),
+  requestCount: integer("request_count").default(0).notNull(),
+  discoveredCount: integer("discovered_count").default(0).notNull(),
+  createdCount: integer("created_count").default(0).notNull(),
+  updatedCount: integer("updated_count").default(0).notNull(),
+  skippedCount: integer("skipped_count").default(0).notNull(),
+  duplicateCount: integer("duplicate_count").default(0).notNull(),
+  errorCount: integer("error_count").default(0).notNull(),
+  httpStatusSummary: jsonb("http_status_summary"),
+  errorMessage: text("error_message"),
+  logPath: text("log_path"),
+  ...timestamps,
+}, (table) => [index("source_fetch_runs_source_idx").on(table.dataSourceId, table.startedAt), index("source_fetch_runs_status_idx").on(table.runStatus)]);
+
 export const rawCollectedItems = pgTable("raw_collected_items", {
   id: uuid("id").defaultRandom().primaryKey(),
   dataSourceId: uuid("data_source_id").notNull().references(() => dataSources.id),
@@ -508,6 +569,19 @@ export const adminTasks = pgTable("admin_tasks", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   ...timestamps,
 }, (table) => [index("admin_tasks_status_idx").on(table.status, table.priority), index("admin_tasks_assignee_idx").on(table.assigneeId, table.status), index("admin_tasks_due_idx").on(table.dueAt)]);
+
+export const collectionReviewTasks = pgTable("collection_review_tasks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  rawItemId: uuid("raw_item_id").notNull().references(() => rawCollectedItems.id),
+  opportunityId: uuid("opportunity_id").references(() => opportunities.id),
+  taskType: collectionReviewTaskTypeEnum("task_type").notNull(),
+  reviewStatus: collectionReviewStatusEnum("review_status").default("PENDING").notNull(),
+  assignedAdminId: uuid("assigned_admin_id").references(() => users.id),
+  automatedConfidence: integer("automated_confidence"),
+  reviewNotes: text("review_notes"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [index("collection_review_tasks_status_idx").on(table.reviewStatus), index("collection_review_tasks_assignee_idx").on(table.assignedAdminId, table.reviewStatus), index("collection_review_tasks_raw_idx").on(table.rawItemId)]);
 
 export const projectVerificationRecords = pgTable("project_verification_records", {
   id: uuid("id").defaultRandom().primaryKey(),

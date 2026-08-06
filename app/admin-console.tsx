@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { formatDate, projects, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
+import { dataSourcesSeed } from "../db/seeds/data-sources";
+import { organizationsSeed } from "../db/seeds/organizations";
 
-type AdminTab = "overview" | "sources" | "review" | "imports" | "verifications" | "tasks" | "settings";
+type AdminTab = "overview" | "targets" | "sources" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -77,6 +79,7 @@ const taskSeed: AdminTask[] = [
 
 const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "overview", label: "运营总览", icon: "⌂" },
+  { id: "targets", label: "目标单位", icon: "▥" },
   { id: "sources", label: "数据源管理", icon: "◎" },
   { id: "review", label: "采集审核", icon: "✓" },
   { id: "imports", label: "Excel导入", icon: "▤" },
@@ -133,6 +136,7 @@ export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }:
     </div>
 
     {tab === "overview" && <AdminOverview pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} />}
+    {tab === "targets" && <TargetOrganizationDirectory onNotify={onNotify} />}
     {tab === "sources" && <SourceManagement sources={sources} onToggle={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: source.status === "已暂停" ? "待检查" : "已暂停" } : source)); onNotify("数据源状态已更新"); }} onCheck={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: "运行中", lastChecked: "刚刚", lastSuccess: "刚刚" } : source)); onNotify("已创建一次公开页面检查任务"); }} />}
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} />}
@@ -140,6 +144,19 @@ export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }:
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
     {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
   </>;
+}
+
+function TargetOrganizationDirectory({ onNotify }: { onNotify: (message: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [priority, setPriority] = useState("全部");
+  const [started, setStarted] = useState<string[]>([]);
+  const sourceByOrganization = new Map(dataSourcesSeed.map((source) => [source.organizationName, source]));
+  const visible = organizationsSeed.filter((organization) => {
+    const matchesQuery = !query.trim() || `${organization.name} ${organization.shortName} ${organization.industry}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesQuery && (priority === "全部" || organization.priority === priority);
+  });
+  const counts = { P0: organizationsSeed.filter((item) => item.priority === "P0").length, P1: organizationsSeed.filter((item) => item.priority === "P1").length, P2: organizationsSeed.filter((item) => item.priority === "P2").length };
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">TARGET ORGANIZATIONS</span><h2>首批目标单位</h2><p>100家重点企业、央企、国企、银行和知名企业，网址确认前统一保持待核验。</p></div><span className="review-guard">不预填未经确认网址</span></div><div className="target-summary"><div><strong>{organizationsSeed.length}</strong><span>目标单位</span></div><div><strong>{counts.P0}</strong><span>P0首批调研</span></div><div><strong>{dataSourcesSeed.filter((item) => item.sourceStatus === "NEEDS_REVIEW").length}</strong><span>待核验来源</span></div><div><strong>0</strong><span>已允许自动采集</span></div></div><div className="admin-filter-bar"><div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索单位、简称或行业" /></div>{["全部", "P0", "P1", "P2"].map((item) => <button key={item} className={priority === item ? "active" : ""} onClick={() => setPriority(item)}>{item}</button>)}</div><div className="target-table"><div className="target-table-head"><span>单位</span><span>类型 / 行业</span><span>优先级</span><span>数据源状态</span><span>采集策略</span><span>操作</span></div>{visible.map((organization) => { const source = sourceByOrganization.get(organization.name); const isStarted = started.includes(organization.name); return <div className="target-table-row" key={organization.name}><span><strong>{organization.name}</strong><small>{organization.shortName}</small></span><span>{organization.organizationType}<small>{organization.industry}</small></span><span className={`priority-pill ${organization.priority.toLowerCase()}`}>{organization.priority}</span><span><b className="source-status pending"><i />{source?.sourceStatus}</b><small>官方入口待人工核验</small></span><span>{source?.crawlerStrategy}<small>{source?.recommendedFrequency}</small></span><span><button className="text-button" onClick={() => { setStarted((current) => current.includes(organization.name) ? current : [...current, organization.name]); onNotify(isStarted ? "该单位已在调研队列中" : `${organization.shortName}已加入人工调研队列`); }}>{isStarted ? "已加入调研" : "开始调研"}</button></span></div>; })}</div></div>;
 }
 
 function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: BrandConfig) => void }) {
