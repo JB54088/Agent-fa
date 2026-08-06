@@ -1,0 +1,125 @@
+CREATE TYPE "source_type" AS ENUM ('企业官网', '招聘官网', '政府官网', '官方公众号', '高校就业网', '第三方网站');
+CREATE TYPE "collection_method" AS ENUM ('人工录入', 'HTML页面', '公开API', 'PDF附件', 'Excel附件');
+CREATE TYPE "source_status" AS ENUM ('active', 'paused', 'invalid');
+CREATE TYPE "parse_status" AS ENUM ('pending', 'success', 'partial', 'failed');
+CREATE TYPE "raw_review_status" AS ENUM ('pending', 'in_review', 'approved', 'rejected', 'snoozed', 'converted');
+CREATE TYPE "duplicate_status" AS ENUM ('pending', 'unique', 'suspected', 'confirmed', 'not_duplicate');
+CREATE TYPE "publish_status" AS ENUM ('draft', 'pending_review', 'approved', 'published', 'rejected', 'withdrawn');
+CREATE TYPE "verification_status" AS ENUM ('unverified', 'pending', 'verified', 'needs_review', 'expired');
+CREATE TYPE "official_page_status" AS ENUM ('unknown', 'accessible', 'unreachable', 'redirected', 'blocked', 'expired');
+CREATE TYPE "admin_task_status" AS ENUM ('open', 'claimed', 'in_progress', 'completed', 'rejected', 'snoozed');
+CREATE TYPE "admin_task_type" AS ENUM ('new_recruitment', 'page_changed', 'official_link_invalid', 'deadline_soon', 'verification_overdue', 'user_correction', 'suspected_duplicate', 'parse_failed');
+
+ALTER TABLE "data_sources"
+  ADD COLUMN "company_id" uuid REFERENCES "companies"("id"),
+  ADD COLUMN "source_type" "source_type",
+  ADD COLUMN "collection_method" "collection_method",
+  ADD COLUMN "check_frequency" text NOT NULL DEFAULT 'manual',
+  ADD COLUMN "last_successful_collected_at" timestamptz,
+  ADD COLUMN "content_fingerprint" text,
+  ADD COLUMN "requires_manual_review" boolean NOT NULL DEFAULT true,
+  ADD COLUMN "status" "source_status" NOT NULL DEFAULT 'active',
+  ADD COLUMN "next_check_at" timestamptz,
+  ADD COLUMN "last_error" text,
+  ADD COLUMN "admin_note" text;
+CREATE INDEX "data_sources_company_idx" ON "data_sources" ("company_id");
+CREATE INDEX "data_sources_status_idx" ON "data_sources" ("status");
+
+ALTER TABLE "recruitment_projects"
+  ADD COLUMN "publish_status" "publish_status" NOT NULL DEFAULT 'pending_review',
+  ADD COLUMN "verified_by" uuid REFERENCES "users"("id"),
+  ADD COLUMN "verification_status" "verification_status" NOT NULL DEFAULT 'unverified',
+  ADD COLUMN "next_verify_at" timestamptz,
+  ADD COLUMN "official_page_status" "official_page_status" NOT NULL DEFAULT 'unknown',
+  ADD COLUMN "dedupe_key" text,
+  ADD COLUMN "d_special_approval" boolean NOT NULL DEFAULT false,
+  ADD COLUMN "d_special_approval_reason" text,
+  ADD COLUMN "d_special_approved_by" uuid REFERENCES "users"("id");
+CREATE INDEX "projects_dedupe_key_idx" ON "recruitment_projects" ("dedupe_key");
+
+CREATE TABLE "collection_runs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "data_source_id" uuid NOT NULL REFERENCES "data_sources"("id"),
+  "trigger_type" text NOT NULL DEFAULT 'scheduled', "started_at" timestamptz NOT NULL DEFAULT now(), "finished_at" timestamptz,
+  "status" text NOT NULL DEFAULT 'running', "fetched_count" integer NOT NULL DEFAULT 0, "created_count" integer NOT NULL DEFAULT 0,
+  "changed_count" integer NOT NULL DEFAULT 0, "error_count" integer NOT NULL DEFAULT 0, "error_message" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "collection_runs_source_idx" ON "collection_runs" ("data_source_id", "started_at");
+
+CREATE TABLE "raw_collected_items" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "data_source_id" uuid NOT NULL REFERENCES "data_sources"("id"),
+  "collection_run_id" uuid REFERENCES "collection_runs"("id"), "source_url" text NOT NULL, "original_title" text,
+  "original_content" text, "original_html" text, "attachment_urls" jsonb NOT NULL DEFAULT '[]',
+  "published_at" timestamptz, "collected_at" timestamptz NOT NULL DEFAULT now(), "content_hash" text NOT NULL,
+  "previous_content_hash" text, "content_summary" text, "previous_content_summary" text, "parser_name" text,
+  "parser_result" jsonb, "normalized_payload" jsonb, "parse_status" "parse_status" NOT NULL DEFAULT 'pending',
+  "review_status" "raw_review_status" NOT NULL DEFAULT 'pending', "duplicate_status" "duplicate_status" NOT NULL DEFAULT 'pending',
+  "promoted_project_id" uuid REFERENCES "recruitment_projects"("id"), "reviewed_by" uuid REFERENCES "users"("id"),
+  "reviewed_at" timestamptz, "error_message" text, "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "raw_items_source_collected_idx" ON "raw_collected_items" ("data_source_id", "collected_at");
+CREATE INDEX "raw_items_review_idx" ON "raw_collected_items" ("review_status");
+CREATE INDEX "raw_items_hash_idx" ON "raw_collected_items" ("content_hash");
+
+CREATE TABLE "source_change_events" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "data_source_id" uuid NOT NULL REFERENCES "data_sources"("id"),
+  "raw_item_id" uuid NOT NULL REFERENCES "raw_collected_items"("id"), "previous_hash" text, "current_hash" text NOT NULL,
+  "previous_summary" text, "current_summary" text, "detected_at" timestamptz NOT NULL DEFAULT now(), "review_task_id" uuid,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+
+CREATE TABLE "import_batches" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "file_name" text NOT NULL, "file_storage_key" text,
+  "uploaded_by" uuid NOT NULL REFERENCES "users"("id"), "status" text NOT NULL DEFAULT 'uploaded', "field_mapping" jsonb,
+  "total_rows" integer NOT NULL DEFAULT 0, "valid_rows" integer NOT NULL DEFAULT 0, "error_rows" integer NOT NULL DEFAULT 0,
+  "duplicate_rows" integer NOT NULL DEFAULT 0, "completed_at" timestamptz, "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE TABLE "import_rows" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "batch_id" uuid NOT NULL REFERENCES "import_batches"("id"),
+  "row_number" integer NOT NULL, "raw_data" jsonb NOT NULL, "normalized_data" jsonb, "validation_errors" jsonb NOT NULL DEFAULT '[]',
+  "company_match_status" text NOT NULL DEFAULT 'pending', "major_match_status" text NOT NULL DEFAULT 'pending',
+  "duplicate_status" "duplicate_status" NOT NULL DEFAULT 'pending', "review_status" "raw_review_status" NOT NULL DEFAULT 'pending',
+  "promoted_project_id" uuid REFERENCES "recruitment_projects"("id"), "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz, UNIQUE ("batch_id", "row_number")
+);
+
+CREATE TABLE "admin_tasks" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "task_type" "admin_task_type" NOT NULL,
+  "status" "admin_task_status" NOT NULL DEFAULT 'open', "priority" text NOT NULL DEFAULT 'medium',
+  "raw_item_id" uuid REFERENCES "raw_collected_items"("id"), "project_id" uuid REFERENCES "recruitment_projects"("id"),
+  "import_row_id" uuid REFERENCES "import_rows"("id"), "correction_report_id" uuid REFERENCES "correction_reports"("id"),
+  "assignee_id" uuid REFERENCES "users"("id"), "claimed_at" timestamptz, "due_at" timestamptz,
+  "resolution" text, "admin_note" text, "completed_at" timestamptz, "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "admin_tasks_status_idx" ON "admin_tasks" ("status", "priority");
+CREATE INDEX "admin_tasks_due_idx" ON "admin_tasks" ("due_at");
+
+CREATE TABLE "project_verification_records" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "project_id" uuid NOT NULL REFERENCES "recruitment_projects"("id"),
+  "data_source_id" uuid REFERENCES "data_sources"("id"), "verified_by" uuid REFERENCES "users"("id"),
+  "verification_status" "verification_status" NOT NULL, "official_page_status" "official_page_status" NOT NULL,
+  "observed_content_hash" text, "verification_note" text, "verified_at" timestamptz NOT NULL DEFAULT now(),
+  "next_verify_at" timestamptz, "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "verification_records_project_idx" ON "project_verification_records" ("project_id", "verified_at");
+
+CREATE TABLE "recruitment_project_sources" (
+  "project_id" uuid NOT NULL REFERENCES "recruitment_projects"("id"), "data_source_id" uuid NOT NULL REFERENCES "data_sources"("id"),
+  "source_url" text NOT NULL, "source_role" text NOT NULL DEFAULT 'other', "is_primary" boolean NOT NULL DEFAULT false,
+  "verified_at" timestamptz, PRIMARY KEY ("project_id", "data_source_id", "source_url")
+);
+CREATE TABLE "project_target_years" (
+  "project_id" uuid NOT NULL REFERENCES "recruitment_projects"("id"), "graduation_year" integer NOT NULL,
+  "dedupe_key" text NOT NULL UNIQUE, PRIMARY KEY ("project_id", "graduation_year")
+);
+CREATE INDEX "project_target_year_idx" ON "project_target_years" ("graduation_year");
+
+CREATE TABLE "admin_audit_logs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "actor_id" uuid NOT NULL REFERENCES "users"("id"), "action" text NOT NULL,
+  "entity_type" text NOT NULL, "entity_id" uuid, "before_data" jsonb, "after_data" jsonb,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "admin_audit_actor_idx" ON "admin_audit_logs" ("actor_id", "created_at");
