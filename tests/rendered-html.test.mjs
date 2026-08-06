@@ -20,7 +20,7 @@ test("server-renders the school recruitment radar", async () => {
   const html = await response.text();
   assert.match(html, /校招雷达/);
   assert.match(html, /不错过每一次/);
-  assert.match(html, /演示数据/);
+  assert.match(html, /真实数据/);
   assert.match(html, /招聘信息来源于公开渠道/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });

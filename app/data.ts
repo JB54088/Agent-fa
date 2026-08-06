@@ -1,3 +1,5 @@
+import { realProjects } from "./real-projects";
+
 export type BrandConfig = {
   name: string;
   logoText: string;
@@ -17,9 +19,9 @@ export const siteConfig: BrandConfig = {
   homeTitle: "不错过每一次重要机会",
   homeSubtitle: "统一整理大厂校招、央国企招聘、国考、省考、事业单位和军队文职信息，帮你及时发现并管理关键报名时间。",
   marketingCopy: "面向应届毕业生的一站式招聘、考公、考编与军队文职机会日历和提醒工具。",
-  disclaimer: "本平台仅对公开招聘和招录信息进行整理和展示，具体报名条件、时间安排、岗位要求及考试政策请以官方公告为准。",
+  disclaimer: "本平台仅整理公开招聘信息，招聘时间、专业要求及报名资格可能发生变化，请在报名前再次核对招聘单位官方网站。",
   cutoffDays: 7,
-  demoMode: true,
+  demoMode: false,
 };
 
 export type ProjectStatus = "recruiting" | "upcoming" | "ending" | "closed";
@@ -71,9 +73,10 @@ export type Project = {
   link: string;
   applications?: ApplicationStatus;
   note?: string;
+  recordStatus?: "真实数据" | "演示数据";
 };
 
-export const projects: Project[] = [
+export const demoProjects: Project[] = [
   {
     id: "p1",
     company: "华辰能源集团",
@@ -644,7 +647,9 @@ const additionalDemoProjects: Project[] = [
   { id: "p30", company: "华岭电网服务", shortName: "华岭电网", logoTone: "emerald", companyType: "央企", companyNature: "电网服务", batch: "秋招", title: "华岭电网服务2027届电气类招聘", intro: "输变电工程、调度通信、数字化运维与安全管理岗位。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "电气工程、自动化、通信工程、计算机、安全工程", majors: ["电气工程及其自动化", "自动化", "通信工程", "计算机科学与技术"], majorCategory: ["工学"], relatedMajor: false, noMajorLimit: false, regions: ["郑州", "武汉", "长沙", "全国"], publishedAt: "2026-08-05", startAt: "2026-08-11", deadline: "2026-09-03", status: "upcoming", sourceName: "华岭电网服务招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-05", link: "https://example.com/hualing-grid", opportunityType: "CENTRAL_SOE" },
 ];
 
-projects.push(...additionalDemoProjects);
+demoProjects.push(...additionalDemoProjects);
+
+export const projects = realProjects;
 
 export const notificationSeed = [
   { id: "n1", icon: "⏰", title: "华辰能源集团报名截止提醒", text: "还有 12 天截止，记得补齐网申材料。", time: "今天 09:24", unread: true, color: "orange" },

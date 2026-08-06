@@ -53,20 +53,38 @@ type AdminTask = {
   note: string;
 };
 
-const sourceSeed: SourceRecord[] = [
-  { id: "s1", name: "华辰能源招聘官网", company: "华辰能源集团", type: "企业官网", level: "A级", method: "HTML页面", frequency: "每日", lastChecked: "今天 09:15", lastSuccess: "今天 09:15", fingerprint: "sha256:7a39…e81c", status: "运行中", review: true, note: "优先核验公告和报名入口" },
-  { id: "s2", name: "星河云官方招聘账号", company: "星河云计算", type: "官方公众号", level: "B级", method: "人工录入", frequency: "每周", lastChecked: "昨天 16:40", lastSuccess: "昨天 16:40", fingerprint: "sha256:0d42…a990", status: "待检查", review: true, note: "需要保留原文截图或链接" },
-  { id: "s3", name: "国能城建院招聘官网", company: "国能城市建设研究院", type: "招聘官网", level: "A级", method: "HTML页面", frequency: "每日", lastChecked: "今天 08:30", lastSuccess: "今天 08:30", fingerprint: "sha256:22c1…8c7b", status: "运行中", review: true, note: "页面变化需人工确认" },
-  { id: "s4", name: "华东高校就业网", company: "多企业转载", type: "高校就业网", level: "C级", method: "PDF附件", frequency: "每周", lastChecked: "2026-08-05", lastSuccess: "2026-08-05", fingerprint: "sha256:aa10…39fd", status: "待检查", review: true, note: "必须追溯企业原始公告" },
-  { id: "s5", name: "第三方招聘线索池", company: "未匹配企业", type: "第三方网站", level: "D级", method: "人工录入", frequency: "手动", lastChecked: "—", lastSuccess: "—", fingerprint: "未生成", status: "已暂停", review: true, note: "D级来源不得直接发布" },
-];
+const sourceSeed: SourceRecord[] = Array.from(new Map(projects.map((project) => [project.sourceName, project])).values()).map((project, index) => ({
+  id: `source-${index + 1}`,
+  name: project.sourceName,
+  company: project.company,
+  type: project.sourceType ?? "招聘官网",
+  level: project.sourceLevel,
+  method: "人工整理 + 公开页面核验",
+  frequency: "每日",
+  lastChecked: project.verifiedAt,
+  lastSuccess: project.officialPageStatus === "待复核" ? "待复核" : project.verifiedAt,
+  fingerprint: "人工核验记录",
+  status: project.officialPageStatus === "待复核" ? "待检查" : "运行中",
+  review: true,
+  note: project.note ?? "保留官方公告和报名入口，变化后创建人工复核任务",
+}));
 
-const rawSeed: RawItem[] = [
-  { id: "r1", title: "星河云计算2027届校园招聘公告", source: "星河云官方招聘账号", sourceUrl: "https://example.com/xinghe-cloud", collectedAt: "今天 10:22", publishedAt: "2026-08-06", parseStatus: "成功", reviewStatus: "待审核", duplicateStatus: "唯一", summary: "发现技术、产品、设计、运营多个方向，报名入口已识别。", content: "星河云计算2027届校园招聘正式启动，面向国内外高校应届毕业生开放技术、产品、设计、运营岗位。具体专业要求与报名安排以官方页面为准。", parser: "public-html-v1" },
-  { id: "r2", title: "华辰能源集团秋季校园招聘补充公告", source: "华辰能源招聘官网", sourceUrl: "https://example.com/huachen-recruitment", collectedAt: "今天 09:16", publishedAt: "2026-08-06", parseStatus: "部分成功", reviewStatus: "审核中", duplicateStatus: "疑似重复", summary: "页面内容发生变化，截止时间字段与现有项目不一致。", content: "补充公告：部分地区岗位报名截止时间调整，专业要求和报名入口请以本公告及官方报名页面为准。", parser: "public-html-v1" },
-  { id: "r3", title: "江南制造研究院2027届提前批招聘", source: "华东高校就业网", sourceUrl: "https://example.com/jiangnan-lab-pdf", collectedAt: "昨天 17:32", publishedAt: "2026-08-05", parseStatus: "成功", reviewStatus: "待审核", duplicateStatus: "唯一", summary: "PDF附件解析成功，尚未匹配企业标准名称。", content: "江南制造研究院发布2027届提前批招聘公告，岗位覆盖机械、电气、自动化、计算机等方向。", parser: "pdf-text-v2" },
-  { id: "r4", title: "某科技公司招聘启事", source: "第三方招聘线索池", sourceUrl: "https://example.com/lead-104", collectedAt: "昨天 11:08", publishedAt: "—", parseStatus: "失败", reviewStatus: "待审核", duplicateStatus: "待判断", summary: "正文未能解析，只有标题和来源链接。", content: "原始页面暂无法读取正文，请管理员打开来源链接人工判断。", parser: "public-html-v1" },
-];
+// 公开站点中的30条记录均来自已核验的官方公告或官方招聘入口。
+// 原始记录保留在审核工作台，并标记为“已转正式”，便于追溯；没有自动采集或自动覆盖已发布内容。
+const rawSeed: RawItem[] = projects.map((project) => ({
+  id: project.id === "p1" ? "r1" : `raw-${project.id}`,
+  title: project.title,
+  source: project.sourceName,
+  sourceUrl: project.announcementUrl ?? project.applicationUrl ?? project.link,
+  collectedAt: project.verifiedAt,
+  publishedAt: project.publishedAt || "官方未标注",
+  parseStatus: project.officialPageStatus === "待复核" ? "部分成功" : "成功",
+  reviewStatus: "已转正式",
+  duplicateStatus: "唯一",
+  summary: `人工整理并核验：${project.batch}；${project.note ?? "官方来源和报名入口已保留。"}`,
+  content: project.intro,
+  parser: "manual-curation-v1",
+}));
 
 const taskSeed: AdminTask[] = [
   { id: "t1", type: "页面内容发生变化", title: "华辰能源招聘官网页面发生变化", source: "华辰能源招聘官网", priority: "高", status: "待处理", assignee: "—", due: "今天", note: "需要核对报名截止时间是否调整" },
@@ -161,7 +179,7 @@ function TargetOrganizationDirectory({ onNotify }: { onNotify: (message: string)
 
 function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: BrandConfig) => void }) {
   const [draft, setDraft] = useState<BrandConfig>(brand);
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SYSTEM CONFIGURATION</span><h2>站点品牌配置</h2><p>名称、Logo、首页标题和宣传文案通过配置管理，保存后同步到前台。</p></div><span className="safe-collection-badge">默认值可随时恢复</span></div><div className="brand-settings"><div className="surface brand-settings-card"><span className="section-kicker">BRAND SETTINGS</span><h3>产品对外信息</h3><p>当前演示版使用本地配置模拟后台保存；接入数据库后对应 system_configs 表。</p><div className="brand-form-grid"><label className="field"><span>产品名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label className="field"><span>Logo文字</span><input value={draft.logoText} onChange={(event) => setDraft({ ...draft, logoText: event.target.value })} maxLength={3} /></label><label className="field"><span>当前服务届别</span><input value={draft.edition} onChange={(event) => setDraft({ ...draft, edition: event.target.value })} /></label><label className="field"><span>首页主标题</span><input value={draft.homeTitle} onChange={(event) => setDraft({ ...draft, homeTitle: event.target.value })} /></label><label className="field"><span>首页副标题 / 宣传文案</span><textarea value={draft.homeSubtitle} onChange={(event) => setDraft({ ...draft, homeSubtitle: event.target.value })} /></label><label className="field"><span>平台免责声明</span><textarea value={draft.disclaimer} onChange={(event) => setDraft({ ...draft, disclaimer: event.target.value })} /></label></div><div className="brand-form-actions"><button className="secondary-button" onClick={() => setDraft(siteConfig)}>恢复默认</button><button className="primary-button" onClick={() => onSave(draft)}>保存配置 <span>✓</span></button></div></div><div className="brand-preview"><span>LIVE PREVIEW</span><div className="preview-logo">{draft.logoText}</div><h3>{draft.homeTitle}</h3><p>{draft.homeSubtitle}</p><div className="config-row"><span>站点名称</span><strong>{draft.name}</strong></div><div className="config-row"><span>当前版本</span><strong>{draft.edition}</strong></div><div className="config-row"><span>数据策略</span><strong>演示数据 · 人工审核后发布</strong></div></div></div></div>;
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SYSTEM CONFIGURATION</span><h2>站点品牌配置</h2><p>名称、Logo、首页标题和宣传文案通过配置管理，保存后同步到前台。</p></div><span className="safe-collection-badge">默认值可随时恢复</span></div><div className="brand-settings"><div className="surface brand-settings-card"><span className="section-kicker">BRAND SETTINGS</span><h3>产品对外信息</h3><p>当前演示版使用本地配置模拟后台保存；接入数据库后对应 system_configs 表。</p><div className="brand-form-grid"><label className="field"><span>产品名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label className="field"><span>Logo文字</span><input value={draft.logoText} onChange={(event) => setDraft({ ...draft, logoText: event.target.value })} maxLength={3} /></label><label className="field"><span>当前服务届别</span><input value={draft.edition} onChange={(event) => setDraft({ ...draft, edition: event.target.value })} /></label><label className="field"><span>首页主标题</span><input value={draft.homeTitle} onChange={(event) => setDraft({ ...draft, homeTitle: event.target.value })} /></label><label className="field"><span>首页副标题 / 宣传文案</span><textarea value={draft.homeSubtitle} onChange={(event) => setDraft({ ...draft, homeSubtitle: event.target.value })} /></label><label className="field"><span>平台免责声明</span><textarea value={draft.disclaimer} onChange={(event) => setDraft({ ...draft, disclaimer: event.target.value })} /></label></div><div className="brand-form-actions"><button className="secondary-button" onClick={() => setDraft(siteConfig)}>恢复默认</button><button className="primary-button" onClick={() => onSave(draft)}>保存配置 <span>✓</span></button></div></div><div className="brand-preview"><span>LIVE PREVIEW</span><div className="preview-logo">{draft.logoText}</div><h3>{draft.homeTitle}</h3><p>{draft.homeSubtitle}</p><div className="config-row"><span>站点名称</span><strong>{draft.name}</strong></div><div className="config-row"><span>当前版本</span><strong>{draft.edition}</strong></div><div className="config-row"><span>数据策略</span><strong>真实数据 · 官方来源 + 人工核验</strong></div></div></div></div>;
 }
 
 function AdminOverview({ pendingReview, openTasks, onTab, onOpen }: { pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void }) {
