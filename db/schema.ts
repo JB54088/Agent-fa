@@ -36,6 +36,9 @@ export const verificationStatusEnum = pgEnum("verification_status", ["unverified
 export const officialPageStatusEnum = pgEnum("official_page_status", ["unknown", "accessible", "unreachable", "redirected", "blocked", "expired"]);
 export const adminTaskStatusEnum = pgEnum("admin_task_status", ["open", "claimed", "in_progress", "completed", "rejected", "snoozed"]);
 export const adminTaskTypeEnum = pgEnum("admin_task_type", ["new_recruitment", "page_changed", "official_link_invalid", "deadline_soon", "verification_overdue", "user_correction", "suspected_duplicate", "parse_failed"]);
+export const eventTimeStatusEnum = pgEnum("event_time_status", ["待公布", "预计时间", "已确认", "已变更", "已结束"]);
+export const personalTaskStatusEnum = pgEnum("personal_task_status", ["待处理", "进行中", "已完成", "已取消"]);
+export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "delivered", "failed", "skipped"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -130,6 +133,10 @@ export const recruitmentProjects = pgTable("recruitment_projects", {
   announcementUrl: text("announcement_url").notNull(),
   applicationUrl: text("application_url").notNull(),
   status: projectStatusEnum("status").default("pending_review").notNull(),
+  calculatedStatus: projectStatusEnum("calculated_status").default("pending_review").notNull(),
+  manualStatus: projectStatusEnum("manual_status"),
+  statusOverride: boolean("status_override").default(false).notNull(),
+  statusReason: text("status_reason"),
   publishStatus: publishStatusEnum("publish_status").default("pending_review").notNull(),
   isRecommended: boolean("is_recommended").default(false).notNull(),
   isPinned: boolean("is_pinned").default(false).notNull(),
@@ -211,8 +218,14 @@ export const notifications = pgTable("notifications", {
 export const recruitmentChanges = pgTable("recruitment_changes", {
   id: uuid("id").defaultRandom().primaryKey(),
   projectId: uuid("project_id").notNull().references(() => recruitmentProjects.id),
+  fieldName: text("field_name"),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
   changedBy: uuid("changed_by").references(() => users.id),
   changeType: text("change_type").notNull(),
+  changeDescription: text("change_description"),
+  changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+  notifyUsers: boolean("notify_users").default(false).notNull(),
   beforeData: jsonb("before_data"),
   afterData: jsonb("after_data"),
   ...timestamps,
@@ -386,3 +399,77 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   afterData: jsonb("after_data"),
   ...timestamps,
 }, (table) => [index("admin_audit_actor_idx").on(table.actorId, table.createdAt), index("admin_audit_entity_idx").on(table.entityType, table.entityId)]);
+
+export const majorAliases = pgTable("major_aliases", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  majorId: uuid("major_id").notNull().references(() => majors.id),
+  aliasName: text("alias_name").notNull(),
+  aliasType: text("alias_type").notNull(),
+  source: text("source"),
+  status: text("status").default("active").notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("major_aliases_major_name_uidx").on(table.majorId, table.aliasName), index("major_aliases_name_idx").on(table.aliasName)]);
+
+export const majorMappings = pgTable("major_mappings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  majorId: uuid("major_id").notNull().references(() => majors.id),
+  majorCategoryId: uuid("major_category_id").notNull().references(() => majorCategories.id),
+  disciplineId: text("discipline_id"),
+  educationLevel: text("education_level"),
+  version: text("version").notNull(),
+  source: text("source"),
+  status: text("status").default("active").notNull(),
+  ...timestamps,
+}, (table) => [index("major_mappings_major_idx").on(table.majorId), index("major_mappings_version_idx").on(table.version)]);
+
+export const recruitmentMajorRules = pgTable("recruitment_major_rules", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  recruitmentProjectId: uuid("recruitment_project_id").notNull().references(() => recruitmentProjects.id),
+  ruleType: text("rule_type").notNull(),
+  ruleValue: text("rule_value").notNull(),
+  originalText: text("original_text").notNull(),
+  confidenceLevel: text("confidence_level").default("manual").notNull(),
+  requiresManualReview: boolean("requires_manual_review").default(true).notNull(),
+  ...timestamps,
+}, (table) => [index("recruitment_major_rules_project_idx").on(table.recruitmentProjectId), index("recruitment_major_rules_type_idx").on(table.ruleType)]);
+
+export const recruitmentEvents = pgTable("recruitment_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  recruitmentProjectId: uuid("recruitment_project_id").notNull().references(() => recruitmentProjects.id),
+  eventType: text("event_type").notNull(),
+  eventName: text("event_name").notNull(),
+  startTime: timestamp("start_time", { withTimezone: true }),
+  endTime: timestamp("end_time", { withTimezone: true }),
+  timeStatus: eventTimeStatusEnum("time_status").default("待公布").notNull(),
+  description: text("description"),
+  isConfirmed: boolean("is_confirmed").default(false).notNull(),
+  sourceUrl: text("source_url"),
+  ...timestamps,
+}, (table) => [index("recruitment_events_project_idx").on(table.recruitmentProjectId, table.startTime), index("recruitment_events_type_idx").on(table.eventType)]);
+
+export const personalTasks = pgTable("personal_tasks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  projectId: uuid("project_id").references(() => recruitmentProjects.id),
+  title: text("title").notNull(),
+  status: personalTaskStatusEnum("status").default("待处理").notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  nextAction: text("next_action"),
+  suggested: boolean("suggested").default(false).notNull(),
+  ...timestamps,
+}, (table) => [index("personal_tasks_user_status_idx").on(table.userId, table.status), index("personal_tasks_project_idx").on(table.projectId)]);
+
+export const notificationDeliveries = pgTable("notification_deliveries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  recruitmentProjectId: uuid("recruitment_project_id").references(() => recruitmentProjects.id),
+  recruitmentEventId: uuid("recruitment_event_id").references(() => recruitmentEvents.id),
+  reminderType: text("reminder_type").notNull(),
+  channel: text("channel").default("in_app").notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  deliveryStatus: deliveryStatusEnum("delivery_status").default("pending").notNull(),
+  deduplicationKey: text("deduplication_key").notNull(),
+  failureReason: text("failure_reason"),
+  ...timestamps,
+}, (table) => [uniqueIndex("notification_deliveries_dedupe_uidx").on(table.deduplicationKey), index("notification_deliveries_user_idx").on(table.userId, table.scheduledAt)]);

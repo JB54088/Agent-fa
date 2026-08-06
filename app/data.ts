@@ -649,6 +649,29 @@ export function getMatch(project: Project, userMajor = "计算机科学与技术
   return "暂无匹配依据";
 }
 
+export type MatchExplanation = {
+  level: MatchLevel;
+  evidence: string;
+  needsManualReview: boolean;
+  risk: string;
+};
+
+export function explainMatch(project: Project, userMajor = "计算机科学与技术"): MatchExplanation {
+  if (project.noMajorLimit) {
+    return { level: "不限专业", evidence: "该招聘项目公开信息中标注为专业不限。", needsManualReview: false, risk: "仍需核对具体岗位是否有隐藏专业要求。" };
+  }
+  if (project.majors.includes(userMajor)) {
+    return { level: "明确匹配", evidence: `招聘要求包含“${userMajor}”，与你填写的专业一致。`, needsManualReview: false, risk: "最终报名资格以招聘单位审核为准。" };
+  }
+  if (project.majorCategory.some((category) => userMajorCategory(userMajor) === category)) {
+    return { level: "专业大类匹配", evidence: `招聘要求覆盖“${userMajorCategory(userMajor)}”，你填写的“${userMajor}”归属于该专业大类。`, needsManualReview: false, risk: "请打开官方公告核对具体专业目录和岗位限制。" };
+  }
+  if (project.relatedMajor) {
+    return { level: "可能匹配", evidence: `招聘原文包含“相关专业”等宽泛表述，系统无法确认“${userMajor}”是否被招聘单位接受。`, needsManualReview: true, risk: "建议查看官方公告或咨询招聘单位。" };
+  }
+  return { level: "暂无匹配依据", evidence: "当前招聘原文中没有找到与你专业直接对应的标准标签。", needsManualReview: true, risk: "不要仅凭平台结果判断报名资格。" };
+}
+
 function userMajorCategory(major: string) {
   return majorOptions.find((group) => group.majors.includes(major))?.category ?? "";
 }

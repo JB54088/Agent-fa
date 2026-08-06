@@ -9,6 +9,9 @@ CREATE TYPE "verification_status" AS ENUM ('unverified', 'pending', 'verified', 
 CREATE TYPE "official_page_status" AS ENUM ('unknown', 'accessible', 'unreachable', 'redirected', 'blocked', 'expired');
 CREATE TYPE "admin_task_status" AS ENUM ('open', 'claimed', 'in_progress', 'completed', 'rejected', 'snoozed');
 CREATE TYPE "admin_task_type" AS ENUM ('new_recruitment', 'page_changed', 'official_link_invalid', 'deadline_soon', 'verification_overdue', 'user_correction', 'suspected_duplicate', 'parse_failed');
+CREATE TYPE "event_time_status" AS ENUM ('待公布', '预计时间', '已确认', '已变更', '已结束');
+CREATE TYPE "personal_task_status" AS ENUM ('待处理', '进行中', '已完成', '已取消');
+CREATE TYPE "delivery_status" AS ENUM ('pending', 'delivered', 'failed', 'skipped');
 
 ALTER TABLE "data_sources"
   ADD COLUMN "company_id" uuid REFERENCES "companies"("id"),
@@ -26,6 +29,10 @@ CREATE INDEX "data_sources_company_idx" ON "data_sources" ("company_id");
 CREATE INDEX "data_sources_status_idx" ON "data_sources" ("status");
 
 ALTER TABLE "recruitment_projects"
+  ADD COLUMN "calculated_status" "project_status" NOT NULL DEFAULT 'pending_review',
+  ADD COLUMN "manual_status" "project_status",
+  ADD COLUMN "status_override" boolean NOT NULL DEFAULT false,
+  ADD COLUMN "status_reason" text,
   ADD COLUMN "publish_status" "publish_status" NOT NULL DEFAULT 'pending_review',
   ADD COLUMN "verified_by" uuid REFERENCES "users"("id"),
   ADD COLUMN "verification_status" "verification_status" NOT NULL DEFAULT 'unverified',
@@ -105,6 +112,59 @@ CREATE TABLE "project_verification_records" (
   "next_verify_at" timestamptz, "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
 );
 CREATE INDEX "verification_records_project_idx" ON "project_verification_records" ("project_id", "verified_at");
+
+ALTER TABLE "recruitment_changes"
+  ADD COLUMN "field_name" text,
+  ADD COLUMN "old_value" text,
+  ADD COLUMN "new_value" text,
+  ADD COLUMN "change_description" text,
+  ADD COLUMN "changed_at" timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN "notify_users" boolean NOT NULL DEFAULT false;
+
+CREATE TABLE "major_aliases" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "major_id" uuid NOT NULL REFERENCES "majors"("id"), "alias_name" text NOT NULL,
+  "alias_type" text NOT NULL, "source" text, "status" text NOT NULL DEFAULT 'active', "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz, UNIQUE ("major_id", "alias_name")
+);
+CREATE INDEX "major_aliases_name_idx" ON "major_aliases" ("alias_name");
+CREATE TABLE "major_mappings" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "major_id" uuid NOT NULL REFERENCES "majors"("id"),
+  "major_category_id" uuid NOT NULL REFERENCES "major_categories"("id"), "discipline_id" text, "education_level" text,
+  "version" text NOT NULL, "source" text, "status" text NOT NULL DEFAULT 'active', "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "major_mappings_version_idx" ON "major_mappings" ("version");
+CREATE TABLE "recruitment_major_rules" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "recruitment_project_id" uuid NOT NULL REFERENCES "recruitment_projects"("id"),
+  "rule_type" text NOT NULL, "rule_value" text NOT NULL, "original_text" text NOT NULL, "confidence_level" text NOT NULL DEFAULT 'manual',
+  "requires_manual_review" boolean NOT NULL DEFAULT true, "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "recruitment_major_rules_project_idx" ON "recruitment_major_rules" ("recruitment_project_id");
+
+CREATE TABLE "recruitment_events" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "recruitment_project_id" uuid NOT NULL REFERENCES "recruitment_projects"("id"),
+  "event_type" text NOT NULL, "event_name" text NOT NULL, "start_time" timestamptz, "end_time" timestamptz,
+  "time_status" "event_time_status" NOT NULL DEFAULT '待公布', "description" text, "is_confirmed" boolean NOT NULL DEFAULT false,
+  "source_url" text, "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "recruitment_events_project_idx" ON "recruitment_events" ("recruitment_project_id", "start_time");
+
+CREATE TABLE "personal_tasks" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "project_id" uuid REFERENCES "recruitment_projects"("id"), "title" text NOT NULL, "status" "personal_task_status" NOT NULL DEFAULT '待处理',
+  "due_at" timestamptz, "next_action" text, "suggested" boolean NOT NULL DEFAULT false,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "personal_tasks_user_status_idx" ON "personal_tasks" ("user_id", "status");
+
+CREATE TABLE "notification_deliveries" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "recruitment_project_id" uuid REFERENCES "recruitment_projects"("id"), "recruitment_event_id" uuid REFERENCES "recruitment_events"("id"),
+  "reminder_type" text NOT NULL, "channel" text NOT NULL DEFAULT 'in_app', "scheduled_at" timestamptz, "delivered_at" timestamptz,
+  "delivery_status" "delivery_status" NOT NULL DEFAULT 'pending', "deduplication_key" text NOT NULL UNIQUE, "failure_reason" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "notification_deliveries_user_idx" ON "notification_deliveries" ("user_id", "scheduled_at");
 
 CREATE TABLE "recruitment_project_sources" (
   "project_id" uuid NOT NULL REFERENCES "recruitment_projects"("id"), "data_source_id" uuid NOT NULL REFERENCES "data_sources"("id"),

@@ -8,6 +8,7 @@ import {
   formatDate,
   formatDateWithWeekday,
   getMatch,
+  explainMatch,
   majorOptions,
   notificationSeed,
   projects,
@@ -30,6 +31,8 @@ type UserProfile = {
   nationwide: boolean;
   acceptAnyMajor: boolean;
 };
+type PersonalTaskStatus = "待处理" | "进行中" | "已完成" | "已取消";
+type PersonalTask = { id: string; projectId?: string; title: string; status: PersonalTaskStatus; due?: string; suggested?: boolean };
 
 const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
   { id: "home", label: "总览", icon: "⌂" },
@@ -45,6 +48,12 @@ const trackerDefaults: Record<string, { status: ApplicationStatus; note: string 
   p10: { status: "已报名", note: "" },
 };
 
+const personalTaskDefaults: PersonalTask[] = [
+  { id: "todo-1", projectId: "p1", title: "完成华辰能源网申", status: "进行中", due: "今天", suggested: true },
+  { id: "todo-2", projectId: "p7", title: "关注沧澜银行测评通知", status: "待处理", due: "本周", suggested: true },
+  { id: "todo-3", projectId: "p3", title: "准备英文自我介绍", status: "待处理", due: "本周" },
+];
+
 function readLocalStorage<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -59,6 +68,7 @@ export default function Home() {
   const [view, setView] = useState<View>("home");
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", ["p1", "p3", "p7", "p10"]));
   const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(() => readLocalStorage("radar-trackers", trackerDefaults));
+  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(() => readLocalStorage("radar-personal-tasks", personalTaskDefaults));
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -82,10 +92,11 @@ export default function Home() {
     try {
       window.localStorage.setItem("radar-favorites", JSON.stringify(favoriteIds));
       window.localStorage.setItem("radar-trackers", JSON.stringify(trackers));
+      window.localStorage.setItem("radar-personal-tasks", JSON.stringify(personalTasks));
     } catch {
       // Device-local demo state is best effort only.
     }
-  }, [favoriteIds, trackers]);
+  }, [favoriteIds, trackers, personalTasks]);
 
   function notify(message: string, tone: ToastTone = "success") {
     setToast({ message, tone });
@@ -106,7 +117,22 @@ export default function Home() {
 
   function updateTracker(project: Project, status: ApplicationStatus, note = "") {
     setTrackers((current) => ({ ...current, [project.id]: { status, note: note || current[project.id]?.note || "" } }));
+    if (status === "已报名") {
+      setPersonalTasks((current) => current.some((task) => task.projectId === project.id && task.title.includes("测评")) ? current : [...current, { id: `todo-${Date.now()}`, projectId: project.id, title: "关注测评通知", status: "待处理", due: "本周", suggested: true }]);
+    }
+    if (status === "已完成测评") {
+      setPersonalTasks((current) => current.some((task) => task.projectId === project.id && task.title.includes("笔试")) ? current : [...current, { id: `todo-${Date.now()}`, projectId: project.id, title: "准备笔试", status: "待处理", due: "本周", suggested: true }]);
+    }
     notify(`已标记为「${status}」`);
+  }
+
+  function addPersonalTask(title: string, projectId?: string) {
+    setPersonalTasks((current) => [...current, { id: `todo-${Date.now()}`, projectId, title, status: "待处理", due: "自定义" }]);
+    notify("待办事项已添加");
+  }
+
+  function togglePersonalTask(taskId: string) {
+    setPersonalTasks((current) => current.map((task) => task.id === taskId ? { ...task, status: task.status === "已完成" ? "待处理" : "已完成" } : task));
   }
 
   function navigate(nextView: View) {
@@ -176,10 +202,10 @@ export default function Home() {
         </header>
 
         <div className="page-content">
-          {view === "home" && <Dashboard onNavigate={navigate} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} />}
+          {view === "home" && <Dashboard onNavigate={navigate} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
           {view === "projects" && <ProjectsView search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} />}
           {view === "calendar" && <CalendarView onOpen={setSelectedProject} />}
-          {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} />}
+          {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
           {view === "messages" && <MessagesView />}
           {view === "profile" && <ProfileView profile={profile} onChange={setProfile} onSave={() => notify("求职资料已保存")} />}
           {view === "admin" && <AdminConsole onOpen={setSelectedProject} onNotify={notify} />}
@@ -197,9 +223,11 @@ export default function Home() {
   );
 }
 
-function Dashboard({ onNavigate, onOpen, onToggleFavorite, favoriteIds, profile }: { onNavigate: (view: View) => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { name: string; major: string; degree: string; graduation: string } }) {
+function Dashboard({ onNavigate, onLogin, onOpen, onToggleFavorite, favoriteIds, profile, loggedIn, tasks }: { onNavigate: (view: View) => void; onLogin: () => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { name: string; major: string; degree: string; graduation: string }; loggedIn: boolean; tasks: PersonalTask[] }) {
   const focusProjects = projects.filter((project) => project.status === "ending" || project.recommended).slice(0, 4);
   const matchedCount = projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length;
+  const pendingTasks = tasks.filter((task) => task.status !== "已完成" && task.status !== "已取消");
+  const leadExplanation = explainMatch(projects[2], profile.major);
   return (
     <>
       <div className="welcome-row">
@@ -208,6 +236,9 @@ function Dashboard({ onNavigate, onOpen, onToggleFavorite, favoriteIds, profile 
       </div>
 
       <div className="notice-strip"><span className="notice-icon">i</span><span>招聘信息来源于公开渠道，平台仅提供整理、筛选和提醒服务，最终信息请以招聘单位官方网站为准。</span><button onClick={() => onNavigate("about")}>了解详情 <span>→</span></button></div>
+
+      {loggedIn ? <div className="weekly-action-board"><div><span className="section-kicker">THIS WEEK&apos;S ACTIONS</span><h2>本周求职清单</h2><p>登录后优先处理与你当前报名进度直接相关的事项。</p></div><div className="weekly-action-stats"><div><strong>{pendingTasks.length}</strong><span>待处理任务</span></div><div><strong>{projects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length}</strong><span>新增匹配</span></div></div><button className="weekly-action-link" onClick={() => onNavigate("my-projects")}>管理我的进度 <span>→</span></button></div> : <div className="guest-value-board"><div><span className="section-kicker">WHY RADAR</span><h2>不是职位堆积，而是下一步行动</h2><p>按专业解释匹配、按时间整理节点、按来源追溯公告，帮你减少筛选和错过。</p></div><div className="guest-value-points"><span>✦ 专业匹配有依据</span><span>◷ 招聘时间更清晰</span><span>↗ 官方来源可追溯</span><span>♡ 收藏与进度管理</span></div><button className="primary-button" onClick={onLogin}>填写专业，查看匹配 <span>→</span></button></div>}
+      <div className="match-evidence-strip"><span className="match-evidence-icon">✦</span><div><strong>匹配结果有依据 · {leadExplanation.level}</strong><p>{leadExplanation.evidence}</p></div><small>{leadExplanation.needsManualReview ? "需要人工核实" : "规则已解释"}</small></div>
 
       <div className="stats-grid">
         <StatCard label="今日新增" value="06" suffix="条" trend="较昨日 +2" icon="✦" accent="orange" />
@@ -285,11 +316,21 @@ function CalendarView({ onOpen }: { onOpen: (project: Project) => void }) {
   </>;
 }
 
-function MyProjectsView({ projects: favoriteProjects, trackers, onOpen, onToggleFavorite, onUpdateTracker }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void }) {
+function LegacyMyProjectsView({ projects: favoriteProjects, trackers, onOpen, onToggleFavorite, onUpdateTracker }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void }) {
   const [filter, setFilter] = useState<"全部" | ApplicationStatus>("全部");
   const list = favoriteProjects.filter((project) => filter === "全部" || trackers[project.id]?.status === filter);
   const statusList: ("全部" | ApplicationStatus)[] = ["全部", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"];
   return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MY TRACKER</span><h1>我的招聘</h1><p>收藏、进度和备注都放在这里，按自己的节奏推进。</p></div><button className="secondary-button" onClick={() => setFilter("全部")}>导出清单 <span>↓</span></button></div><div className="tracker-summary"><div><strong>{favoriteProjects.length}</strong><span>已收藏</span></div><div><strong>{favoriteProjects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{Object.values(trackers).filter((item) => item.status === "已报名").length}</strong><span>已报名</span></div><div className="tracker-summary-note"><span>✦</span><p>建议先处理 <b>7天内截止</b> 的项目，避免错过窗口。</p></div></div><div className="status-tabs">{statusList.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}{item === "全部" && <small>{favoriteProjects.length}</small>}</button>)}</div><div className="project-list">{list.length ? list.map((project) => <article className="tracker-card" key={project.id} onClick={() => onOpen(project)}><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="tracker-main"><div className="company-name-line"><strong>{project.company}</strong><span className="demo-tag">演示数据</span></div><h3>{project.title}</h3><div className="tracker-line"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span>截止 {formatDate(project.deadline)}</span><span>✦ {getMatch(project)}</span></div>{trackers[project.id]?.note && <div className="note-line"><span>▰</span>{trackers[project.id].note}</div>}</div><div className="tracker-actions"><select value={trackers[project.id]?.status ?? "暂未处理"} onClick={(event) => event.stopPropagation()} onChange={(event) => onUpdateTracker(project, event.target.value as ApplicationStatus)} aria-label={`${project.title}报名状态`}>{["暂未处理", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"].map((status) => <option key={status}>{status}</option>)}</select><button className="favorite-button hearted" onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>♥</button></div></article>) : <EmptyState onReset={() => setFilter("全部")} />}</div></>;
+}
+
+function MyProjectsView({ projects: favoriteProjects, trackers, tasks, onOpen, onToggleFavorite, onUpdateTracker, onAddTask, onToggleTask }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; tasks: PersonalTask[]; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void; onAddTask: (title: string, projectId?: string) => void; onToggleTask: (taskId: string) => void }) {
+  return <><PersonalTasksPanel tasks={tasks} projects={favoriteProjects} onAddTask={onAddTask} onToggleTask={onToggleTask} /><LegacyMyProjectsView projects={favoriteProjects} trackers={trackers} onOpen={onOpen} onToggleFavorite={onToggleFavorite} onUpdateTracker={onUpdateTracker} /></>;
+}
+
+function PersonalTasksPanel({ tasks, projects: favoriteProjects, onAddTask, onToggleTask }: { tasks: PersonalTask[]; projects: Project[]; onAddTask: (title: string, projectId?: string) => void; onToggleTask: (taskId: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const activeTasks = tasks.filter((task) => task.status !== "已取消");
+  return <div className="surface personal-task-board"><div className="surface-heading"><div><span className="section-kicker">PERSONAL ACTIONS</span><h3>我的求职待办</h3></div><span className="task-count">{activeTasks.filter((task) => task.status !== "已完成").length} 项待处理</span></div><p className="task-board-copy">把收藏的招聘项目变成下一步行动，系统会根据报名状态给出简单提示。</p><div className="task-add-row"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="添加待办，例如：修改技术岗位简历" onKeyDown={(event) => { if (event.key === "Enter" && draft.trim()) { onAddTask(draft.trim(), favoriteProjects[0]?.id); setDraft(""); } }} /><button className="primary-button" onClick={() => { if (draft.trim()) { onAddTask(draft.trim(), favoriteProjects[0]?.id); setDraft(""); } }}>＋ 添加待办</button></div><div className="personal-task-list">{activeTasks.slice(0, 5).map((task) => { const project = favoriteProjects.find((item) => item.id === task.projectId) ?? projects.find((item) => item.id === task.projectId); return <button className={`personal-task-row ${task.status === "已完成" ? "done" : ""}`} key={task.id} onClick={() => onToggleTask(task.id)}><span className="task-check">{task.status === "已完成" ? "✓" : ""}</span><span><strong>{task.title}</strong><small>{project ? project.shortName : "个人待办"} · {task.due ?? "自定义时间"}{task.suggested && <em>系统建议</em>}</small></span><b>{task.status === "已完成" ? "已完成" : task.status}</b></button>; })}</div></div>;
 }
 
 function MessagesView() {
