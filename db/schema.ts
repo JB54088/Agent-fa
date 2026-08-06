@@ -39,6 +39,11 @@ export const adminTaskTypeEnum = pgEnum("admin_task_type", ["new_recruitment", "
 export const eventTimeStatusEnum = pgEnum("event_time_status", ["待公布", "预计时间", "已确认", "已变更", "已结束"]);
 export const personalTaskStatusEnum = pgEnum("personal_task_status", ["待处理", "进行中", "已完成", "已取消"]);
 export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "delivered", "failed", "skipped"]);
+export const opportunityTypeEnum = pgEnum("opportunity_type", ["ENTERPRISE_CAMPUS", "CENTRAL_SOE", "LOCAL_SOE", "NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE", "SELECTED_GRADUATE", "PUBLIC_INSTITUTION", "MILITARY_CIVILIAN", "OTHER"]);
+export const deadlineTypeEnum = pgEnum("deadline_type", ["FIXED_DATE", "UNTIL_FILLED", "NOT_ANNOUNCED", "LONG_TERM", "ESTIMATED", "OTHER"]);
+export const opportunityEventTimeStatusEnum = pgEnum("opportunity_event_time_status", ["CONFIRMED", "ESTIMATED", "NOT_ANNOUNCED", "CHANGED", "ENDED"]);
+export const opportunityRequirementTypeEnum = pgEnum("opportunity_requirement_type", ["EDUCATION", "DEGREE", "MAJOR", "MAJOR_CATEGORY", "DISCIPLINE", "GRADUATION_YEAR", "FRESH_GRADUATE_STATUS", "AGE", "HOUSEHOLD_REGISTRATION", "POLITICAL_STATUS", "WORK_EXPERIENCE", "BASIC_LEVEL_EXPERIENCE", "CERTIFICATE", "LANGUAGE_LEVEL", "GENDER", "PHYSICAL_CONDITION", "WORK_REGION", "OTHER"]);
+export const adminRoleEnum = pgEnum("admin_role", ["SUPER_ADMIN", "CONTENT_ADMIN", "DATA_ENTRY", "REVIEWER", "READ_ONLY"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -91,6 +96,17 @@ export const companies = pgTable("companies", {
   ...timestamps,
 }, (table) => [index("companies_name_idx").on(table.name), index("companies_type_idx").on(table.companyType)]);
 
+export const organizations = pgTable("organizations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  organizationType: text("organization_type").notNull(),
+  level: text("level"),
+  officialWebsite: text("official_website"),
+  status: text("status").default("active").notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType)]);
+
 export const dataSources = pgTable("data_sources", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
@@ -111,6 +127,75 @@ export const dataSources = pgTable("data_sources", {
   adminNote: text("admin_note"),
   ...timestamps,
 }, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_status_idx").on(table.status)]);
+
+export const opportunities = pgTable("opportunities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  opportunityType: opportunityTypeEnum("opportunity_type").notNull(),
+  recruitmentSeason: text("recruitment_season"),
+  recruitmentYear: integer("recruitment_year"),
+  targetGraduationYears: jsonb("target_graduation_years").$type<number[]>().default([]).notNull(),
+  batchName: text("batch_name"),
+  description: text("description"),
+  educationRequirements: jsonb("education_requirements").$type<string[]>().default([]).notNull(),
+  degreeRequirements: jsonb("degree_requirements").$type<string[]>().default([]).notNull(),
+  majorRequirementText: text("major_requirement_text"),
+  unlimitedMajor: boolean("unlimited_major").default(false).notNull(),
+  acceptsRelatedMajors: boolean("accepts_related_majors").default(false).notNull(),
+  officialAnnouncementUrl: text("official_announcement_url"),
+  officialApplicationUrl: text("official_application_url"),
+  sourceId: uuid("source_id").references(() => dataSources.id),
+  sourceLevel: sourceLevelEnum("source_level"),
+  verificationStatus: verificationStatusEnum("verification_status").default("unverified").notNull(),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+  publicationStatus: publishStatusEnum("publication_status").default("draft").notNull(),
+  calculatedStatus: projectStatusEnum("calculated_status").default("pending_review").notNull(),
+  manualStatus: projectStatusEnum("manual_status"),
+  statusOverride: boolean("status_override").default(false).notNull(),
+  deadlineType: deadlineTypeEnum("deadline_type").default("NOT_ANNOUNCED").notNull(),
+  isDemo: boolean("is_demo").default(false).notNull(),
+  ...timestamps,
+}, (table) => [index("opportunities_type_status_idx").on(table.opportunityType, table.calculatedStatus), index("opportunities_org_idx").on(table.organizationId), index("opportunities_year_idx").on(table.recruitmentYear), index("opportunities_source_idx").on(table.sourceId)]);
+
+export const opportunityEvents = pgTable("opportunity_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  eventType: text("event_type").notNull(),
+  eventName: text("event_name").notNull(),
+  startTime: timestamp("start_time", { withTimezone: true }),
+  endTime: timestamp("end_time", { withTimezone: true }),
+  timeStatus: opportunityEventTimeStatusEnum("time_status").default("NOT_ANNOUNCED").notNull(),
+  description: text("description"),
+  isConfirmed: boolean("is_confirmed").default(false).notNull(),
+  sourceUrl: text("source_url"),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [index("opportunity_events_opportunity_idx").on(table.opportunityId, table.startTime), index("opportunity_events_type_idx").on(table.eventType)]);
+
+export const opportunityRequirements = pgTable("opportunity_requirements", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  requirementType: opportunityRequirementTypeEnum("requirement_type").notNull(),
+  operator: text("operator").notNull(),
+  requirementValue: text("requirement_value").notNull(),
+  originalText: text("original_text").notNull(),
+  isMandatory: boolean("is_mandatory").default(true).notNull(),
+  requiresManualReview: boolean("requires_manual_review").default(true).notNull(),
+  ...timestamps,
+}, (table) => [index("opportunity_requirements_opportunity_idx").on(table.opportunityId), index("opportunity_requirements_type_idx").on(table.requirementType)]);
+
+export const opportunityMajors = pgTable("opportunity_majors", {
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  majorId: uuid("major_id").notNull().references(() => majors.id),
+  matchRule: text("match_rule").default("exact").notNull(),
+  requiresManualReview: boolean("requires_manual_review").default(false).notNull(),
+}, (table) => [primaryKey({ columns: [table.opportunityId, table.majorId] }), index("opportunity_majors_major_idx").on(table.majorId)]);
+
+export const opportunityRegions = pgTable("opportunity_regions", {
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  regionId: uuid("region_id").notNull().references(() => regions.id),
+}, (table) => [primaryKey({ columns: [table.opportunityId, table.regionId] }), index("opportunity_regions_region_idx").on(table.regionId)]);
 
 export const recruitmentProjects = pgTable("recruitment_projects", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -192,6 +277,31 @@ export const applicationTrackers = pgTable("application_trackers", {
   ...timestamps,
 }, (table) => [uniqueIndex("trackers_user_project_uidx").on(table.userId, table.projectId), index("trackers_status_idx").on(table.userId, table.status)]);
 
+export const opportunityFavorites = pgTable("opportunity_favorites", {
+  userId: uuid("user_id").notNull().references(() => users.id),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  ...timestamps,
+}, (table) => [primaryKey({ columns: [table.userId, table.opportunityId] }), index("opportunity_favorites_opportunity_idx").on(table.opportunityId)]);
+
+export const opportunityApplicationTrackers = pgTable("opportunity_application_trackers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  status: text("status").default("准备报名").notNull(),
+  note: text("note"),
+  ...timestamps,
+}, (table) => [uniqueIndex("opportunity_trackers_user_opportunity_uidx").on(table.userId, table.opportunityId), index("opportunity_trackers_status_idx").on(table.userId, table.status)]);
+
+export const opportunityReminderSettings = pgTable("opportunity_reminder_settings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  beforeDays: jsonb("before_days").$type<number[]>().default([7, 3, 1]).notNull(),
+  eventTypes: jsonb("event_types").$type<string[]>().default([]).notNull(),
+  onChange: boolean("on_change").default(true).notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("opportunity_reminders_user_opportunity_uidx").on(table.userId, table.opportunityId)]);
+
 export const reminderSettings = pgTable("reminder_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
@@ -231,6 +341,19 @@ export const recruitmentChanges = pgTable("recruitment_changes", {
   ...timestamps,
 }, (table) => [index("recruitment_changes_project_idx").on(table.projectId, table.createdAt)]);
 
+export const opportunityChanges = pgTable("opportunity_changes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  fieldName: text("field_name").notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  changeType: text("change_type").notNull(),
+  changeDescription: text("change_description"),
+  notifyUsers: boolean("notify_users").default(false).notNull(),
+  changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+  ...timestamps,
+}, (table) => [index("opportunity_changes_opportunity_idx").on(table.opportunityId, table.changedAt)]);
+
 export const correctionReports = pgTable("correction_reports", {
   id: uuid("id").defaultRandom().primaryKey(),
   projectId: uuid("project_id").notNull().references(() => recruitmentProjects.id),
@@ -248,6 +371,32 @@ export const adminUsers = pgTable("admin_users", {
   role: text("role").default("editor").notNull(),
   ...timestamps,
 });
+
+export const roles = pgTable("roles", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: adminRoleEnum("name").notNull(),
+  description: text("description"),
+  ...timestamps,
+}, (table) => [uniqueIndex("roles_name_uidx").on(table.name)]);
+
+export const permissions = pgTable("permissions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: text("code").notNull(),
+  description: text("description"),
+  ...timestamps,
+}, (table) => [uniqueIndex("permissions_code_uidx").on(table.code)]);
+
+export const adminUserRoles = pgTable("admin_user_roles", {
+  userId: uuid("user_id").notNull().references(() => users.id),
+  roleId: uuid("role_id").notNull().references(() => roles.id),
+  ...timestamps,
+}, (table) => [primaryKey({ columns: [table.userId, table.roleId] })]);
+
+export const rolePermissions = pgTable("role_permissions", {
+  roleId: uuid("role_id").notNull().references(() => roles.id),
+  permissionId: uuid("permission_id").notNull().references(() => permissions.id),
+  ...timestamps,
+}, (table) => [primaryKey({ columns: [table.roleId, table.permissionId] })]);
 
 export const systemConfigs = pgTable("system_configs", {
   key: text("key").primaryKey(),

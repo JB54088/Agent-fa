@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatDate, projects, statusLabel, type Project } from "./data";
+import { formatDate, projects, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
 
-type AdminTab = "overview" | "sources" | "review" | "imports" | "verifications" | "tasks";
+type AdminTab = "overview" | "sources" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -82,9 +82,10 @@ const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "imports", label: "Excel导入", icon: "▤" },
   { id: "verifications", label: "信息复核", icon: "◷" },
   { id: "tasks", label: "任务中心", icon: "⚑" },
+  { id: "settings", label: "站点配置", icon: "⚙" },
 ];
 
-export default function AdminConsole({ onOpen, onNotify }: { onOpen: (project: Project) => void; onNotify: (message: string) => void }) {
+export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }: { brand: BrandConfig; onBrandChange: (brand: BrandConfig) => void; onOpen: (project: Project) => void; onNotify: (message: string) => void }) {
   const [tab, setTab] = useState<AdminTab>("overview");
   const [sources, setSources] = useState(sourceSeed);
   const [rawItems, setRawItems] = useState(rawSeed);
@@ -137,7 +138,13 @@ export default function AdminConsole({ onOpen, onNotify }: { onOpen: (project: P
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} />}
     {tab === "verifications" && <VerificationPanel onNotify={onNotify} onOpen={onOpen} />}
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
+    {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
   </>;
+}
+
+function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: BrandConfig) => void }) {
+  const [draft, setDraft] = useState<BrandConfig>(brand);
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SYSTEM CONFIGURATION</span><h2>站点品牌配置</h2><p>名称、Logo、首页标题和宣传文案通过配置管理，保存后同步到前台。</p></div><span className="safe-collection-badge">默认值可随时恢复</span></div><div className="brand-settings"><div className="surface brand-settings-card"><span className="section-kicker">BRAND SETTINGS</span><h3>产品对外信息</h3><p>当前演示版使用本地配置模拟后台保存；接入数据库后对应 system_configs 表。</p><div className="brand-form-grid"><label className="field"><span>产品名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label className="field"><span>Logo文字</span><input value={draft.logoText} onChange={(event) => setDraft({ ...draft, logoText: event.target.value })} maxLength={3} /></label><label className="field"><span>当前服务届别</span><input value={draft.edition} onChange={(event) => setDraft({ ...draft, edition: event.target.value })} /></label><label className="field"><span>首页主标题</span><input value={draft.homeTitle} onChange={(event) => setDraft({ ...draft, homeTitle: event.target.value })} /></label><label className="field"><span>首页副标题 / 宣传文案</span><textarea value={draft.homeSubtitle} onChange={(event) => setDraft({ ...draft, homeSubtitle: event.target.value })} /></label><label className="field"><span>平台免责声明</span><textarea value={draft.disclaimer} onChange={(event) => setDraft({ ...draft, disclaimer: event.target.value })} /></label></div><div className="brand-form-actions"><button className="secondary-button" onClick={() => setDraft(siteConfig)}>恢复默认</button><button className="primary-button" onClick={() => onSave(draft)}>保存配置 <span>✓</span></button></div></div><div className="brand-preview"><span>LIVE PREVIEW</span><div className="preview-logo">{draft.logoText}</div><h3>{draft.homeTitle}</h3><p>{draft.homeSubtitle}</p><div className="config-row"><span>站点名称</span><strong>{draft.name}</strong></div><div className="config-row"><span>当前版本</span><strong>{draft.edition}</strong></div><div className="config-row"><span>数据策略</span><strong>演示数据 · 人工审核后发布</strong></div></div></div></div>;
 }
 
 function AdminOverview({ pendingReview, openTasks, onTab, onOpen }: { pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void }) {

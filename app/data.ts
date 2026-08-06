@@ -1,12 +1,31 @@
-export const siteConfig = {
+export type BrandConfig = {
+  name: string;
+  logoText: string;
+  edition: string;
+  homeTitle: string;
+  homeSubtitle: string;
+  marketingCopy: string;
+  disclaimer: string;
+  cutoffDays: number;
+  demoMode: boolean;
+};
+
+export const siteConfig: BrandConfig = {
   name: "校招雷达",
+  logoText: "⌁",
   edition: "2027届",
+  homeTitle: "不错过每一次重要机会",
+  homeSubtitle: "统一整理大厂校招、央国企招聘、国考、省考、事业单位和军队文职信息，帮你及时发现并管理关键报名时间。",
+  marketingCopy: "面向应届毕业生的一站式招聘、考公、考编与军队文职机会日历和提醒工具。",
+  disclaimer: "本平台仅对公开招聘和招录信息进行整理和展示，具体报名条件、时间安排、岗位要求及考试政策请以官方公告为准。",
   cutoffDays: 7,
   demoMode: true,
 };
 
 export type ProjectStatus = "recruiting" | "upcoming" | "ending" | "closed";
 export type MatchLevel = "明确匹配" | "专业大类匹配" | "不限专业" | "可能匹配" | "暂无匹配依据";
+export type OpportunityType = "ENTERPRISE_CAMPUS" | "CENTRAL_SOE" | "LOCAL_SOE" | "NATIONAL_CIVIL_SERVICE" | "PROVINCIAL_CIVIL_SERVICE" | "SELECTED_GRADUATE" | "PUBLIC_INSTITUTION" | "MILITARY_CIVILIAN" | "OTHER";
+export type DeadlineType = "FIXED_DATE" | "UNTIL_FILLED" | "NOT_ANNOUNCED" | "LONG_TERM" | "ESTIMATED" | "OTHER";
 export type ApplicationStatus =
   | "暂未处理"
   | "准备报名"
@@ -37,6 +56,8 @@ export type Project = {
   publishedAt: string;
   startAt: string;
   deadline: string;
+  opportunityType?: OpportunityType;
+  deadlineType?: DeadlineType;
   status: ProjectStatus;
   sourceName: string;
   sourceLevel: "A级" | "B级" | "C级" | "D级";
@@ -610,6 +631,21 @@ export const projects: Project[] = [
   },
 ];
 
+const additionalDemoProjects: Project[] = [
+  { id: "p21", company: "云岭通信集团", shortName: "云岭通信", logoTone: "blue", companyType: "央企", companyNature: "通信服务", batch: "秋招", title: "云岭通信集团2027届校园招聘", intro: "通信网络、软件研发、项目交付与综合管理方向招聘。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "通信工程、电子信息、计算机、自动化等相关专业", majors: ["通信工程", "电子信息工程", "计算机科学与技术", "自动化"], majorCategory: ["工学"], relatedMajor: true, noMajorLimit: false, regions: ["北京", "西安", "全国"], publishedAt: "2026-08-06", startAt: "2026-08-12", deadline: "2026-08-29", status: "upcoming", sourceName: "云岭通信招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-06", link: "https://example.com/yunling-telecom", opportunityType: "CENTRAL_SOE" },
+  { id: "p22", company: "东澜港口集团", shortName: "东澜港口", logoTone: "teal", companyType: "地方国企", companyNature: "港口物流", batch: "春招", title: "东澜港口集团2027届春季招聘", intro: "港口运营、物流管理、工程技术与数字化岗位，面向应届毕业生开放。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "物流管理、机械、电气、计算机、工商管理", majors: ["物流管理", "机械工程", "电气工程及其自动化", "计算机科学与技术", "工商管理"], majorCategory: ["工学", "管理学"], relatedMajor: true, noMajorLimit: false, regions: ["宁波", "厦门", "青岛"], publishedAt: "2026-08-05", startAt: "2026-08-07", deadline: "2026-08-24", status: "recruiting", sourceName: "东澜港口招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-05", link: "https://example.com/donglan-port", opportunityType: "LOCAL_SOE" },
+  { id: "p23", company: "极昼智能", shortName: "极昼智能", logoTone: "violet", companyType: "科技企业", companyNature: "人工智能", batch: "秋招", title: "极昼智能2027届算法与产品招聘", intro: "算法、数据、产品与工程岗位，支持多城市办公。", graduationYears: ["2027"], degrees: ["本科", "硕士", "博士"], originalMajors: "计算机、人工智能、数学、统计、电子信息等相关专业", majors: ["计算机科学与技术", "人工智能", "数据科学与大数据技术"], majorCategory: ["工学", "理学"], relatedMajor: true, noMajorLimit: false, regions: ["北京", "上海", "深圳"], publishedAt: "2026-08-06", startAt: "2026-08-13", deadline: "2026-09-12", status: "upcoming", sourceName: "极昼智能招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-06", link: "https://example.com/jizhou-ai", opportunityType: "ENTERPRISE_CAMPUS" },
+  { id: "p24", company: "启明消费金融", shortName: "启明金融", logoTone: "red", companyType: "金融企业", companyNature: "消费金融", batch: "秋招", title: "启明消费金融2027届校招", intro: "风险管理、数据分析、金融科技与运营岗位。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "金融、经济、数学统计、计算机、法律等专业优先", majors: ["金融学", "经济学", "计算机科学与技术", "法学"], majorCategory: ["经济学", "工学", "法学"], relatedMajor: true, noMajorLimit: false, regions: ["上海", "杭州", "深圳"], publishedAt: "2026-08-04", startAt: "2026-08-09", deadline: "2026-08-27", status: "recruiting", sourceName: "启明消费金融招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-04", link: "https://example.com/qiming-finance", opportunityType: "ENTERPRISE_CAMPUS" },
+  { id: "p25", company: "安拓新能源", shortName: "安拓能源", logoTone: "green", companyType: "制造业企业", companyNature: "新能源装备", batch: "招满即止", title: "安拓新能源2027届技术岗位招聘", intro: "储能、电气、机械和质量工程岗位，招满即止，建议尽早查看官方页面。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "电气、机械、自动化、材料、能源动力相关专业", majors: ["电气工程及其自动化", "机械工程", "自动化"], majorCategory: ["工学"], relatedMajor: true, noMajorLimit: false, regions: ["合肥", "苏州", "武汉"], publishedAt: "2026-08-06", startAt: "2026-08-06", deadline: "", deadlineType: "UNTIL_FILLED", status: "recruiting", sourceName: "安拓新能源招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-06", link: "https://example.com/antuo-energy", opportunityType: "ENTERPRISE_CAMPUS" },
+  { id: "p26", company: "北辰装备研究院", shortName: "北辰研究院", logoTone: "slate", companyType: "央企", companyNature: "装备研发", batch: "时间待公布", title: "北辰装备研究院2027届校园招聘", intro: "公告已发布，报名时间待官方进一步通知，平台不生成虚假截止日期。", graduationYears: ["2027"], degrees: ["硕士", "博士"], originalMajors: "机械、材料、电气、控制、计算机等相关专业", majors: ["机械工程", "电气工程及其自动化", "自动化", "计算机科学与技术"], majorCategory: ["工学"], relatedMajor: true, noMajorLimit: false, regions: ["北京", "沈阳", "哈尔滨"], publishedAt: "2026-08-06", startAt: "", deadline: "", deadlineType: "NOT_ANNOUNCED", status: "upcoming", sourceName: "北辰装备研究院官网", sourceLevel: "A级", verifiedAt: "2026-08-06", link: "https://example.com/beichen-lab", opportunityType: "CENTRAL_SOE" },
+  { id: "p27", company: "嘉实保险科技", shortName: "嘉实保险", logoTone: "amber", companyType: "知名企业", companyNature: "保险科技", batch: "秋招", title: "嘉实保险科技2027届数据与运营招聘", intro: "数据分析、精算支持、产品运营与客户服务方向。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "不限专业，数学、统计、经济、金融、计算机优先", majors: ["金融学", "经济学", "数据科学与大数据技术", "计算机科学与技术"], majorCategory: ["经济学", "理学", "工学"], relatedMajor: true, noMajorLimit: true, regions: ["北京", "上海", "广州"], publishedAt: "2026-08-03", startAt: "2026-08-08", deadline: "2026-08-20", status: "ending", sourceName: "嘉实保险科技招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-05", link: "https://example.com/jiashi-insure", opportunityType: "ENTERPRISE_CAMPUS" },
+  { id: "p28", company: "南川公共服务集团", shortName: "南川公服", logoTone: "orange", companyType: "地方国企", companyNature: "公共服务", batch: "秋招", title: "南川公共服务集团2027届法务与管理招聘", intro: "法务合规、人力资源、行政管理与项目管理方向招聘。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "法学、工商管理、人力资源管理、公共事业管理", majors: ["法学", "工商管理", "人力资源管理"], majorCategory: ["法学", "管理学"], relatedMajor: true, noMajorLimit: false, regions: ["成都", "重庆", "南宁"], publishedAt: "2026-08-01", startAt: "2026-08-10", deadline: "2026-08-23", status: "recruiting", sourceName: "南川公共服务集团官网", sourceLevel: "A级", verifiedAt: "2026-08-04", link: "https://example.com/nanchuan-public", opportunityType: "LOCAL_SOE" },
+  { id: "p29", company: "微光内容实验室", shortName: "微光内容", logoTone: "rose", companyType: "知名企业", companyNature: "文化内容", batch: "春招", title: "微光内容实验室2027届内容与品牌招聘", intro: "内容策划、品牌、公关与视频方向，欢迎优秀作品集。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "新闻传播、汉语言文学、广告学、设计、市场营销优先", majors: ["新闻传播学", "汉语言文学", "市场营销"], majorCategory: ["文学", "管理学"], relatedMajor: true, noMajorLimit: false, regions: ["北京", "上海", "广州"], publishedAt: "2026-08-02", startAt: "2026-08-06", deadline: "2026-08-19", status: "ending", sourceName: "微光内容官方招聘账号", sourceLevel: "B级", verifiedAt: "2026-08-05", link: "https://example.com/weiguang-content", opportunityType: "ENTERPRISE_CAMPUS" },
+  { id: "p30", company: "华岭电网服务", shortName: "华岭电网", logoTone: "emerald", companyType: "央企", companyNature: "电网服务", batch: "秋招", title: "华岭电网服务2027届电气类招聘", intro: "输变电工程、调度通信、数字化运维与安全管理岗位。", graduationYears: ["2027"], degrees: ["本科", "硕士"], originalMajors: "电气工程、自动化、通信工程、计算机、安全工程", majors: ["电气工程及其自动化", "自动化", "通信工程", "计算机科学与技术"], majorCategory: ["工学"], relatedMajor: false, noMajorLimit: false, regions: ["郑州", "武汉", "长沙", "全国"], publishedAt: "2026-08-05", startAt: "2026-08-11", deadline: "2026-09-03", status: "upcoming", sourceName: "华岭电网服务招聘官网", sourceLevel: "A级", verifiedAt: "2026-08-05", link: "https://example.com/hualing-grid", opportunityType: "CENTRAL_SOE" },
+];
+
+projects.push(...additionalDemoProjects);
+
 export const notificationSeed = [
   { id: "n1", icon: "⏰", title: "华辰能源集团报名截止提醒", text: "还有 12 天截止，记得补齐网申材料。", time: "今天 09:24", unread: true, color: "orange" },
   { id: "n2", icon: "✓", title: "星河云计算招聘已开始", text: "你收藏的项目已开放报名，点击查看官方入口。", time: "昨天 18:40", unread: true, color: "teal" },
@@ -677,11 +713,13 @@ function userMajorCategory(major: string) {
 }
 
 export function formatDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date || "时间待公布";
   const [, month, day] = date.split("-");
   return `${Number(month)}月${Number(day)}日`;
 }
 
 export function formatDateWithWeekday(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return formatDate(date);
   const value = new Date(`${date}T00:00:00`);
   const weekday = ["日", "一", "二", "三", "四", "五", "六"][value.getDay()];
   return `${formatDate(date)} 周${weekday}`;

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { siteConfig } from "./data";
 
 export const metadata: Metadata = {
-  title: "校招雷达 · 不错过每一次校招机会",
-  description: "面向应届毕业生的校园招聘信息聚合与提醒平台。",
+  title: `${siteConfig.name} · ${siteConfig.homeTitle}`,
+  description: siteConfig.marketingCopy,
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

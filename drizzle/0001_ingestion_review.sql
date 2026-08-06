@@ -183,3 +183,109 @@ CREATE TABLE "admin_audit_logs" (
   "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
 );
 CREATE INDEX "admin_audit_actor_idx" ON "admin_audit_logs" ("actor_id", "created_at");
+
+-- Unified opportunity model for enterprise recruitment and future exam/recruitment modules.
+CREATE TYPE "opportunity_type" AS ENUM ('ENTERPRISE_CAMPUS', 'CENTRAL_SOE', 'LOCAL_SOE', 'NATIONAL_CIVIL_SERVICE', 'PROVINCIAL_CIVIL_SERVICE', 'SELECTED_GRADUATE', 'PUBLIC_INSTITUTION', 'MILITARY_CIVILIAN', 'OTHER');
+CREATE TYPE "deadline_type" AS ENUM ('FIXED_DATE', 'UNTIL_FILLED', 'NOT_ANNOUNCED', 'LONG_TERM', 'ESTIMATED', 'OTHER');
+CREATE TYPE "opportunity_event_time_status" AS ENUM ('CONFIRMED', 'ESTIMATED', 'NOT_ANNOUNCED', 'CHANGED', 'ENDED');
+CREATE TYPE "opportunity_requirement_type" AS ENUM ('EDUCATION', 'DEGREE', 'MAJOR', 'MAJOR_CATEGORY', 'DISCIPLINE', 'GRADUATION_YEAR', 'FRESH_GRADUATE_STATUS', 'AGE', 'HOUSEHOLD_REGISTRATION', 'POLITICAL_STATUS', 'WORK_EXPERIENCE', 'BASIC_LEVEL_EXPERIENCE', 'CERTIFICATE', 'LANGUAGE_LEVEL', 'GENDER', 'PHYSICAL_CONDITION', 'WORK_REGION', 'OTHER');
+CREATE TYPE "admin_role" AS ENUM ('SUPER_ADMIN', 'CONTENT_ADMIN', 'DATA_ENTRY', 'REVIEWER', 'READ_ONLY');
+
+CREATE TABLE "organizations" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "name" text NOT NULL UNIQUE, "short_name" text,
+  "organization_type" text NOT NULL, "level" text, "official_website" text, "status" text NOT NULL DEFAULT 'active',
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "organizations_type_idx" ON "organizations" ("organization_type");
+
+CREATE TABLE "opportunities" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "title" text NOT NULL, "organization_id" uuid NOT NULL REFERENCES "organizations"("id"),
+  "opportunity_type" "opportunity_type" NOT NULL, "recruitment_season" text, "recruitment_year" integer,
+  "target_graduation_years" jsonb NOT NULL DEFAULT '[]', "batch_name" text, "description" text,
+  "education_requirements" jsonb NOT NULL DEFAULT '[]', "degree_requirements" jsonb NOT NULL DEFAULT '[]', "major_requirement_text" text,
+  "unlimited_major" boolean NOT NULL DEFAULT false, "accepts_related_majors" boolean NOT NULL DEFAULT false,
+  "official_announcement_url" text, "official_application_url" text, "source_id" uuid REFERENCES "data_sources"("id"),
+  "source_level" "source_level", "verification_status" "verification_status" NOT NULL DEFAULT 'unverified',
+  "last_verified_at" timestamptz, "publication_status" "publish_status" NOT NULL DEFAULT 'draft',
+  "calculated_status" "project_status" NOT NULL DEFAULT 'pending_review', "manual_status" "project_status",
+  "status_override" boolean NOT NULL DEFAULT false, "deadline_type" "deadline_type" NOT NULL DEFAULT 'NOT_ANNOUNCED',
+  "is_demo" boolean NOT NULL DEFAULT false, "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "opportunities_type_status_idx" ON "opportunities" ("opportunity_type", "calculated_status");
+CREATE INDEX "opportunities_org_idx" ON "opportunities" ("organization_id");
+CREATE INDEX "opportunities_year_idx" ON "opportunities" ("recruitment_year");
+
+CREATE TABLE "opportunity_events" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"),
+  "event_type" text NOT NULL, "event_name" text NOT NULL, "start_time" timestamptz, "end_time" timestamptz,
+  "time_status" "opportunity_event_time_status" NOT NULL DEFAULT 'NOT_ANNOUNCED', "description" text,
+  "is_confirmed" boolean NOT NULL DEFAULT false, "source_url" text, "last_verified_at" timestamptz,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "opportunity_events_opportunity_idx" ON "opportunity_events" ("opportunity_id", "start_time");
+CREATE INDEX "opportunity_events_type_idx" ON "opportunity_events" ("event_type");
+
+CREATE TABLE "opportunity_requirements" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"),
+  "requirement_type" "opportunity_requirement_type" NOT NULL, "operator" text NOT NULL, "requirement_value" text NOT NULL,
+  "original_text" text NOT NULL, "is_mandatory" boolean NOT NULL DEFAULT true, "requires_manual_review" boolean NOT NULL DEFAULT true,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "opportunity_requirements_opportunity_idx" ON "opportunity_requirements" ("opportunity_id");
+CREATE INDEX "opportunity_requirements_type_idx" ON "opportunity_requirements" ("requirement_type");
+
+CREATE TABLE "opportunity_majors" (
+  "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"), "major_id" uuid NOT NULL REFERENCES "majors"("id"),
+  "match_rule" text NOT NULL DEFAULT 'exact', "requires_manual_review" boolean NOT NULL DEFAULT false,
+  PRIMARY KEY ("opportunity_id", "major_id")
+);
+CREATE INDEX "opportunity_majors_major_idx" ON "opportunity_majors" ("major_id");
+CREATE TABLE "opportunity_regions" (
+  "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"), "region_id" uuid NOT NULL REFERENCES "regions"("id"),
+  PRIMARY KEY ("opportunity_id", "region_id")
+);
+CREATE INDEX "opportunity_regions_region_idx" ON "opportunity_regions" ("region_id");
+
+CREATE TABLE "opportunity_favorites" (
+  "user_id" uuid NOT NULL REFERENCES "users"("id"), "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz,
+  PRIMARY KEY ("user_id", "opportunity_id")
+);
+CREATE TABLE "opportunity_application_trackers" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"), "status" text NOT NULL DEFAULT '准备报名', "note" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz,
+  UNIQUE ("user_id", "opportunity_id")
+);
+CREATE TABLE "opportunity_reminder_settings" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL REFERENCES "users"("id"), "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"),
+  "before_days" jsonb NOT NULL DEFAULT '[7,3,1]', "event_types" jsonb NOT NULL DEFAULT '[]', "on_change" boolean NOT NULL DEFAULT true,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz,
+  UNIQUE ("user_id", "opportunity_id")
+);
+
+CREATE TABLE "opportunity_changes" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "opportunity_id" uuid NOT NULL REFERENCES "opportunities"("id"), "field_name" text NOT NULL,
+  "old_value" text, "new_value" text, "change_type" text NOT NULL, "change_description" text, "notify_users" boolean NOT NULL DEFAULT false,
+  "changed_at" timestamptz NOT NULL DEFAULT now(), "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE INDEX "opportunity_changes_opportunity_idx" ON "opportunity_changes" ("opportunity_id", "changed_at");
+
+CREATE TABLE "roles" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "name" "admin_role" NOT NULL UNIQUE, "description" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE TABLE "permissions" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "code" text NOT NULL UNIQUE, "description" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz
+);
+CREATE TABLE "admin_user_roles" (
+  "user_id" uuid NOT NULL REFERENCES "users"("id"), "role_id" uuid NOT NULL REFERENCES "roles"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz,
+  PRIMARY KEY ("user_id", "role_id")
+);
+CREATE TABLE "role_permissions" (
+  "role_id" uuid NOT NULL REFERENCES "roles"("id"), "permission_id" uuid NOT NULL REFERENCES "permissions"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(), "updated_at" timestamptz NOT NULL DEFAULT now(), "deleted_at" timestamptz,
+  PRIMARY KEY ("role_id", "permission_id")
+);
