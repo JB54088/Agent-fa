@@ -11,8 +11,11 @@ test("全国来源目录覆盖国考、31省省考、央企和重点地方国企
 });
 
 test("全国目录未核验来源不预填URL且不允许自动采集", () => {
-  assert.ok(nationalSourceDirectory.every((source) => source.discoveryStatus === "NEEDS_REVIEW"));
-  assert.ok(nationalSourceDirectory.every((source) => source.sourceUrl === null && source.sourceDomain === null));
+  assert.equal(nationalSourceDirectorySummary.verified, 33);
+  assert.equal(nationalSourceDirectorySummary.needsReview, 13);
+  assert.ok(nationalSourceDirectory.every((source) => source.automationAllowed === false));
+  assert.ok(nationalSourceDirectory.filter((source) => source.discoveryStatus === "VERIFIED").every((source) => source.sourceUrl && source.sourceDomain && source.lastVerifiedAt));
+  assert.ok(nationalSourceDirectory.filter((source) => source.discoveryStatus === "NEEDS_REVIEW").every((source) => source.sourceUrl === null && source.sourceDomain === null && source.lastVerifiedAt === null));
   assert.equal(nationalSourceDirectorySummary.autoAllowed, 0);
 });
 

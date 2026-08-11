@@ -15,12 +15,13 @@ export type NationalSourceSeed = {
   regionCode: string | null;
   regionName: string | null;
   requiredOfficialRoles: string[];
-  sourceUrl: null;
-  sourceDomain: null;
+  sourceUrl: string | null;
+  sourceDomain: string | null;
   normalFrequency: NationalSourceFrequency;
   activeFrequency: "DAILY";
-  discoveryStatus: "NEEDS_REVIEW";
+  discoveryStatus: "NEEDS_REVIEW" | "VERIFIED";
   automationAllowed: false;
+  lastVerifiedAt: string | null;
   notes: string;
 };
 
@@ -50,11 +51,13 @@ const priorityLocalRegions: Province[] = [
 ];
 
 const needsReviewNote = "全国目录已建立；官方网址、robots、服务条款、验证码和允许路径尚未逐条完成人工核验，暂不自动采集。";
+const verifiedAt = "2026-08-11";
+const verifiedNote = "官方入口已核验（2026-08-11）；robots、服务条款、验证码和允许路径尚未逐条完成人工核验，暂不自动采集。";
 
 function provincialExamSource(province: Province): NationalSourceSeed {
   return {
     id: `provincial-civil-service-${province.code.toLowerCase()}`,
-    name: `${province.name}省级公务员考试官方来源档案`,
+    name: `${province.name}公务员考试官方来源档案`,
     category: "PROVINCIAL_CIVIL_SERVICE",
     scope: "PROVINCE",
     regionCode: province.code,
@@ -66,11 +69,12 @@ function provincialExamSource(province: Province): NationalSourceSeed {
     activeFrequency: "DAILY",
     discoveryStatus: "NEEDS_REVIEW",
     automationAllowed: false,
+    lastVerifiedAt: null,
     notes: needsReviewNote,
   };
 }
 
-export const nationalSourceDirectory: NationalSourceSeed[] = [
+const baseNationalSourceDirectory: NationalSourceSeed[] = [
   {
     id: "national-civil-service-official",
     name: "国家公务员考试官方来源档案",
@@ -85,6 +89,7 @@ export const nationalSourceDirectory: NationalSourceSeed[] = [
     activeFrequency: "DAILY",
     discoveryStatus: "NEEDS_REVIEW",
     automationAllowed: false,
+    lastVerifiedAt: null,
     notes: needsReviewNote,
   },
   {
@@ -101,6 +106,7 @@ export const nationalSourceDirectory: NationalSourceSeed[] = [
     activeFrequency: "DAILY",
     discoveryStatus: "NEEDS_REVIEW",
     automationAllowed: false,
+    lastVerifiedAt: null,
     notes: needsReviewNote,
   },
   {
@@ -117,6 +123,7 @@ export const nationalSourceDirectory: NationalSourceSeed[] = [
     activeFrequency: "DAILY",
     discoveryStatus: "NEEDS_REVIEW",
     automationAllowed: false,
+    lastVerifiedAt: null,
     notes: "只记录发现线索，不直接加入自动抓取；发现后必须经过管理员核验。",
   },
   ...provinces.map(provincialExamSource),
@@ -134,6 +141,7 @@ export const nationalSourceDirectory: NationalSourceSeed[] = [
     activeFrequency: "DAILY" as const,
     discoveryStatus: "NEEDS_REVIEW" as const,
     automationAllowed: false as const,
+    lastVerifiedAt: null,
     notes: needsReviewNote,
   })),
   {
@@ -150,6 +158,7 @@ export const nationalSourceDirectory: NationalSourceSeed[] = [
     activeFrequency: "DAILY",
     discoveryStatus: "NEEDS_REVIEW",
     automationAllowed: false,
+    lastVerifiedAt: null,
     notes: "仅收录明确面向内地高校毕业生的公开机会；官方网址待人工核验。",
   },
   {
@@ -166,15 +175,256 @@ export const nationalSourceDirectory: NationalSourceSeed[] = [
     activeFrequency: "DAILY",
     discoveryStatus: "NEEDS_REVIEW",
     automationAllowed: false,
+    lastVerifiedAt: null,
     notes: "仅收录明确面向内地高校毕业生的公开机会；官方网址待人工核验。",
   },
 ];
+
+const verifiedSourceOverrides: Record<string, Pick<NationalSourceSeed, "sourceUrl" | "sourceDomain" | "discoveryStatus" | "lastVerifiedAt" | "notes">> = {
+  "national-civil-service-official": {
+    sourceUrl: "https://www.scs.gov.cn/",
+    sourceDomain: "www.scs.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 2026年度报名专题入口由国家公务员局公告另行发布。`,
+  },
+  "sasac-central-soe-catalog": {
+    sourceUrl: "https://wap.sasac.gov.cn/n2588045/n27271785/n27271792/c14159097/content.html",
+    sourceDomain: "wap.sasac.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对国务院国资委“央企名录”页面。`,
+  },
+  "provincial-civil-service-cn-bj": {
+    sourceUrl: "https://www.beijing.gov.cn/gongkai/rsxx/gwyzk/index.html",
+    sourceDomain: "www.beijing.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对北京市人民政府“公务员招考”栏目。`,
+  },
+  "provincial-civil-service-cn-tj": {
+    sourceUrl: "https://www.tj.gov.cn/zwgk/zfxxgkzl/fdzdgknr/zkly/",
+    sourceDomain: "www.tj.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对天津政务网“招考录用”栏目。`,
+  },
+  "provincial-civil-service-cn-he": {
+    sourceUrl: "https://www.hebpta.com.cn/",
+    sourceDomain: "www.hebpta.com.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 官方公告明确指向河北省人事考试网。`,
+  },
+  "provincial-civil-service-cn-sx": {
+    sourceUrl: "https://rst.shanxi.gov.cn/",
+    sourceDomain: "rst.shanxi.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已按山西省官方公告核对省人力资源和社会保障厅入口。`,
+  },
+  "provincial-civil-service-cn-nm": {
+    sourceUrl: "https://www.impta.com.cn/",
+    sourceDomain: "www.impta.com.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 官方公告明确指向内蒙古人事考试网。`,
+  },
+  "provincial-civil-service-cn-ln": {
+    sourceUrl: "https://www.lnrsks.com/",
+    sourceDomain: "www.lnrsks.com",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已按辽宁省公务员局公告核对辽宁人事考试网。`,
+  },
+  "provincial-civil-service-cn-jl": {
+    sourceUrl: "https://hrss.jl.gov.cn/",
+    sourceDomain: "hrss.jl.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对吉林省人力资源和社会保障厅官网公告。`,
+  },
+  "provincial-civil-service-cn-hl": {
+    sourceUrl: "https://www.hljsgwy.org.cn/",
+    sourceDomain: "www.hljsgwy.org.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对黑龙江省政府发布的公务员考试提示及考试网入口。`,
+  },
+  "provincial-civil-service-cn-sh": {
+    sourceUrl: "https://bm.shacs.gov.cn/zlxt",
+    sourceDomain: "bm.shacs.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对上海市公务员考试报名系统。`,
+  },
+  "provincial-civil-service-cn-js": {
+    sourceUrl: "https://jshrss.jiangsu.gov.cn/col/col57253/index.html",
+    sourceDomain: "jshrss.jiangsu.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对江苏省人力资源和社会保障厅公告及江苏人事考试网栏目。`,
+  },
+  "provincial-civil-service-cn-zj": {
+    sourceUrl: "https://gwy.zjks.gov.cn/",
+    sourceDomain: "gwy.zjks.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对浙江省公务员考试录用网。`,
+  },
+  "provincial-civil-service-cn-ah": {
+    sourceUrl: "https://www.apta.gov.cn/",
+    sourceDomain: "www.apta.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 官方招录指南明确指向安徽省人事考试网。`,
+  },
+  "provincial-civil-service-cn-fj": {
+    sourceUrl: "http://gwykl.fujian.gov.cn",
+    sourceDomain: "gwykl.fujian.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 福建省官方公告明确指向福建省公务员考试录用网；该入口当前由官方公告以HTTP发布，暂不自动采集。`,
+  },
+  "provincial-civil-service-cn-jx": {
+    sourceUrl: "http://www.jxpta.com/",
+    sourceDomain: "www.jxpta.com",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 江西省官方公告明确指向江西人事考试网；暂不自动采集。`,
+  },
+  "provincial-civil-service-cn-sd": {
+    sourceUrl: "https://gwy.sdrsks.org.cn/skbm2026.html",
+    sourceDomain: "gwy.sdrsks.org.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对山东省官方公告中的2026年度公务员报名平台。`,
+  },
+  "provincial-civil-service-cn-ha": {
+    sourceUrl: "https://www.hnrsks.com/",
+    sourceDomain: "www.hnrsks.com",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已按河南省人事考试中心公开信息核对河南人事考试网。`,
+  },
+  "provincial-civil-service-cn-hb": {
+    sourceUrl: "https://rst.hubei.gov.cn/hbrsksw/",
+    sourceDomain: "rst.hubei.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对湖北省人事考试网公务员考试栏目。`,
+  },
+  "provincial-civil-service-cn-hn": {
+    sourceUrl: "https://rst.hunan.gov.cn/rst/hnrsksw/c103103/gwy2026/rskswlist.html",
+    sourceDomain: "rst.hunan.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对湖南人事考试网2026年公务员考试栏目。`,
+  },
+  "provincial-civil-service-cn-gd": {
+    sourceUrl: "https://www.gdzz.gov.cn/",
+    sourceDomain: "www.gdzz.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对广东省委组织部公告及广东组织工作网。`,
+  },
+  "provincial-civil-service-cn-gx": {
+    sourceUrl: "https://www.gxpta.com.cn/",
+    sourceDomain: "www.gxpta.com.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 广西官方公告明确指向广西人事考试网。`,
+  },
+  "provincial-civil-service-cn-hi": {
+    sourceUrl: "https://ea.hainan.gov.cn/ywdt/gwyks/",
+    sourceDomain: "ea.hainan.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对海南省考试局公务员考试栏目。`,
+  },
+  "provincial-civil-service-cn-cq": {
+    sourceUrl: "https://rlsbj.cq.gov.cn/ztzl/zqs2020ndkslygwyzl/",
+    sourceDomain: "rlsbj.cq.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对重庆市人力资源和社会保障局2026年公务员专题。`,
+  },
+  "provincial-civil-service-cn-sc": {
+    sourceUrl: "https://www.scpta.com.cn/front/Special/Info/85887d50aadf43f491088f4a9106c647",
+    sourceDomain: "www.scpta.com.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已按四川省官方公告核对2026年度公务员专题网站。`,
+  },
+  "provincial-civil-service-cn-gz": {
+    sourceUrl: "https://www.gzrsks.com.cn/",
+    sourceDomain: "www.gzrsks.com.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 贵州省官方公告明确指向贵州人事考试信息网。`,
+  },
+  "provincial-civil-service-cn-yn": {
+    sourceUrl: "https://ylxf.1237125.cn/TopicWeb/ynskslygwy/index.html",
+    sourceDomain: "ylxf.1237125.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对云南省官方考录专题网页。`,
+  },
+  "provincial-civil-service-cn-xz": {
+    sourceUrl: "https://hrss.xizang.gov.cn/xwzx/tzgg/202512/t20251202_512168.html",
+    sourceDomain: "hrss.xizang.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对西藏自治区人力资源和社会保障厅发布的2026年高校毕业生公开考录公务员公告。`,
+  },
+  "provincial-civil-service-cn-sn": {
+    sourceUrl: "https://www.sxrsks.cn/",
+    sourceDomain: "www.sxrsks.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对陕西省人民政府发布的2026年公务员公告及陕西人事考试网。`,
+  },
+  "provincial-civil-service-cn-gs": {
+    sourceUrl: "https://www.gszg.gov.cn/",
+    sourceDomain: "www.gszg.gov.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对甘肃组工网2026年度公务员招录公告。`,
+  },
+  "provincial-civil-service-cn-qh": {
+    sourceUrl: "https://www.qhpta.com/",
+    sourceDomain: "www.qhpta.com",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 青海省官方公告明确指向青海省人事考试信息网。`,
+  },
+  "provincial-civil-service-cn-nx": {
+    sourceUrl: "https://www.nxpta.com/",
+    sourceDomain: "www.nxpta.com",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已按宁夏自治区党委组织部公告核对宁夏人事考试中心网。`,
+  },
+  "provincial-civil-service-cn-xj": {
+    sourceUrl: "https://www.xjrsks.com.cn/",
+    sourceDomain: "www.xjrsks.com.cn",
+    discoveryStatus: "VERIFIED",
+    lastVerifiedAt: verifiedAt,
+    notes: `${verifiedNote} 已核对新疆维吾尔自治区人力资源和社会保障厅公告及新疆人事考试中心网站。`,
+  },
+};
+
+export const nationalSourceDirectory: NationalSourceSeed[] = baseNationalSourceDirectory.map((source) => ({
+  ...source,
+  ...(verifiedSourceOverrides[source.id] ?? {}),
+}));
 
 export const nationalSourceDirectorySummary = {
   total: nationalSourceDirectory.length,
   provincialCivilService: nationalSourceDirectory.filter((source) => source.category === "PROVINCIAL_CIVIL_SERVICE").length,
   centralSoe: nationalSourceDirectory.filter((source) => source.category === "CENTRAL_SOE").length,
   localSoe: nationalSourceDirectory.filter((source) => source.category === "LOCAL_SOE").length,
+  verified: nationalSourceDirectory.filter((source) => source.discoveryStatus === "VERIFIED").length,
   needsReview: nationalSourceDirectory.filter((source) => source.discoveryStatus === "NEEDS_REVIEW").length,
   autoAllowed: nationalSourceDirectory.filter((source) => source.automationAllowed).length,
 };
