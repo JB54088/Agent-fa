@@ -64,6 +64,40 @@ function readLocalStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function matchesOpportunityScope(project: Project, scope: string, profileMajor = ""): boolean {
+  const season = String(project.recruitmentSeason ?? "").toUpperCase();
+  switch (scope) {
+    case "秋招":
+      return season === "AUTUMN" || /秋招|秋季/.test(project.batch);
+    case "春招":
+      return season === "SPRING" || /春招|春季/.test(project.batch);
+    case "央企":
+      return project.opportunityType === "CENTRAL_SOE" || project.companyType === "央企";
+    case "国企":
+      return project.opportunityType === "CENTRAL_SOE" || project.opportunityType === "LOCAL_SOE" || ["央企", "地方国企", "国企"].includes(project.companyType);
+    case "国考":
+      return project.opportunityType === "NATIONAL_CIVIL_SERVICE";
+    case "省考":
+      return project.opportunityType === "PROVINCIAL_CIVIL_SERVICE";
+    case "选调生":
+      return project.opportunityType === "SELECTED_GRADUATE";
+    case "事业单位/事业编":
+      return project.opportunityType === "PUBLIC_INSTITUTION";
+    case "军队文职":
+      return project.opportunityType === "MILITARY_CIVILIAN";
+    case "大厂":
+      return ["互联网公司", "科技企业", "知名企业"].includes(project.companyType);
+    case "即将截止":
+      return project.status === "ending";
+    case "不限专业":
+      return project.noMajorLimit;
+    case "与我匹配":
+      return ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profileMajor));
+    default:
+      return true;
+  }
+}
+
 export default function Home() {
   const [catalog, setCatalog] = useState<Project[]>([]);
   const [catalogState, setCatalogState] = useState<"loading" | "ready" | "unavailable">("loading");
@@ -375,10 +409,10 @@ function ProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOp
   const filtered = useMemo(() => projects.filter((project) => {
     const query = search.trim().toLowerCase();
     const textMatch = !query || `${project.company} ${project.title} ${project.originalMajors} ${project.regions.join(" ")}`.toLowerCase().includes(query);
-    const scopeMatch = scope === "全部" || (scope === "秋招" && project.batch.includes("秋招")) || (scope === "春招" && project.batch.includes("春招")) || (scope === "央企" && project.companyType === "央企") || (scope === "国企" && ["央企", "地方国企"].includes(project.companyType)) || (scope === "大厂" && ["互联网公司", "科技企业", "知名企业"].includes(project.companyType)) || (scope === "即将截止" && project.status === "ending") || (scope === "不限专业" && project.noMajorLimit) || (scope === "与我匹配" && ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major)));
+    const scopeMatch = matchesOpportunityScope(project, scope, profile.major);
     return textMatch && scopeMatch && (status === "全部" || project.status === status) && (type === "全部类型" || project.companyType === type) && (region === "全部地区" || project.regions.includes(region)) && (!matchOnly || ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major)));
   }), [search, scope, status, type, region, matchOnly, profile.major]);
-  const scopes = ["全部", "秋招", "春招", "央企", "国企", "大厂", "即将截止", "不限专业", "与我匹配"];
+  const scopes = ["全部", "秋招", "春招", "央企", "国企", "国考", "省考", "选调生", "事业单位/事业编", "军队文职", "大厂", "即将截止", "不限专业", "与我匹配"];
   return <>
     <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>招聘信息</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button className={`filter-button ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 筛选 <b>{[type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
     <div className="opportunity-scope-tabs" aria-label="机会专区">{scopes.map((item) => <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>{item}</button>)}</div>

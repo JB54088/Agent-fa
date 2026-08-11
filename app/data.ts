@@ -59,6 +59,7 @@ export type Project = {
   startAt: string;
   deadline: string;
   opportunityType?: OpportunityType;
+  recruitmentSeason?: string;
   deadlineType?: DeadlineType;
   opportunityRelevanceStatus?: "CURRENT_OPEN" | "UPCOMING" | "RECENT_CLOSED" | "HISTORICAL" | "PUBLIC_NOTICE" | "RESULT_NOTICE" | "NOT_AN_OPPORTUNITY";
   status: ProjectStatus;
