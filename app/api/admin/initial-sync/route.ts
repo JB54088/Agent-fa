@@ -171,7 +171,7 @@ export async function runBatch1(adminId: string | null) {
         last_changed_at = CASE WHEN ${source.discoveredCount > 0} THEN now() ELSE last_changed_at END,
         content_fingerprint = ${fingerprint},
         last_error = ${source.failureType ? source.note : null},
-        failure_count = CASE WHEN ${source.failureType} THEN failure_count + 1 ELSE 0 END,
+        failure_count = CASE WHEN ${Boolean(source.failureType)} THEN failure_count + 1 ELSE 0 END,
         next_check_at = now() + interval '1 day',
         updated_at = now()
       WHERE id = ${sourceId}
