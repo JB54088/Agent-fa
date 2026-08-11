@@ -78,6 +78,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
   const [rawItems, setRawItems] = useState(rawSeed);
   const [tasksState, setTasksState] = useState(taskSeed);
   const [selectedRawId, setSelectedRawId] = useState("");
+  const [bootstrapState, setBootstrapState] = useState<"checking" | "available" | "admin" | "unavailable">("checking");
 
   useEffect(() => {
     let active = true;
@@ -89,6 +90,27 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/bootstrap")
+      .then((response) => response.json() as Promise<{ ok?: boolean; isAdmin?: boolean; canBootstrap?: boolean }>)
+      .then((payload) => setBootstrapState(payload.ok && payload.isAdmin ? "admin" : payload.ok && payload.canBootstrap ? "available" : "unavailable"))
+      .catch(() => setBootstrapState("unavailable"));
+  }, []);
+
+  async function bootstrapCurrentAccount() {
+    setBootstrapState("checking");
+    try {
+      const response = await fetch("/api/admin/bootstrap", { method: "POST" });
+      const payload = await response.json() as { ok?: boolean; error?: string; role?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "管理员初始化失败");
+      setBootstrapState("admin");
+      onNotify(`当前账号已设置为${payload.role ?? "管理员"}`);
+    } catch (error) {
+      setBootstrapState("unavailable");
+      onNotify(error instanceof Error && error.message === "admin_bootstrap_already_completed" ? "管理员初始化已完成，请使用已有管理员账号" : "管理员初始化失败，请检查登录状态和数据库连接");
+    }
+  }
 
   const pendingReview = rawItems.filter((item) => ["待审核", "审核中"].includes(item.reviewStatus)).length;
   const openTasks = tasksState.filter((task) => task.status !== "已完成").length;
@@ -133,7 +155,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
   return <>
     <div className="page-heading admin-heading">
       <div><span className="eyebrow"><span className="eyebrow-line" />ADMIN CONSOLE · OPERATIONS</span><h1>招聘数据运营</h1><p>公开来源先进入原始采集，再由管理员审核后发布。</p></div>
-      <div className="admin-heading-actions"><span className="safe-collection-badge">⌁ 仅访问公开内容</span><button className="primary-button" onClick={() => setTab("review")}>进入审核队列 <span>→</span></button></div>
+      <div className="admin-heading-actions"><span className="safe-collection-badge">⌁ 仅访问公开内容</span>{bootstrapState === "available" && <button className="secondary-button" onClick={bootstrapCurrentAccount}>设置当前账号为管理员</button>}<button className="primary-button" onClick={() => setTab("review")}>进入审核队列 <span>→</span></button></div>
     </div>
     <div className="admin-tabs" role="tablist" aria-label="管理员功能">
       {tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
