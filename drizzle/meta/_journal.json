@@ -57,6 +57,13 @@
       "when": 1786425584000,
       "tag": "0007_opportunity_positions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786430400000,
+      "tag": "0008_national_opportunity_model",
+      "breakpoints": true
     }
   ]
 }

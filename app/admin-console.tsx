@@ -153,6 +153,8 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
 
 function NationalCoverageDirectory() {
   const [category, setCategory] = useState("全部");
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchReport, setBatchReport] = useState<{ sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } } | null>(null);
   const categories = [
     { value: "全部", label: "全部" },
     { value: "PROVINCIAL_CIVIL_SERVICE", label: "31省省考" },
@@ -162,10 +164,24 @@ function NationalCoverageDirectory() {
     { value: "ENTERPRISE_DISCOVERY", label: "企业发现" },
   ];
   const visible = nationalSourceDirectory.filter((source) => category === "全部" || source.category === category);
+  async function runBatch1() {
+    setBatchRunning(true);
+    try {
+      const response = await fetch("/api/admin/initial-sync", { method: "POST" });
+      const payload = await response.json() as { ok?: boolean; error?: string; sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "BATCH 1 执行失败");
+      setBatchReport({ sourceReport: payload.sourceReport, findings: payload.findings });
+    } catch (error) {
+      setBatchReport(null);
+      window.alert(error instanceof Error ? error.message : "BATCH 1 执行失败");
+    } finally {
+      setBatchRunning(false);
+    }
+  }
   return <div className="admin-section">
     <div className="admin-panel-heading">
       <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
-      <span className="review-guard">当前自动采集 0 条</span>
+      <div className="admin-heading-actions"><span className="review-guard">BATCH 2 暂停</span><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "BATCH 1 执行中…" : "执行 BATCH 1"} <span>→</span></button></div>
     </div>
     <div className="coverage-summary">
       <div><strong>{nationalSourceDirectorySummary.total}</strong><span>全国来源档案</span></div>
@@ -175,6 +191,7 @@ function NationalCoverageDirectory() {
       <div><strong>{nationalSourceDirectorySummary.verified}</strong><span>已核验入口</span></div>
       <div><strong>{nationalSourceDirectorySummary.needsReview}</strong><span>待人工核验</span></div>
     </div>
+    {batchReport?.findings && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">BATCH 1 REPORT</span><h3>秋招 / 春招 / 大厂 · 已停止在 BATCH 1</h3><p>本次只写入统一采集链路；原始数据仍可在采集审核工作台追溯。</p></div><span className="success-tag">执行完成</span></div><div className="coverage-summary"><div><strong>{batchReport.sourceReport?.attempted ?? 0}</strong><span>尝试数据源</span></div><div><strong>{batchReport.sourceReport?.successful ?? 0}</strong><span>成功访问</span></div><div><strong>{batchReport.findings.discovered}</strong><span>发现线索</span></div><div><strong>{batchReport.findings.rawInserted}</strong><span>写入原始层</span></div><div><strong>{batchReport.findings.stagingInserted}</strong><span>写入暂存层</span></div><div><strong>{batchReport.findings.formalAdded}</strong><span>正式新增</span></div></div><p className="coverage-batch-note">秋招 {batchReport.findings.autumn} 条 · 春招 {batchReport.findings.spring} 条 · 重复过滤 {batchReport.findings.duplicateFiltered} 条 · 待人工审核 {batchReport.findings.awaitingManualReview} 条。后续 BATCH 2 未执行。</p></div>}
     <div className="coverage-guard"><span>i</span><p>已核验入口已直接写入目录；未核验来源仍保持空白。所有来源仍不自动采集，必须继续完成人工确认和访问边界审计。</p></div>
     <div className="admin-filter-bar coverage-filter">{categories.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
     <div className="coverage-list">{visible.map((source) => { const verified = source.discoveryStatus === "VERIFIED"; return <article className="coverage-card" key={source.id}><div className="coverage-card-heading"><div><span className="source-level-badge level-A">A级目录</span><strong>{source.name}</strong><small>{source.regionName ?? "全国"} · {source.requiredOfficialRoles.join("、")}</small></div><span className={`source-status ${verified ? "verified" : "pending"}`}><i />{verified ? "已核验入口" : "待核验"}</span></div><div className="coverage-card-grid"><div><span>目录分类</span><strong>{categories.find((item) => item.value === source.category)?.label ?? source.category}</strong></div><div><span>普通巡检</span><strong>{source.normalFrequency === "EVERY_7_DAYS" ? "每7天" : "每日"}</strong></div><div><span>活跃巡检</span><strong>每日</strong></div><div><span>官方URL</span>{source.sourceUrl ? <a className="mono-text coverage-url" href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceDomain}</a> : <strong className="mono-text">待人工核验</strong>}</div></div><div className="coverage-card-footer"><span>{source.notes}{source.lastVerifiedAt ? ` 核验日期：${source.lastVerifiedAt}` : ""}</span><b>不自动采集</b></div></article>; })}</div>

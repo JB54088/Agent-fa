@@ -39,7 +39,7 @@ export const adminTaskTypeEnum = pgEnum("admin_task_type", ["new_recruitment", "
 export const eventTimeStatusEnum = pgEnum("event_time_status", ["待公布", "预计时间", "已确认", "已变更", "已结束"]);
 export const personalTaskStatusEnum = pgEnum("personal_task_status", ["待处理", "进行中", "已完成", "已取消"]);
 export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "delivered", "cancelled", "failed", "skipped"]);
-export const opportunityTypeEnum = pgEnum("opportunity_type", ["ENTERPRISE_CAMPUS", "CENTRAL_SOE", "LOCAL_SOE", "NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE", "SELECTED_GRADUATE", "PUBLIC_INSTITUTION", "MILITARY_CIVILIAN", "OTHER"]);
+export const opportunityTypeEnum = pgEnum("opportunity_type", ["ENTERPRISE_CAMPUS", "CENTRAL_SOE", "LOCAL_SOE", "NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE", "SELECTED_GRADUATE", "PUBLIC_INSTITUTION", "MILITARY_CIVILIAN", "BANK_CAMPUS", "OTHER"]);
 export const deadlineTypeEnum = pgEnum("deadline_type", ["FIXED_DATE", "UNTIL_FILLED", "NOT_ANNOUNCED", "LONG_TERM", "ESTIMATED", "OTHER"]);
 export const opportunityEventTimeStatusEnum = pgEnum("opportunity_event_time_status", ["CONFIRMED", "ESTIMATED", "NOT_ANNOUNCED", "CHANGED", "ENDED"]);
 export const opportunityRequirementTypeEnum = pgEnum("opportunity_requirement_type", ["EDUCATION", "DEGREE", "MAJOR", "MAJOR_CATEGORY", "DISCIPLINE", "GRADUATION_YEAR", "FRESH_GRADUATE_STATUS", "AGE", "HOUSEHOLD_REGISTRATION", "POLITICAL_STATUS", "WORK_EXPERIENCE", "BASIC_LEVEL_EXPERIENCE", "CERTIFICATE", "LANGUAGE_LEVEL", "GENDER", "PHYSICAL_CONDITION", "WORK_REGION", "OTHER"]);
@@ -234,6 +234,9 @@ export const opportunities = pgTable("opportunities", {
   dSpecialApprovedBy: uuid("d_special_approved_by").references(() => users.id),
   verificationStatus: verificationStatusEnum("verification_status").default("unverified").notNull(),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+  verifiedBy: uuid("verified_by").references(() => users.id),
+  nextVerifyAt: timestamp("next_verify_at", { withTimezone: true }),
+  officialPageStatus: officialPageStatusEnum("official_page_status").default("unknown").notNull(),
   publicationStatus: publishStatusEnum("publication_status").default("draft").notNull(),
   calculatedStatus: projectStatusEnum("calculated_status").default("pending_review").notNull(),
   manualStatus: projectStatusEnum("manual_status"),
@@ -289,16 +292,30 @@ export const opportunityRegions = pgTable("opportunity_regions", {
 export const opportunityPositions = pgTable("opportunity_positions", {
   id: uuid("id").defaultRandom().primaryKey(),
   opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  organizationName: text("organization_name"),
+  departmentName: text("department_name"),
   positionName: text("position_name").notNull(),
   positionCode: text("position_code"),
   department: text("department"),
+  recruitmentCount: integer("recruitment_count"),
+  educationRequirement: text("education_requirement"),
+  degreeRequirement: text("degree_requirement"),
+  majorRequirementRaw: text("major_requirement_raw"),
+  politicalStatusRequirement: text("political_status_requirement"),
+  freshGraduateRequirement: text("fresh_graduate_requirement"),
+  ageRequirement: text("age_requirement"),
+  householdRequirement: text("household_requirement"),
+  workExperienceRequirement: text("work_experience_requirement"),
+  certificateRequirement: text("certificate_requirement"),
+  regionId: uuid("region_id").references(() => regions.id),
   location: text("location"),
   description: text("description"),
   requirements: text("requirements"),
+  remarks: text("remarks"),
   sourceUrl: text("source_url"),
   isActive: boolean("is_active").default(true).notNull(),
   ...timestamps,
-}, (table) => [index("opportunity_positions_opportunity_idx").on(table.opportunityId), index("opportunity_positions_code_idx").on(table.positionCode)]);
+}, (table) => [index("opportunity_positions_opportunity_idx").on(table.opportunityId), index("opportunity_positions_code_idx").on(table.positionCode), index("opportunity_positions_region_idx").on(table.regionId)]);
 
 export const recruitmentProjects = pgTable("recruitment_projects", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -627,6 +644,9 @@ export const stagingOpportunities = pgTable("staging_opportunities", {
   organizationId: uuid("organization_id").references(() => organizations.id),
   companyName: text("company_name").notNull(),
   projectName: text("project_name").notNull(),
+  opportunityType: opportunityTypeEnum("opportunity_type"),
+  recruitmentSeason: text("recruitment_season"),
+  recruitmentYear: integer("recruitment_year"),
   recruitmentBatch: text("recruitment_batch"),
   graduationYears: jsonb("graduation_years").$type<number[]>().default([]).notNull(),
   degreeRequirements: jsonb("degree_requirements").$type<string[]>().default([]).notNull(),
@@ -639,6 +659,7 @@ export const stagingOpportunities = pgTable("staging_opportunities", {
   deadline: date("deadline"),
   announcementUrl: text("announcement_url"),
   applicationUrl: text("application_url"),
+  deadlineType: deadlineTypeEnum("deadline_type"),
   relevanceStatus: opportunityRelevanceStatusEnum("relevance_status").default("CURRENT_OPEN").notNull(),
   validationErrors: jsonb("validation_errors").$type<string[]>().default([]).notNull(),
   dedupeKey: text("dedupe_key"),
@@ -923,7 +944,9 @@ export const opportunityMajorRules = pgTable("opportunity_major_rules", {
   id: uuid("id").defaultRandom().primaryKey(),
   opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
   ruleType: text("rule_type").notNull(),
+  ruleValue: text("rule_value"),
   majorId: uuid("major_id").references(() => majors.id),
+  majorCategoryId: uuid("major_category_id").references(() => majorCategories.id),
   disciplineId: uuid("discipline_id").references(() => disciplines.id),
   professionalDegreeCategoryId: uuid("professional_degree_category_id").references(() => professionalDegreeCategories.id),
   originalText: text("original_text").notNull(),
