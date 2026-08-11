@@ -52,6 +52,7 @@ const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
 
 const trackerDefaults: Record<string, { status: ApplicationStatus; note: string }> = {};
 const personalTaskDefaults: PersonalTask[] = [];
+const personalTaskStorageKey = "radar-personal-tasks-v2";
 
 function readLocalStorage<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -69,7 +70,7 @@ export default function Home() {
   const [view, setView] = useState<View>("home");
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", []));
   const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(() => readLocalStorage("radar-trackers", trackerDefaults));
-  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(() => readLocalStorage("radar-personal-tasks", personalTaskDefaults));
+  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(() => readLocalStorage(personalTaskStorageKey, personalTaskDefaults));
   const [reminderSettings, setReminderSettings] = useState<Record<string, ReminderSettings>>({});
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [brand, setBrand] = useState<BrandConfig>(() => readLocalStorage("radar-brand-config", siteConfig));
@@ -117,7 +118,7 @@ export default function Home() {
     try {
       window.localStorage.setItem("radar-favorites", JSON.stringify(favoriteIds));
       window.localStorage.setItem("radar-trackers", JSON.stringify(trackers));
-      window.localStorage.setItem("radar-personal-tasks", JSON.stringify(personalTasks));
+      window.localStorage.setItem(personalTaskStorageKey, JSON.stringify(personalTasks));
       window.localStorage.setItem("radar-brand-config", JSON.stringify(brand));
     } catch {
       // Local storage is limited to non-authoritative UI preferences until account APIs are connected.
