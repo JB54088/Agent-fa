@@ -325,6 +325,7 @@ export default function Home() {
             <span className="trust-pill"><span className="pulse-dot" />官方来源 · 人工核验</span>
             <button className="icon-button" aria-label="帮助" onClick={() => navigate("about")}>?</button>
             <button className="icon-button notification-button" aria-label="消息中心" onClick={() => navigate("messages")}>♧{notifications.some((notification) => !notification.readAt) && <span />}</button>
+            <button className="icon-button mobile-admin-button" aria-label="运营后台" onClick={() => navigate("admin")}>▦</button>
             <button className="top-avatar" onClick={() => setProfileOpen(true)}>林</button>
           </div>
         </header>
