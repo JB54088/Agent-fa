@@ -152,8 +152,12 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
 }
 
 function NationalCoverageDirectory() {
+  type DirectoryDatabaseAfter = { organizations: number; regions: number; registered_sources: number; verified_sources: number; review_sources: number; enterprise_sources: number; national_civil_service_sources: number; provincial_civil_service_sources: number; central_soe_sources: number; local_soe_sources: number };
+  type DirectoryCatalog = { enterpriseOrganizations: number; enterpriseSources: number; nationalSources: number; regions: number };
   const [category, setCategory] = useState("全部");
   const [batchRunning, setBatchRunning] = useState(false);
+  const [directorySyncRunning, setDirectorySyncRunning] = useState(false);
+  const [directoryReport, setDirectoryReport] = useState<{ catalog?: DirectoryCatalog; databaseAfter?: DirectoryDatabaseAfter } | null>(null);
   const [batchReport, setBatchReport] = useState<{ sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } } | null>(null);
   const categories = [
     { value: "全部", label: "全部" },
@@ -178,10 +182,23 @@ function NationalCoverageDirectory() {
       setBatchRunning(false);
     }
   }
+  async function syncDirectory() {
+    setDirectorySyncRunning(true);
+    try {
+      const response = await fetch("/api/admin/source-directory", { method: "POST" });
+      const payload = await response.json() as { ok?: boolean; error?: string; catalog?: DirectoryCatalog; databaseAfter?: DirectoryDatabaseAfter };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "全国来源目录同步失败");
+      setDirectoryReport({ catalog: payload.catalog, databaseAfter: payload.databaseAfter });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "全国来源目录同步失败");
+    } finally {
+      setDirectorySyncRunning(false);
+    }
+  }
   return <div className="admin-section">
     <div className="admin-panel-heading">
       <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
-      <div className="admin-heading-actions"><span className="review-guard">BATCH 2 暂停</span><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "BATCH 1 执行中…" : "执行 BATCH 1"} <span>→</span></button></div>
+      <div className="admin-heading-actions"><span className="review-guard">BATCH 2 暂停</span><button className="secondary-button" disabled={directorySyncRunning} onClick={syncDirectory}>{directorySyncRunning ? "同步目录中…" : "同步全国来源目录"}</button><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "BATCH 1 执行中…" : "执行 BATCH 1"} <span>→</span></button></div>
     </div>
     <div className="coverage-summary">
       <div><strong>{nationalSourceDirectorySummary.total}</strong><span>全国来源档案</span></div>
@@ -191,6 +208,7 @@ function NationalCoverageDirectory() {
       <div><strong>{nationalSourceDirectorySummary.verified}</strong><span>已核验入口</span></div>
       <div><strong>{nationalSourceDirectorySummary.needsReview}</strong><span>待人工核验</span></div>
     </div>
+    {directoryReport?.databaseAfter && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">SOURCE DIRECTORY SYNC</span><h3>全国覆盖底账已同步到生产库</h3><p>这里只登记来源和覆盖范围，不代表已经发现招聘岗位；所有来源仍禁止自动发布。</p></div><span className="success-tag">同步完成</span></div><div className="coverage-summary"><div><strong>{directoryReport.databaseAfter.registered_sources}</strong><span>已登记来源</span></div><div><strong>{directoryReport.databaseAfter.verified_sources}</strong><span>已核验入口</span></div><div><strong>{directoryReport.databaseAfter.review_sources}</strong><span>待人工核验</span></div><div><strong>{directoryReport.databaseAfter.enterprise_sources}</strong><span>企业来源</span></div><div><strong>{directoryReport.databaseAfter.national_civil_service_sources + directoryReport.databaseAfter.provincial_civil_service_sources}</strong><span>国考 / 省考</span></div><div><strong>{directoryReport.databaseAfter.central_soe_sources + directoryReport.databaseAfter.local_soe_sources}</strong><span>央企 / 地方国企</span></div></div></div>}
     {batchReport?.findings && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">BATCH 1 REPORT</span><h3>秋招 / 春招 / 大厂 · 已停止在 BATCH 1</h3><p>本次只写入统一采集链路；原始数据仍可在采集审核工作台追溯。</p></div><span className="success-tag">执行完成</span></div><div className="coverage-summary"><div><strong>{batchReport.sourceReport?.attempted ?? 0}</strong><span>尝试数据源</span></div><div><strong>{batchReport.sourceReport?.successful ?? 0}</strong><span>成功访问</span></div><div><strong>{batchReport.findings.discovered}</strong><span>发现线索</span></div><div><strong>{batchReport.findings.rawInserted}</strong><span>写入原始层</span></div><div><strong>{batchReport.findings.stagingInserted}</strong><span>写入暂存层</span></div><div><strong>{batchReport.findings.formalAdded}</strong><span>正式新增</span></div></div><p className="coverage-batch-note">秋招 {batchReport.findings.autumn} 条 · 春招 {batchReport.findings.spring} 条 · 重复过滤 {batchReport.findings.duplicateFiltered} 条 · 待人工审核 {batchReport.findings.awaitingManualReview} 条。后续 BATCH 2 未执行。</p></div>}
     <div className="coverage-guard"><span>i</span><p>已核验入口已直接写入目录；未核验来源仍保持空白。所有来源仍不自动采集，必须继续完成人工确认和访问边界审计。</p></div>
     <div className="admin-filter-bar coverage-filter">{categories.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
