@@ -5,6 +5,7 @@ import {
   ApplicationStatus,
   Project,
   ProjectStatus,
+  MatchLevel,
   BrandConfig,
   formatDate,
   formatDateWithWeekday,
@@ -40,21 +41,12 @@ const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
   { id: "home", label: "总览", icon: "⌂" },
   { id: "projects", label: "招聘信息", icon: "▤" },
   { id: "calendar", label: "招聘日历", icon: "□" },
-  { id: "my-projects", label: "我的招聘", icon: "♡", badge: "4" },
-  { id: "messages", label: "消息中心", icon: "◌", badge: "2" },
+  { id: "my-projects", label: "我的招聘", icon: "♡" },
+  { id: "messages", label: "消息中心", icon: "◌" },
 ];
 
-const trackerDefaults: Record<string, { status: ApplicationStatus; note: string }> = {
-  p1: { status: "准备报名", note: "周日前完成网申，准备英文自我介绍" },
-  p7: { status: "准备报名", note: "关注笔试时间，整理金融科技项目经历" },
-  p10: { status: "已报名", note: "" },
-};
-
-const personalTaskDefaults: PersonalTask[] = [
-  { id: "todo-1", projectId: "p1", title: "完成华辰能源网申", status: "进行中", due: "今天", suggested: true },
-  { id: "todo-2", projectId: "p7", title: "关注沧澜银行测评通知", status: "待处理", due: "本周", suggested: true },
-  { id: "todo-3", projectId: "p3", title: "准备英文自我介绍", status: "待处理", due: "本周" },
-];
+const trackerDefaults: Record<string, { status: ApplicationStatus; note: string }> = {};
+const personalTaskDefaults: PersonalTask[] = [];
 
 function readLocalStorage<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -68,7 +60,7 @@ function readLocalStorage<T>(key: string, fallback: T): T {
 
 export default function Home() {
   const [view, setView] = useState<View>("home");
-  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", ["p1", "p3", "p7", "p10"]));
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", []));
   const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(() => readLocalStorage("radar-trackers", trackerDefaults));
   const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(() => readLocalStorage("radar-personal-tasks", personalTaskDefaults));
   const [brand, setBrand] = useState<BrandConfig>(() => readLocalStorage("radar-brand-config", siteConfig));
@@ -81,14 +73,14 @@ export default function Home() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
-  const [loggedIn, setLoggedIn] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({
-    name: "林同学",
-    major: "计算机科学与技术",
-    degree: "硕士",
+    name: "",
+    major: "",
+    degree: "本科",
     graduation: "2027",
-    regions: ["北京", "上海", "深圳"],
-    nationwide: true,
+    regions: [],
+    nationwide: false,
     acceptAnyMajor: true,
   });
 
@@ -99,7 +91,7 @@ export default function Home() {
       window.localStorage.setItem("radar-personal-tasks", JSON.stringify(personalTasks));
       window.localStorage.setItem("radar-brand-config", JSON.stringify(brand));
     } catch {
-      // Device-local demo state is best effort only.
+      // Local storage is limited to non-authoritative UI preferences until account APIs are connected.
     }
   }, [favoriteIds, trackers, personalTasks, brand]);
 
@@ -173,7 +165,7 @@ export default function Home() {
         <div className="sidebar-section-label side-secondary-label">更多</div>
         <nav className="side-nav" aria-label="更多导航">
           <button className={`nav-item ${view === "profile" ? "active" : ""}`} onClick={() => navigate("profile")}><span className="nav-icon">◎</span><span>求职资料</span></button>
-          <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span><span className="demo-mini">Beta</span></button>
+          <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span></button>
           <button className={`nav-item ${view === "about" ? "active" : ""}`} onClick={() => navigate("about")}><span className="nav-icon">i</span><span>关于平台</span></button>
         </nav>
 
@@ -199,7 +191,7 @@ export default function Home() {
             <kbd>⌘ K</kbd>
           </div>
           <div className="topbar-actions">
-            <span className="demo-pill"><span className="pulse-dot" />{brand.demoMode ? "演示数据" : "真实数据 · 人工整理"}</span>
+            <span className="trust-pill"><span className="pulse-dot" />官方来源 · 人工核验</span>
             <button className="icon-button" aria-label="帮助" onClick={() => navigate("about")}>?</button>
             <button className="icon-button notification-button" aria-label="消息中心" onClick={() => navigate("messages")}>♧<span /></button>
             <button className="top-avatar" onClick={() => setProfileOpen(true)}>林</button>
@@ -222,7 +214,7 @@ export default function Home() {
       {externalProject && <ExternalLinkModal project={externalProject} onClose={() => setExternalProject(null)} />}
       {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={() => { setCorrectionProject(null); notify("纠错已提交，管理员会在核验后处理"); }} />}
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={() => { setLoggedIn(true); setLoginOpen(false); notify("欢迎回来，林同学"); }} />}
-      {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { setLoggedIn(false); setProfileOpen(false); notify("已退出演示账号", "info"); }} />}
+      {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { setLoggedIn(false); setProfileOpen(false); notify("已退出当前账号", "info"); }} />}
       {toast && <div className={`toast ${toast.tone === "info" ? "toast-info" : ""}`}><span>{toast.tone === "info" ? "i" : "✓"}</span>{toast.message}</div>}
     </div>
   );
@@ -232,12 +224,15 @@ function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onTog
   const focusProjects = projects.filter((project) => project.status === "ending" || project.recommended).slice(0, 4);
   const matchedCount = projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length;
   const pendingTasks = tasks.filter((task) => task.status !== "已完成" && task.status !== "已取消");
-  const leadExplanation = explainMatch(projects[2], profile.major);
+  const leadExplanation = projects[0] ? explainMatch(projects[0], profile.major) : { level: "暂无匹配依据" as MatchLevel, evidence: "当前没有可用于匹配的招聘信息。", needsManualReview: true, risk: "" };
+  const enterpriseCount = projects.filter((project) => ["央企", "地方国企"].includes(project.companyType)).length;
+  const internetCount = projects.filter((project) => ["互联网公司", "科技企业", "知名企业"].includes(project.companyType)).length;
+  const publishedToday = projects.filter((project) => project.publishedAt === new Date().toISOString().slice(0, 10)).length;
   return (
     <>
       <div className="welcome-row">
         <div><div className="eyebrow"><span className="eyebrow-line" />{brand.edition}求职季 · 早上好</div><h1>{brand.homeTitle}</h1><p className="hero-copy">{brand.homeSubtitle}</p><div className="hero-actions"><button className="primary-button" onClick={() => onNavigate("profile")}>填写专业，查看匹配 <span>→</span></button><button className="text-button" onClick={() => onNavigate("projects")}>查看近期机会 <span>↗</span></button></div></div>
-        <div className="hero-illustration"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="radar-core"><span>⌁</span><small>RADAR</small></div><span className="float-chip chip-one">央企 <b>12</b></span><span className="float-chip chip-two">互联网 <b>8</b></span><span className="float-chip chip-three">今日新增 <b>06</b></span><span className="radar-signal signal-one" /><span className="radar-signal signal-two" /></div>
+        <div className="hero-illustration"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="radar-core"><span>⌁</span><small>RADAR</small></div><span className="float-chip chip-one">央国企 <b>{enterpriseCount}</b></span><span className="float-chip chip-two">知名企业 <b>{internetCount}</b></span><span className="float-chip chip-three">今日新增 <b>{publishedToday}</b></span><span className="radar-signal signal-one" /><span className="radar-signal signal-two" /></div>
       </div>
 
       <div className="notice-strip"><span className="notice-icon">i</span><span>招聘信息来源于公开渠道，平台仅提供整理、筛选和提醒服务，最终信息请以招聘单位官方网站为准。</span><button onClick={() => onNavigate("about")}>了解详情 <span>→</span></button></div>
@@ -260,7 +255,7 @@ function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onTog
       </div>
 
       <div className="lower-grid">
-        <div className="surface profile-summary"><div className="surface-heading"><div><span className="section-kicker">YOUR RADAR</span><h3>你的求职雷达</h3></div><button className="more-button" onClick={() => onNavigate("profile")}>编辑 <span>↗</span></button></div><div className="profile-line"><div className="profile-avatar-large">林</div><div><strong>{profile.major}</strong><span>{profile.degree} · {profile.graduation}届 · {profile.name}</span></div></div><div className="radar-progress"><div className="progress-label"><span>资料完善度</span><strong>80%</strong></div><div className="progress-track"><i style={{ width: "80%" }} /></div></div><div className="match-callout"><span>✦</span><p>已为你找到 <b>{matchedCount} 个</b>可重点关注的项目</p><button onClick={() => onNavigate("projects")}>去看看</button></div></div>
+        <div className="surface profile-summary"><div className="surface-heading"><div><span className="section-kicker">YOUR RADAR</span><h3>你的求职雷达</h3></div><button className="more-button" onClick={() => onNavigate("profile")}>编辑 <span>↗</span></button></div><div className="profile-line"><div className="profile-avatar-large">{profile.name.slice(0, 1) || "·"}</div><div><strong>{profile.major || "尚未选择专业"}</strong><span>{profile.degree} · {profile.graduation}届 · {profile.name || "登录后保存资料"}</span></div></div><div className="radar-progress"><div className="progress-label"><span>资料完善度</span><strong>{profile.major ? "80%" : "20%"}</strong></div><div className="progress-track"><i style={{ width: profile.major ? "80%" : "20%" }} /></div></div><div className="match-callout"><span>✦</span><p>已为你找到 <b>{matchedCount} 个</b>可重点关注的项目</p><button onClick={() => onNavigate("projects")}>去看看</button></div></div>
         <div className="surface company-trends"><div className="surface-heading"><div><span className="section-kicker">HOT COMPANIES</span><h3>近期热门企业</h3></div><button className="more-button" onClick={() => onNavigate("projects")}>更多 <span>↗</span></button></div><div className="company-list">{[projects[2], projects[0], projects[6], projects[14]].map((project, index) => <button className="company-row" key={project.id} onClick={() => onOpen(project)}><span className={`company-mark tiny ${project.logoTone}`}>{project.shortName.slice(0, 1)}</span><span className="company-row-name"><strong>{project.company}</strong><small>{project.companyNature} · {project.companyType}</small></span><span className="company-row-count">{[8, 12, 5, 3][index]} 个项目 <span>›</span></span></button>)}</div></div>
       </div>
     </>
@@ -306,7 +301,7 @@ function EmptyState({ onReset }: { onReset: () => void }) {
 function ProjectCard({ project, compact = false, onOpen, onToggleFavorite, isFavorite, profileMajor }: { project: Project; compact?: boolean; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; isFavorite: boolean; profileMajor: string }) {
   const match = getMatch(project, profileMajor);
   return <article className={`project-card ${compact ? "project-card-compact" : ""} ${project.pinned ? "is-pinned" : ""}`} onClick={() => onOpen(project)}>
-    <div className="card-topline"><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="project-heading"><div className="company-name-line"><strong>{project.company}</strong><span className="demo-tag">{project.recordStatus ?? "演示数据"}</span>{project.sourceLevel === "A级" && <span className="official-tag">官方来源</span>}</div><h3>{project.title}</h3></div><button className={`favorite-button ${isFavorite ? "hearted" : ""}`} aria-label={isFavorite ? "取消收藏" : "收藏项目"} onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>{isFavorite ? "♥" : "♡"}</button></div>
+    <div className="card-topline"><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="project-heading"><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span>{project.sourceLevel === "A级" && <span className="official-tag">官方来源</span>}</div><h3>{project.title}</h3></div><button className={`favorite-button ${isFavorite ? "hearted" : ""}`} aria-label={isFavorite ? "取消收藏" : "收藏项目"} onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>{isFavorite ? "♥" : "♡"}</button></div>
     <div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span className="plain-tag">{project.companyType}</span><span className="plain-tag">{project.batch}</span>{match !== "暂无匹配依据" && <span className={`match-tag ${match === "不限专业" ? "match-any" : ""}`}>✦ {match}</span>}</div>
     <p className="project-summary">{project.originalMajors}</p>
     <div className="project-meta"><span><i className="meta-icon">⌖</i>{project.regions.slice(0, 3).join(" · ")}</span><span><i className="meta-icon">▣</i>{project.degrees.join(" / ")}</span><span className={project.status === "ending" ? "deadline-hot" : ""}><i className="meta-icon">◷</i>截止 {formatDate(project.deadline)}</span></div>
@@ -332,7 +327,7 @@ function LegacyMyProjectsView({ projects: favoriteProjects, trackers, onOpen, on
   const [filter, setFilter] = useState<"全部" | ApplicationStatus>("全部");
   const list = favoriteProjects.filter((project) => filter === "全部" || trackers[project.id]?.status === filter);
   const statusList: ("全部" | ApplicationStatus)[] = ["全部", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"];
-  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MY TRACKER</span><h1>我的招聘</h1><p>收藏、进度和备注都放在这里，按自己的节奏推进。</p></div><button className="secondary-button" onClick={() => setFilter("全部")}>导出清单 <span>↓</span></button></div><div className="tracker-summary"><div><strong>{favoriteProjects.length}</strong><span>已收藏</span></div><div><strong>{favoriteProjects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{Object.values(trackers).filter((item) => item.status === "已报名").length}</strong><span>已报名</span></div><div className="tracker-summary-note"><span>✦</span><p>建议先处理 <b>7天内截止</b> 的项目，避免错过窗口。</p></div></div><div className="status-tabs">{statusList.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}{item === "全部" && <small>{favoriteProjects.length}</small>}</button>)}</div><div className="project-list">{list.length ? list.map((project) => <article className="tracker-card" key={project.id} onClick={() => onOpen(project)}><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="tracker-main"><div className="company-name-line"><strong>{project.company}</strong><span className="demo-tag">{project.recordStatus ?? "演示数据"}</span></div><h3>{project.title}</h3><div className="tracker-line"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span>截止 {formatDate(project.deadline)}</span><span>✦ {getMatch(project)}</span></div>{trackers[project.id]?.note && <div className="note-line"><span>▰</span>{trackers[project.id].note}</div>}</div><div className="tracker-actions"><select value={trackers[project.id]?.status ?? "暂未处理"} onClick={(event) => event.stopPropagation()} onChange={(event) => onUpdateTracker(project, event.target.value as ApplicationStatus)} aria-label={`${project.title}报名状态`}>{["暂未处理", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"].map((status) => <option key={status}>{status}</option>)}</select><button className="favorite-button hearted" onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>♥</button></div></article>) : <EmptyState onReset={() => setFilter("全部")} />}</div></>;
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MY TRACKER</span><h1>我的招聘</h1><p>收藏、进度和备注都放在这里，按自己的节奏推进。</p></div><button className="secondary-button" onClick={() => setFilter("全部")}>导出清单 <span>↓</span></button></div><div className="tracker-summary"><div><strong>{favoriteProjects.length}</strong><span>已收藏</span></div><div><strong>{favoriteProjects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{Object.values(trackers).filter((item) => item.status === "已报名").length}</strong><span>已报名</span></div><div className="tracker-summary-note"><span>✦</span><p>建议先处理 <b>7天内截止</b> 的项目，避免错过窗口。</p></div></div><div className="status-tabs">{statusList.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}{item === "全部" && <small>{favoriteProjects.length}</small>}</button>)}</div><div className="project-list">{list.length ? list.map((project) => <article className="tracker-card" key={project.id} onClick={() => onOpen(project)}><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="tracker-main"><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span></div><h3>{project.title}</h3><div className="tracker-line"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span>截止 {formatDate(project.deadline)}</span><span>✦ {getMatch(project)}</span></div>{trackers[project.id]?.note && <div className="note-line"><span>▰</span>{trackers[project.id].note}</div>}</div><div className="tracker-actions"><select value={trackers[project.id]?.status ?? "暂未处理"} onClick={(event) => event.stopPropagation()} onChange={(event) => onUpdateTracker(project, event.target.value as ApplicationStatus)} aria-label={`${project.title}报名状态`}>{["暂未处理", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"].map((status) => <option key={status}>{status}</option>)}</select><button className="favorite-button hearted" onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>♥</button></div></article>) : <EmptyState onReset={() => setFilter("全部")} />}</div></>;
 }
 
 function MyProjectsView({ projects: favoriteProjects, trackers, tasks, onOpen, onToggleFavorite, onUpdateTracker, onAddTask, onToggleTask }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; tasks: PersonalTask[]; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void; onAddTask: (title: string, projectId?: string) => void; onToggleTask: (taskId: string) => void }) {
@@ -346,7 +341,10 @@ function PersonalTasksPanel({ tasks, projects: favoriteProjects, onAddTask, onTo
 }
 
 function MessagesView() {
-  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />INBOX</span><h1>消息中心</h1><p>和你收藏的校招项目有关的重要变化，会在这里提醒你。</p></div><button className="secondary-button">全部标为已读</button></div><div className="message-banner"><div className="message-banner-icon">◷</div><div><strong>提醒已开启</strong><p>你有 4 个收藏项目正在接收报名截止提醒。</p></div><button>管理提醒 <span>→</span></button></div><div className="message-list">{notificationSeed.map((notification) => <article className={`message-card ${notification.unread ? "unread" : ""}`} key={notification.id}><div className={`message-icon ${notification.color}`}>{notification.icon}</div><div className="message-copy"><div><strong>{notification.title}</strong>{notification.unread && <span className="unread-dot" />}</div><p>{notification.text}</p><small>{notification.time}</small></div><button className="message-arrow">›</button></article>)}</div></>;
+function MessagesView() {
+  const hasMessages = notificationSeed.length > 0;
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />INBOX</span><h1>消息中心</h1><p>和你收藏的校招项目有关的重要变化，会在这里提醒你。</p></div>{hasMessages && <button className="secondary-button">全部标为已读</button>}</div>{hasMessages ? <><div className="message-banner"><div className="message-banner-icon">◷</div><div><strong>提醒已开启</strong><p>你的收藏项目变化会在这里显示。</p></div><button>管理提醒 <span>→</span></button></div><div className="message-list">{notificationSeed.map((notification) => <article className={`message-card ${notification.unread ? "unread" : ""}`} key={notification.id}><div className={`message-icon ${notification.color}`}>{notification.icon}</div><div className="message-copy"><div><strong>{notification.title}</strong>{notification.unread && <span className="unread-dot" />}</div><p>{notification.text}</p><small>{notification.time}</small></div><button className="message-arrow">›</button></article>)}</div></> : <div className="surface empty-state"><div className="empty-state-icon">◌</div><h3>暂无消息</h3><p>当收藏项目发生时间、页面或官方链接变化时，系统会在这里提醒你。</p></div>}</>;
+}
 }
 
 function ProfileView({ profile, onChange, onSave }: { profile: UserProfile; onChange: (profile: UserProfile) => void; onSave: () => void }) {
@@ -361,7 +359,7 @@ function AboutView({ brand }: { brand: BrandConfig }) {
 function ProjectModal({ project, userMajor, isFavorite, tracker, onClose, onToggleFavorite, onUpdateTracker, onOpenExternal, onOpenCorrection, onNotify }: { project: Project; userMajor: string; isFavorite: boolean; tracker?: { status: ApplicationStatus; note: string }; onClose: () => void; onToggleFavorite: () => void; onUpdateTracker: (status: ApplicationStatus, note?: string) => void; onOpenExternal: () => void; onOpenCorrection: () => void; onNotify: (message: string) => void }) {
   const [note, setNote] = useState(tracker?.note ?? "");
   const match = getMatch(project, userMajor);
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="project-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="关闭">×</button><div className="modal-header"><div className={`company-mark large ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div><div className="company-name-line"><strong>{project.company}</strong><span className="demo-tag">{project.recordStatus ?? "演示数据"}</span><span className="official-tag">{project.sourceLevel}来源</span></div><h2>{project.title}</h2><div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span className="plain-tag">{project.companyType}</span><span className="plain-tag">{project.batch}</span></div></div></div><div className="modal-deadline"><div><span>报名截止</span><strong>{formatDateWithWeekday(project.deadline)}</strong></div><div><span>报名开始</span><strong>{formatDateWithWeekday(project.startAt)}</strong></div><div><span>工作地区</span><strong>{project.regions.join(" · ")}</strong></div></div><div className="modal-body"><section><div className="detail-title"><span>01</span><h3>招聘简介</h3></div><p>{project.intro}</p><div className="detail-grid"><div><span>面向毕业年份</span><strong>{project.graduationYears.map((year) => `${year}届`).join("、")}</strong></div><div><span>学历要求</span><strong>{project.degrees.join(" / ")}</strong></div><div><span>专业要求</span><strong>{project.originalMajors}</strong></div><div><span>标准专业标签</span><strong>{project.majors.length ? project.majors.join("、") : "不限专业"}</strong></div></div></section><section className="match-result"><div className="detail-title"><span>02</span><h3>你的专业匹配</h3></div><div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div><strong>{match}</strong><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据专业大类和招聘原文整理，仅供筛选参考。"}</p></div></div><small className="match-disclaimer">专业匹配结果仅供信息筛选参考，是否符合报名条件请以招聘单位官方审核结果为准。</small></section><section><div className="detail-title"><span>03</span><h3>我的跟进</h3></div><div className="tracker-editor"><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加一条个人备注，例如：周日前完成网申" /><button onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div></section></div><div className="modal-footer"><div><span>来源：{project.sourceName}</span><span>最近核验：{formatDate(project.verifiedAt)}</span></div><div className="modal-actions">{project.announcementUrl && <a className="secondary-button" href={project.announcementUrl} target="_blank" rel="noreferrer">官方公告 <span>↗</span></a>}<button className="text-button correction-button" onClick={onOpenCorrection}>提交纠错</button><button className={`secondary-button favorite-action ${isFavorite ? "active" : ""}`} onClick={onToggleFavorite}>{isFavorite ? "♥ 已收藏" : "♡ 收藏项目"}</button><button className="primary-button" onClick={onOpenExternal}>前往官方报名 <span>↗</span></button></div></div></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="project-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="关闭">×</button><div className="modal-header"><div className={`company-mark large ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div><h2>{project.title}</h2><div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span className="plain-tag">{project.companyType}</span><span className="plain-tag">{project.batch}</span></div></div></div><div className="modal-deadline"><div><span>报名截止</span><strong>{formatDateWithWeekday(project.deadline)}</strong></div><div><span>报名开始</span><strong>{formatDateWithWeekday(project.startAt)}</strong></div><div><span>工作地区</span><strong>{project.regions.join(" · ")}</strong></div></div><div className="modal-body"><section><div className="detail-title"><span>01</span><h3>招聘简介</h3></div><p>{project.intro}</p><div className="detail-grid"><div><span>面向毕业年份</span><strong>{project.graduationYears.map((year) => `${year}届`).join("、")}</strong></div><div><span>学历要求</span><strong>{project.degrees.join(" / ")}</strong></div><div><span>专业要求</span><strong>{project.originalMajors}</strong></div><div><span>标准专业标签</span><strong>{project.majors.length ? project.majors.join("、") : "不限专业"}</strong></div></div></section><section className="match-result"><div className="detail-title"><span>02</span><h3>你的专业匹配</h3></div><div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div><strong>{match}</strong><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据专业大类和招聘原文整理，仅供筛选参考。"}</p></div></div><small className="match-disclaimer">专业匹配结果仅供信息筛选参考，是否符合报名条件请以招聘单位官方审核结果为准。</small></section><section><div className="detail-title"><span>03</span><h3>我的跟进</h3></div><div className="tracker-editor"><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加一条个人备注，例如：周日前完成网申" /><button onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div></section></div><div className="modal-footer"><div><span>来源：{project.sourceName}</span><span>最近核验：{formatDate(project.verifiedAt)}</span></div><div className="modal-actions">{project.announcementUrl && <a className="secondary-button" href={project.announcementUrl} target="_blank" rel="noreferrer">官方公告 <span>↗</span></a>}<button className="text-button correction-button" onClick={onOpenCorrection}>提交纠错</button><button className={`secondary-button favorite-action ${isFavorite ? "active" : ""}`} onClick={onToggleFavorite}>{isFavorite ? "♥ 已收藏" : "♡ 收藏项目"}</button><button className="primary-button" onClick={onOpenExternal}>前往官方报名 <span>↗</span></button></div></div></div></div>;
 }
 
 function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: () => void }) {
@@ -376,9 +374,9 @@ function ExternalLinkModal({ project, onClose }: { project: Project; onClose: ()
 
 function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
   const [mode, setMode] = useState<"email" | "phone">("email");
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>欢迎回到校招雷达</h2><p>登录后收藏招聘项目，设置属于你的提醒。</p><div className="login-tabs"><button className={mode === "email" ? "active" : ""} onClick={() => setMode("email")}>邮箱登录</button><button className={mode === "phone" ? "active" : ""} onClick={() => setMode("phone")}>手机号登录</button></div>{mode === "email" ? <><label className="login-field"><span>邮箱</span><input placeholder="name@example.com" type="email" /></label><label className="login-field"><span>密码</span><input placeholder="请输入密码" type="password" /></label></> : <><label className="login-field"><span>手机号</span><input placeholder="请输入手机号" /></label><label className="login-field"><span>验证码</span><div className="code-input"><input placeholder="6位验证码" /><button>获取验证码</button></div></label></>}<button className="primary-button login-submit" onClick={onLogin}>登录并继续 <span>→</span></button><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>欢迎回到校招雷达</h2><p>登录后收藏招聘项目，设置属于你的提醒。</p><div className="login-tabs"><button className={mode === "email" ? "active" : ""} onClick={() => setMode("email")}>邮箱登录</button><button className={mode === "phone" ? "active" : ""} onClick={() => setMode("phone")}>手机号登录</button></div>{mode === "email" ? <><label className="login-field"><span>邮箱</span><input placeholder="you@domain.cn" type="email" /></label><label className="login-field"><span>密码</span><input placeholder="请输入密码" type="password" /></label></> : <><label className="login-field"><span>手机号</span><input placeholder="请输入手机号" /></label><label className="login-field"><span>验证码</span><div className="code-input"><input placeholder="6位验证码" /><button>获取验证码</button></div></label></>}<button className="primary-button login-submit" onClick={onLogin}>登录并继续 <span>→</span></button><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
 }
 
 function ProfileQuickPanel({ profile, onClose, onEdit, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; onClose: () => void; onEdit: () => void; onLogout: () => void }) {
-  return <div className="modal-backdrop" onMouseDown={onClose}><aside className="quick-panel" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="quick-profile"><div className="profile-avatar-large">林</div><h3>{profile.name}</h3><p>{profile.major}</p><span>{profile.degree} · {profile.graduation}届</span></div><div className="quick-links"><button onClick={onEdit}><span>◎</span>编辑求职资料 <b>→</b></button><button onClick={onClose}><span>◌</span>提醒设置 <b>→</b></button><button onClick={onClose}><span>◫</span>隐私与账号 <b>→</b></button></div><button className="logout-button" onClick={onLogout}>退出当前演示账号</button></aside></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><aside className="quick-panel" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="quick-profile"><div className="profile-avatar-large">{profile.name.slice(0, 1) || "·"}</div><h3>{profile.name || "当前账号"}</h3><p>{profile.major || "尚未选择专业"}</p><span>{profile.degree} · {profile.graduation}届</span></div><div className="quick-links"><button onClick={onEdit}><span>◎</span>编辑求职资料 <b>→</b></button><button onClick={onClose}><span>◌</span>提醒设置 <b>→</b></button><button onClick={onClose}><span>◫</span>隐私与账号 <b>→</b></button></div><button className="logout-button" onClick={onLogout}>退出当前账号</button></aside></div>;
 }

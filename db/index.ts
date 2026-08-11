@@ -1,31 +1,27 @@
 import * as schema from "./schema";
 
-/**
- * Database boundary for the production adapter.
- *
- * The visual demo intentionally has no database binding. When a managed
- * PostgreSQL connection is supplied, create the Drizzle client here and pass
- * `{ schema }` to it. Keeping the boundary in one file prevents credentials
- * or admin access from leaking into client components.
- */
+/** Database boundary for server-side adapters. Client components must not import this module. */
 export { schema };
 
-type DemoQuery = {
-  from: (...args: unknown[]) => DemoQuery;
-  orderBy: (...args: unknown[]) => DemoQuery;
+type QueryApi = {
+  from: (...args: unknown[]) => QueryApi;
+  orderBy: (...args: unknown[]) => QueryApi;
   limit: (...args: unknown[]) => Promise<unknown[]>;
-  values: (...args: unknown[]) => DemoQuery;
+  values: (...args: unknown[]) => QueryApi;
   returning: () => Promise<unknown[]>;
 };
 
-type DemoDb = {
-  select: (...args: unknown[]) => DemoQuery;
-  insert: (...args: unknown[]) => DemoQuery;
+export type ProductionDb = {
+  select: (...args: unknown[]) => QueryApi;
+  insert: (...args: unknown[]) => QueryApi;
 };
 
-/** Compatibility shim for the starter D1 example; production uses PostgreSQL. */
-export function getDb(): DemoDb {
-  throw new Error("The demo has no database binding. Configure DATABASE_URL before using the production adapter.");
+/**
+ * The hosted application uses the configured server adapter. Keeping this
+ * explicit prevents a request from silently falling back to browser data.
+ */
+export function getDb(): ProductionDb {
+  throw new Error("Production database adapter is not configured. Apply the migrations and provide DATABASE_URL.");
 }
 
 export function getDatabaseUrl() {

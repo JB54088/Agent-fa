@@ -63,9 +63,12 @@ export const majorCategories = pgTable("major_categories", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   code: text("code").notNull(),
+  directoryVersionId: uuid("directory_version_id").references(() => majorDirectoryVersions.id),
+  sourceId: uuid("source_id").references(() => majorSources.id),
+  isCurrent: boolean("is_current").default(true).notNull(),
   sortOrder: integer("sort_order").default(0).notNull(),
   ...timestamps,
-}, (table) => [uniqueIndex("major_categories_code_uidx").on(table.code)]);
+}, (table) => [uniqueIndex("major_categories_code_version_uidx").on(table.code, table.directoryVersionId), index("major_categories_current_idx").on(table.isCurrent)]);
 
 export const majors = pgTable("majors", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -73,9 +76,18 @@ export const majors = pgTable("majors", {
   name: text("name").notNull(),
   code: text("code"),
   aliases: jsonb("aliases").$type<string[]>().default([]).notNull(),
+  disciplineId: uuid("discipline_id").references(() => disciplines.id),
+  directoryVersionId: uuid("directory_version_id").references(() => majorDirectoryVersions.id),
+  sourceId: uuid("source_id").references(() => majorSources.id),
+  educationLevel: text("education_level").default("undergraduate").notNull(),
+  entryType: text("entry_type").default("major").notNull(),
+  isCurrent: boolean("is_current").default(true).notNull(),
+  status: text("status").default("active").notNull(),
+  effectiveFrom: date("effective_from"),
+  deprecatedAt: date("deprecated_at"),
   sortOrder: integer("sort_order").default(0).notNull(),
   ...timestamps,
-}, (table) => [uniqueIndex("majors_category_name_uidx").on(table.categoryId, table.name), index("majors_name_idx").on(table.name)]);
+}, (table) => [uniqueIndex("majors_category_name_version_uidx").on(table.categoryId, table.name, table.directoryVersionId), index("majors_name_idx").on(table.name), index("majors_code_level_version_idx").on(table.code, table.educationLevel, table.directoryVersionId), index("majors_current_idx").on(table.isCurrent, table.educationLevel)]);
 
 export const regions = pgTable("regions", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -286,6 +298,8 @@ export const userProfiles = pgTable("user_profiles", {
   degree: text("degree").notNull(),
   majorId: uuid("major_id").references(() => majors.id),
   otherMajor: text("other_major"),
+  pendingMajorText: text("pending_major_text"),
+  majorSelectionStatus: text("major_selection_status").default("unselected").notNull(),
   acceptNationwide: boolean("accept_nationwide").default(false).notNull(),
   acceptAnyMajor: boolean("accept_any_major").default(false).notNull(),
   preferenceTypes: jsonb("preference_types").$type<string[]>().default([]).notNull(),
@@ -629,6 +643,9 @@ export const majorAliases = pgTable("major_aliases", {
   aliasName: text("alias_name").notNull(),
   aliasType: text("alias_type").notNull(),
   source: text("source"),
+  sourceId: uuid("source_id").references(() => majorSources.id),
+  confidence: integer("confidence"),
+  isOfficial: boolean("is_official").default(false).notNull(),
   status: text("status").default("active").notNull(),
   ...timestamps,
 }, (table) => [uniqueIndex("major_aliases_major_name_uidx").on(table.majorId, table.aliasName), index("major_aliases_name_idx").on(table.aliasName)]);
@@ -650,6 +667,9 @@ export const recruitmentMajorRules = pgTable("recruitment_major_rules", {
   recruitmentProjectId: uuid("recruitment_project_id").notNull().references(() => recruitmentProjects.id),
   ruleType: text("rule_type").notNull(),
   ruleValue: text("rule_value").notNull(),
+  majorId: uuid("major_id").references(() => majors.id),
+  majorCategoryId: uuid("major_category_id").references(() => majorCategories.id),
+  confidence: integer("confidence"),
   originalText: text("original_text").notNull(),
   confidenceLevel: text("confidence_level").default("manual").notNull(),
   requiresManualReview: boolean("requires_manual_review").default(true).notNull(),
@@ -696,3 +716,90 @@ export const notificationDeliveries = pgTable("notification_deliveries", {
   failureReason: text("failure_reason"),
   ...timestamps,
 }, (table) => [uniqueIndex("notification_deliveries_dedupe_uidx").on(table.deduplicationKey), index("notification_deliveries_user_idx").on(table.userId, table.scheduledAt)]);
+
+/** Versioned official directory sources. Raw PDFs are kept outside the app bundle; the import checksum is the audit anchor. */
+export const majorSources = pgTable("major_sources", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  publisher: text("publisher").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  noticeUrl: text("notice_url"),
+  sourceFileName: text("source_file_name"),
+  contentHash: text("content_hash"),
+  publishedAt: date("published_at"),
+  importedAt: timestamp("imported_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [uniqueIndex("major_sources_hash_uidx").on(table.contentHash), index("major_sources_publisher_idx").on(table.publisher)]);
+
+export const majorDirectoryVersions = pgTable("major_directory_versions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  directoryType: text("directory_type").notNull(),
+  version: text("version").notNull(),
+  sourceId: uuid("source_id").notNull().references(() => majorSources.id),
+  effectiveFrom: date("effective_from"),
+  effectiveTo: date("effective_to"),
+  isCurrent: boolean("is_current").default(false).notNull(),
+  itemCount: integer("item_count").default(0).notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("major_directory_type_version_uidx").on(table.directoryType, table.version), index("major_directory_current_idx").on(table.directoryType, table.isCurrent)]);
+
+export const disciplines = pgTable("disciplines", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  parentId: uuid("parent_id"),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  educationLevel: text("education_level").notNull(),
+  directoryVersionId: uuid("directory_version_id").notNull().references(() => majorDirectoryVersions.id),
+  isCurrent: boolean("is_current").default(true).notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("disciplines_code_version_level_uidx").on(table.code, table.directoryVersionId, table.educationLevel), index("disciplines_parent_idx").on(table.parentId), index("disciplines_name_idx").on(table.name)]);
+
+export const professionalDegreeCategories = pgTable("professional_degree_categories", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  disciplineId: uuid("discipline_id").references(() => disciplines.id),
+  directoryVersionId: uuid("directory_version_id").notNull().references(() => majorDirectoryVersions.id),
+  masterOnly: boolean("master_only").default(false).notNull(),
+  isCurrent: boolean("is_current").default(true).notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("professional_degree_code_version_uidx").on(table.code, table.directoryVersionId), index("professional_degree_name_idx").on(table.name)]);
+
+export const majorSuccessorMappings = pgTable("major_successor_mappings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  fromMajorId: uuid("from_major_id").notNull().references(() => majors.id),
+  toMajorId: uuid("to_major_id").notNull().references(() => majors.id),
+  mappingType: text("mapping_type").notNull(),
+  sourceId: uuid("source_id").references(() => majorSources.id),
+  note: text("note"),
+  ...timestamps,
+}, (table) => [uniqueIndex("major_successor_pair_uidx").on(table.fromMajorId, table.toMajorId), index("major_successor_from_idx").on(table.fromMajorId), index("major_successor_to_idx").on(table.toMajorId)]);
+
+export const majorImportRuns = pgTable("major_import_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sourceId: uuid("source_id").notNull().references(() => majorSources.id),
+  directoryVersionId: uuid("directory_version_id").notNull().references(() => majorDirectoryVersions.id),
+  inputFileName: text("input_file_name").notNull(),
+  inputHash: text("input_hash").notNull(),
+  rowCount: integer("row_count").default(0).notNull(),
+  acceptedCount: integer("accepted_count").default(0).notNull(),
+  rejectedCount: integer("rejected_count").default(0).notNull(),
+  status: text("status").default("pending").notNull(),
+  errorSummary: text("error_summary"),
+  importedBy: uuid("imported_by").references(() => users.id),
+  ...timestamps,
+}, (table) => [index("major_import_runs_version_idx").on(table.directoryVersionId, table.createdAt), index("major_import_runs_hash_idx").on(table.inputHash)]);
+
+export const opportunityMajorRules = pgTable("opportunity_major_rules", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  ruleType: text("rule_type").notNull(),
+  majorId: uuid("major_id").references(() => majors.id),
+  disciplineId: uuid("discipline_id").references(() => disciplines.id),
+  professionalDegreeCategoryId: uuid("professional_degree_category_id").references(() => professionalDegreeCategories.id),
+  originalText: text("original_text").notNull(),
+  confidence: integer("confidence"),
+  requiresManualReview: boolean("requires_manual_review").default(true).notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+}, (table) => [index("opportunity_major_rules_opportunity_idx").on(table.opportunityId), index("opportunity_major_rules_major_idx").on(table.majorId), index("opportunity_major_rules_discipline_idx").on(table.disciplineId)]);
