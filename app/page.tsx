@@ -68,9 +68,9 @@ function matchesOpportunityScope(project: Project, scope: string, profileMajor =
   const season = String(project.recruitmentSeason ?? "").toUpperCase();
   switch (scope) {
     case "秋招":
-      return season === "AUTUMN" || /秋招|秋季/.test(project.batch);
+      return season ? season === "AUTUMN" : /秋招|秋季/.test(project.batch);
     case "春招":
-      return season === "SPRING" || /春招|春季/.test(project.batch);
+      return season ? season === "SPRING" : /春招|春季/.test(project.batch);
     case "央企":
       return project.opportunityType === "CENTRAL_SOE" || project.companyType === "央企";
     case "国企":
