@@ -9,8 +9,9 @@ import { officialMajorDirectories } from "../app/major-directory.ts";
 import { projects } from "../app/data.ts";
 import { dataSourcesSeed } from "./seeds/data-sources.ts";
 import { organizationsSeed } from "./seeds/organizations.ts";
+import { nationalSourceDirectory, nationalSourceDirectorySummary } from "./seeds/national-source-directory.ts";
 
-export { dataSourcesSeed, organizationsSeed };
+export { dataSourcesSeed, nationalSourceDirectory, nationalSourceDirectorySummary, organizationsSeed };
 
 export const directorySeed = officialMajorDirectories.map((directory) => ({
   directoryType: directory.directoryType,
@@ -43,6 +44,7 @@ export const curatedRecruitmentSeed = projects.map((project) => ({
 }));
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log(`校招雷达：已准备 ${curatedRecruitmentSeed.length} 条人工核验招聘记录、${organizationsSeed.length} 家目标单位、${dataSourcesSeed.length} 条数据源档案。`);
+  console.log(`校招雷达：已准备 ${curatedRecruitmentSeed.length} 条人工核验招聘记录、${organizationsSeed.length} 家目标单位、${dataSourcesSeed.length} 条企业数据源档案。`);
+  console.log(`全国来源目录：${nationalSourceDirectorySummary.total} 条档案，其中省考 ${nationalSourceDirectorySummary.provincialCivilService} 条、央企入口 ${nationalSourceDirectorySummary.centralSoe} 条、地方国企重点地区 ${nationalSourceDirectorySummary.localSoe} 条；全部待核验，允许自动采集 0 条。`);
   console.log(`专业目录：本科 ${directorySeed.find((item) => item.directoryType === "undergraduate")?.itemCount ?? 0} 条，研究生 ${directorySeed.find((item) => item.directoryType === "graduate")?.itemCount ?? 0} 条。`);
 }

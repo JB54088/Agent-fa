@@ -8,6 +8,41 @@
       "when": 1785974400000,
       "tag": "0000_initial_school_radar",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786420581000,
+      "tag": "0001_ingestion_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786420581001,
+      "tag": "0002_collection_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786420581002,
+      "tag": "0003_major_directory_formalization",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786420581003,
+      "tag": "0004_deadline_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786420581004,
+      "tag": "0005_national_source_directory",
+      "breakpoints": true
     }
   ]
 }

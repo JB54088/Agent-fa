@@ -44,10 +44,12 @@ export const deadlineTypeEnum = pgEnum("deadline_type", ["FIXED_DATE", "UNTIL_FI
 export const opportunityEventTimeStatusEnum = pgEnum("opportunity_event_time_status", ["CONFIRMED", "ESTIMATED", "NOT_ANNOUNCED", "CHANGED", "ENDED"]);
 export const opportunityRequirementTypeEnum = pgEnum("opportunity_requirement_type", ["EDUCATION", "DEGREE", "MAJOR", "MAJOR_CATEGORY", "DISCIPLINE", "GRADUATION_YEAR", "FRESH_GRADUATE_STATUS", "AGE", "HOUSEHOLD_REGISTRATION", "POLITICAL_STATUS", "WORK_EXPERIENCE", "BASIC_LEVEL_EXPERIENCE", "CERTIFICATE", "LANGUAGE_LEVEL", "GENDER", "PHYSICAL_CONDITION", "WORK_REGION", "OTHER"]);
 export const adminRoleEnum = pgEnum("admin_role", ["SUPER_ADMIN", "CONTENT_ADMIN", "DATA_ENTRY", "REVIEWER", "READ_ONLY"]);
-export const sourceDiscoveryStatusEnum = pgEnum("source_discovery_status", ["AUTO_ALLOWED", "ATTACHMENT_ONLY", "MANUAL_ONLY", "NEEDS_REVIEW", "BLOCKED", "INACTIVE", "UNKNOWN"]);
+export const sourceDiscoveryStatusEnum = pgEnum("source_discovery_status", ["DISCOVERED", "AUTO_ALLOWED", "ATTACHMENT_ONLY", "MANUAL_ONLY", "NEEDS_REVIEW", "VERIFIED", "BLOCKED", "INACTIVE", "UNKNOWN"]);
 export const sourceRunStatusEnum = pgEnum("source_run_status", ["RUNNING", "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "SKIPPED", "BLOCKED"]);
 export const collectionReviewStatusEnum = pgEnum("collection_review_status", ["PENDING", "IN_REVIEW", "APPROVED", "REJECTED", "DUPLICATE", "NEEDS_MORE_INFORMATION"]);
 export const collectionReviewTaskTypeEnum = pgEnum("collection_review_task_type", ["NEW_ITEM", "CHANGED_ITEM", "POSSIBLE_DUPLICATE", "PARSE_FAILURE", "SOURCE_AUDIT", "SOURCE_HEALTH"]);
+export const sourceCategoryEnum = pgEnum("source_category", ["ENTERPRISE", "CENTRAL_SOE", "LOCAL_SOE", "NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE", "GOVERNMENT", "UNIVERSITY_EMPLOYMENT", "OTHER_OFFICIAL", "ENTERPRISE_DISCOVERY"]);
+export const sourceFrequencyEnum = pgEnum("source_frequency", ["DAILY", "EVERY_7_DAYS", "MANUAL"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -114,6 +116,8 @@ export const companies = pgTable("companies", {
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").defaultRandom().primaryKey(),
+  parentId: uuid("parent_id").references(() => organizations.id),
+  regionId: uuid("region_id").references(() => regions.id),
   name: text("name").notNull(),
   shortName: text("short_name"),
   organizationType: text("organization_type").notNull(),
@@ -125,14 +129,16 @@ export const organizations = pgTable("organizations", {
   priority: text("priority").default("P2").notNull(),
   status: text("status").default("active").notNull(),
   ...timestamps,
-}, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType)]);
+}, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType), index("organizations_parent_idx").on(table.parentId), index("organizations_region_idx").on(table.regionId)]);
 
 export const dataSources = pgTable("data_sources", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   organizationId: uuid("organization_id").references(() => organizations.id),
+  regionId: uuid("region_id").references(() => regions.id),
   companyId: uuid("company_id").references(() => companies.id),
   level: sourceLevelEnum("level").notNull(),
+  sourceCategory: sourceCategoryEnum("source_category"),
   sourceType: sourceTypeEnum("source_type"),
   collectionMethod: collectionMethodEnum("collection_method"),
   sourceUrl: text("source_url"),
@@ -167,8 +173,12 @@ export const dataSources = pgTable("data_sources", {
   lastVerifiedAt: timestamp("source_last_verified_at", { withTimezone: true }),
   publisher: text("publisher"),
   checkFrequency: text("check_frequency").default("manual").notNull(),
+  normalFrequency: sourceFrequencyEnum("normal_frequency").default("MANUAL").notNull(),
+  activeFrequency: sourceFrequencyEnum("active_frequency").default("DAILY").notNull(),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
   lastSuccessfulCollectedAt: timestamp("last_successful_collected_at", { withTimezone: true }),
+  lastChangedAt: timestamp("last_changed_at", { withTimezone: true }),
+  failureCount: integer("failure_count").default(0).notNull(),
   contentFingerprint: text("content_fingerprint"),
   requiresManualReview: boolean("requires_manual_review").default(true).notNull(),
   status: sourceStatusEnum("status").default("active").notNull(),
@@ -176,7 +186,25 @@ export const dataSources = pgTable("data_sources", {
   lastError: text("last_error"),
   adminNote: text("admin_note"),
   ...timestamps,
-}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus)]);
+}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_region_idx").on(table.regionId), index("data_sources_category_idx").on(table.sourceCategory), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus), index("data_sources_next_check_idx").on(table.nextCheckAt)]);
+
+export const sourceDiscoveries = pgTable("source_discoveries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  sourceUrl: text("source_url"),
+  sourceDomain: text("source_domain"),
+  sourceCategory: sourceCategoryEnum("source_category").notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id),
+  regionId: uuid("region_id").references(() => regions.id),
+  discoveryMethod: text("discovery_method").notNull(),
+  discoveryStatus: sourceDiscoveryStatusEnum("discovery_status").default("DISCOVERED").notNull(),
+  promotedSourceId: uuid("promoted_source_id").references(() => dataSources.id),
+  discoveredAt: timestamp("discovered_at", { withTimezone: true }).defaultNow().notNull(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  notes: text("notes"),
+  ...timestamps,
+}, (table) => [index("source_discoveries_status_idx").on(table.discoveryStatus), index("source_discoveries_category_idx").on(table.sourceCategory), index("source_discoveries_region_idx").on(table.regionId)]);
 
 export const opportunities = pgTable("opportunities", {
   id: uuid("id").defaultRandom().primaryKey(),

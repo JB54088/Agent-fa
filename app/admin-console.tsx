@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import { formatDate, projects, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
 import { dataSourcesSeed } from "../db/seeds/data-sources";
 import { organizationsSeed } from "../db/seeds/organizations";
+import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/seeds/national-source-directory";
 
-type AdminTab = "overview" | "targets" | "sources" | "review" | "imports" | "verifications" | "tasks" | "settings";
+type AdminTab = "overview" | "targets" | "coverage" | "sources" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -76,6 +77,7 @@ const taskSeed: AdminTask[] = [];
 const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "overview", label: "运营总览", icon: "⌂" },
   { id: "targets", label: "目标单位", icon: "▥" },
+  { id: "coverage", label: "全国覆盖", icon: "◎" },
   { id: "sources", label: "数据源管理", icon: "◎" },
   { id: "review", label: "采集审核", icon: "✓" },
   { id: "imports", label: "Excel导入", icon: "▤" },
@@ -132,6 +134,7 @@ export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }:
 
     {tab === "overview" && <AdminOverview pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} />}
     {tab === "targets" && <TargetOrganizationDirectory onNotify={onNotify} />}
+    {tab === "coverage" && <NationalCoverageDirectory />}
     {tab === "sources" && <SourceManagement sources={sources} onToggle={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: source.status === "已暂停" ? "待检查" : "已暂停" } : source)); onNotify("数据源状态已更新"); }} onCheck={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: "运行中", lastChecked: "刚刚", lastSuccess: "刚刚" } : source)); onNotify("已创建一次公开页面检查任务"); }} />}
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} />}
@@ -139,6 +142,35 @@ export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }:
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
     {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
   </>;
+}
+
+function NationalCoverageDirectory() {
+  const [category, setCategory] = useState("全部");
+  const categories = [
+    { value: "全部", label: "全部" },
+    { value: "PROVINCIAL_CIVIL_SERVICE", label: "31省省考" },
+    { value: "NATIONAL_CIVIL_SERVICE", label: "国考" },
+    { value: "CENTRAL_SOE", label: "央企" },
+    { value: "LOCAL_SOE", label: "地方国企" },
+    { value: "ENTERPRISE_DISCOVERY", label: "企业发现" },
+  ];
+  const visible = nationalSourceDirectory.filter((source) => category === "全部" || source.category === category);
+  return <div className="admin-section">
+    <div className="admin-panel-heading">
+      <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
+      <span className="review-guard">当前自动采集 0 条</span>
+    </div>
+    <div className="coverage-summary">
+      <div><strong>{nationalSourceDirectorySummary.total}</strong><span>全国来源档案</span></div>
+      <div><strong>{nationalSourceDirectorySummary.provincialCivilService}</strong><span>省考独立档案</span></div>
+      <div><strong>{nationalSourceDirectorySummary.centralSoe}</strong><span>央企入口档案</span></div>
+      <div><strong>{nationalSourceDirectorySummary.localSoe}</strong><span>地方国企重点地区</span></div>
+      <div><strong>{nationalSourceDirectorySummary.needsReview}</strong><span>待人工核验</span></div>
+    </div>
+    <div className="coverage-guard"><span>i</span><p>本次加入的是全国目录和审核队列，不是未经验证的爬虫清单。所有来源URL暂不预填，避免把猜测地址当成官方链接。</p></div>
+    <div className="admin-filter-bar coverage-filter">{categories.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
+    <div className="coverage-list">{visible.map((source) => <article className="coverage-card" key={source.id}><div className="coverage-card-heading"><div><span className="source-level-badge level-A">A级目录</span><strong>{source.name}</strong><small>{source.regionName ?? "全国"} · {source.requiredOfficialRoles.join("、")}</small></div><span className="source-status pending"><i />待核验</span></div><div className="coverage-card-grid"><div><span>目录分类</span><strong>{categories.find((item) => item.value === source.category)?.label ?? source.category}</strong></div><div><span>普通巡检</span><strong>{source.normalFrequency === "EVERY_7_DAYS" ? "每7天" : "每日"}</strong></div><div><span>活跃巡检</span><strong>每日</strong></div><div><span>官方URL</span><strong className="mono-text">待人工核验</strong></div></div><div className="coverage-card-footer"><span>{source.notes}</span><b>不自动采集</b></div></article>)}</div>
+  </div>;
 }
 
 function TargetOrganizationDirectory({ onNotify }: { onNotify: (message: string) => void }) {

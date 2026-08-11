@@ -1,4 +1,4 @@
-export type SourceDiscoveryStatus = "AUTO_ALLOWED" | "ATTACHMENT_ONLY" | "MANUAL_ONLY" | "NEEDS_REVIEW" | "BLOCKED" | "INACTIVE" | "UNKNOWN";
+export type SourceDiscoveryStatus = "DISCOVERED" | "AUTO_ALLOWED" | "ATTACHMENT_ONLY" | "MANUAL_ONLY" | "NEEDS_REVIEW" | "VERIFIED" | "BLOCKED" | "INACTIVE" | "UNKNOWN";
 export type SourceRunStatus = "RUNNING" | "SUCCESS" | "PARTIAL_SUCCESS" | "FAILED" | "SKIPPED" | "BLOCKED";
 export type CollectionReviewStatus = "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED" | "DUPLICATE" | "NEEDS_MORE_INFORMATION";
 export type CollectionTaskType = "NEW_ITEM" | "CHANGED_ITEM" | "POSSIBLE_DUPLICATE" | "PARSE_FAILURE" | "SOURCE_AUDIT" | "SOURCE_HEALTH";
