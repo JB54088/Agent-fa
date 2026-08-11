@@ -1,7 +1,7 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { eq, and } from "drizzle-orm";
-import { getDb, schema } from "../db/index.ts";
+import { neon } from "@neondatabase/serverless";
 
 type CollectedItem = {
   id: string;
@@ -24,22 +24,34 @@ type CollectedItem = {
 const batchPath = resolve(process.cwd(), "logs/national-collection/2026-08-11/raw_source_items.json");
 const publishVerifiedPdd = process.argv.includes("--publish-verified-pdd");
 
-function dateOrNull(value: string | null | undefined): string | null {
-  return value || null;
+/**
+ * The production app uses Neon HTTP, whose Drizzle adapter does not expose
+ * interactive transactions. The Neon client does support a real, non-
+ * interactive transaction, so this importer builds one ordered query batch.
+ */
+function stableUuid(key: string): string {
+  const hex = createHash("sha256").update(key).digest("hex").slice(0, 32);
+  const versioned = `${hex.slice(0, 12)}4${hex.slice(13)}`;
+  const variant = `${versioned.slice(0, 16)}${((parseInt(versioned[16], 16) & 0x3) | 0x8).toString(16)}${versioned.slice(17)}`;
+  return `${variant.slice(0, 8)}-${variant.slice(8, 12)}-${variant.slice(12, 16)}-${variant.slice(16, 20)}-${variant.slice(20)}`;
+}
+
+function json(value: unknown): string {
+  return JSON.stringify(value);
 }
 
 function sourceCategory(item: CollectedItem) {
   const type = String(item.normalized.type ?? "");
-  if (type === "PROVINCIAL_CIVIL_SERVICE") return "PROVINCIAL_CIVIL_SERVICE" as const;
-  if (type === "NATIONAL_CIVIL_SERVICE") return "NATIONAL_CIVIL_SERVICE" as const;
-  return "ENTERPRISE" as const;
+  if (type === "PROVINCIAL_CIVIL_SERVICE") return "PROVINCIAL_CIVIL_SERVICE";
+  if (type === "NATIONAL_CIVIL_SERVICE") return "NATIONAL_CIVIL_SERVICE";
+  return "ENTERPRISE";
 }
 
 function opportunityType(item: CollectedItem) {
   const type = String(item.normalized.type ?? "");
-  if (type === "PROVINCIAL_CIVIL_SERVICE") return "PROVINCIAL_CIVIL_SERVICE" as const;
-  if (type === "NATIONAL_CIVIL_SERVICE") return "NATIONAL_CIVIL_SERVICE" as const;
-  return "ENTERPRISE_CAMPUS" as const;
+  if (type === "PROVINCIAL_CIVIL_SERVICE") return "PROVINCIAL_CIVIL_SERVICE";
+  if (type === "NATIONAL_CIVIL_SERVICE") return "NATIONAL_CIVIL_SERVICE";
+  return "ENTERPRISE_CAMPUS";
 }
 
 function isPdd(item: CollectedItem) {
@@ -52,161 +64,157 @@ function dedupeKey(item: CollectedItem, organizationId: string) {
   return `${organizationId}:${item.title.trim()}:${year}:${batch}`;
 }
 
+async function countRows(sql: any) {
+  const result = await sql`
+    SELECT
+      (SELECT count(*)::int FROM organizations) AS organizations,
+      (SELECT count(*)::int FROM data_sources) AS data_sources,
+      (SELECT count(*)::int FROM raw_source_items) AS raw_source_items,
+      (SELECT count(*)::int FROM staging_opportunities) AS staging_opportunities,
+      (SELECT count(*)::int FROM opportunities) AS opportunities
+  `;
+  return result[0] as Record<string, number>;
+}
+
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required; current batch was not imported.");
   const items = JSON.parse(await readFile(batchPath, "utf8")) as CollectedItem[];
-  const db = getDb();
-  const summary = { rawInserted: 0, stagingInserted: 0, published: 0, pendingReview: 0 };
+  const sql = neon(databaseUrl);
+  const before = await countRows(sql);
+  const queries: any[] = [];
 
-  await db.transaction(async (tx) => {
-    const rawIds = new Map<string, string>();
-    const organizationIds = new Map<string, string>();
-    const sourceIds = new Map<string, string>();
+  for (const item of items) {
+    const organizationName = String(item.normalized.organization ?? item.source_domain);
+    const organizationId = stableUuid(`organization:${organizationName}`);
+    const sourceId = stableUuid(`source:${item.source_url}`);
+    const rawId = stableUuid(`raw:${item.id}`);
+    const key = dedupeKey(item, organizationId);
+    const stagingId = stableUuid(`staging:${key}`);
+    const verifiedPdd = isPdd(item) && item.review_status === "approved";
+    const shouldPublish = publishVerifiedPdd && verifiedPdd;
+    const opportunityId = stableUuid(`opportunity:${key}`);
+    const type = String(item.normalized.type ?? "");
+    const isGovernment = type.includes("CIVIL_SERVICE") || item.source_domain.endsWith("gov.cn");
+    const normalizedYear = item.normalized.year == null ? null : Number(item.normalized.year);
+    const batchName = String(item.normalized.batch ?? "未标明批次");
+    const deadlineType = String(item.normalized.deadline_type ?? "NOT_ANNOUNCED");
 
-    for (const item of items) {
-      const organizationName = String(item.normalized.organization ?? item.source_domain);
-      let organizationId = organizationIds.get(organizationName) ?? "";
-      if (!organizationId) {
-        const existing = await tx.select({ id: schema.organizations.id }).from(schema.organizations).where(eq(schema.organizations.name, organizationName)).limit(1);
-        organizationId = existing[0]?.id ?? "";
-        if (!organizationId) {
-          const inserted = await tx.insert(schema.organizations).values({
-            name: organizationName,
-            shortName: organizationName,
-            organizationType: String(item.normalized.type ?? "招聘单位"),
-            level: "重点来源",
-            priority: isPdd(item) ? "P0" : "P1",
-          }).returning({ id: schema.organizations.id });
-          organizationId = inserted[0].id;
-        }
-        if (!organizationId) throw new Error(`Could not resolve organization: ${organizationName}`);
-        organizationIds.set(organizationName, organizationId);
-      }
+    queries.push(sql`
+      INSERT INTO organizations (id, name, short_name, organization_type, level, priority, status)
+      VALUES (${organizationId}, ${organizationName}, ${organizationName}, ${String(item.normalized.type ?? "招聘单位")}, ${isPdd(item) ? "重点官方来源" : "官方来源"}, ${isPdd(item) ? "P0" : "P1"}, 'active')
+      ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+    `);
 
-      let sourceId = sourceIds.get(item.source_url) ?? "";
-      if (!sourceId) {
-        const existing = await tx.select({ id: schema.dataSources.id }).from(schema.dataSources).where(eq(schema.dataSources.sourceUrl, item.source_url)).limit(1);
-        sourceId = existing[0]?.id ?? "";
-        if (!sourceId) {
-          const inserted = await tx.insert(schema.dataSources).values({
-            name: `${organizationName}官方来源`,
-            organizationId,
-            level: "A级",
-            sourceCategory: sourceCategory(item),
-            sourceType: item.source_domain.includes("gov.cn") ? "政府官网" : "企业官网",
-            collectionMethod: "HTML页面",
-            sourceUrl: item.source_url,
-            sourceDomain: item.source_domain,
-            discoveryStatus: "VERIFIED",
-            automationAllowed: false,
-            requiresManualReview: true,
-            checkFrequency: "manual",
-            adminNote: "本批次人工访问记录；自动采集权限仍关闭。",
-          }).returning({ id: schema.dataSources.id });
-          sourceId = inserted[0].id;
-        }
-        if (!sourceId) throw new Error(`Could not resolve source: ${item.source_url}`);
-        sourceIds.set(item.source_url, sourceId);
-      }
+    queries.push(sql`
+      INSERT INTO data_sources (
+        id, name, organization_id, level, source_category, source_type,
+        collection_method, source_url, source_domain, discovery_status,
+        automation_allowed, requires_manual_review, check_frequency, status, admin_note
+      )
+      VALUES (
+        ${sourceId}, ${`${organizationName}官方来源`}, ${organizationId},
+        'A级', ${sourceCategory(item)}, ${isGovernment ? "政府官网" : "企业官网"},
+        'HTML页面', ${item.source_url}, ${item.source_domain}, 'VERIFIED',
+        false, true, 'manual', 'active', '本批次人工访问记录；自动采集权限仍关闭。'
+      )
+      ON CONFLICT (id) DO NOTHING
+    `);
 
-      const existingRaw = await tx.select({ id: schema.rawSourceItems.id }).from(schema.rawSourceItems).where(eq(schema.rawSourceItems.contentHash, item.content_hash)).limit(1);
-      let rawId = existingRaw[0]?.id ?? "";
-      if (!rawId) {
-        const rawValues = {
-          dataSourceId: sourceId,
-          sourceUrl: item.source_url,
-          originalTitle: item.title,
-          originalContent: item.raw_text,
-          collectedAt: dateOrNull(item.fetched_at) ?? new Date(),
-          publishedAt: dateOrNull(item.published_at),
-          contentHash: item.content_hash,
-          parserName: item.parser_name,
-          parserResult: { externalId: item.id, batchId: item.batch_id, normalized: item.normalized, legacyReviewStatus: item.review_status, legacyDecision: item.decision },
-          parseStatus: item.parse_status,
-          reviewStatus: "pending",
-          duplicateStatus: item.duplicate_status,
-          contentSummary: item.raw_text.slice(0, 400),
-        } as unknown as typeof schema.rawSourceItems.$inferInsert;
-        const inserted = await tx.insert(schema.rawSourceItems).values(rawValues).returning({ id: schema.rawSourceItems.id });
-        rawId = inserted[0].id;
-        summary.rawInserted += 1;
-      }
-      if (!rawId) throw new Error(`Could not resolve raw item: ${item.id}`);
-      rawIds.set(item.id, rawId);
+    queries.push(sql`
+      INSERT INTO raw_source_items (
+        id, data_source_id, source_url, original_title, original_content,
+        attachment_urls, published_at, collected_at, content_hash,
+        content_summary, parser_name, parser_result, normalized_payload,
+        parse_status, review_status, duplicate_status
+      )
+      VALUES (
+        ${rawId}, ${sourceId}, ${item.source_url}, ${item.title}, ${item.raw_text},
+        '[]'::jsonb, ${item.published_at}, ${item.fetched_at}, ${item.content_hash},
+        ${item.raw_text.slice(0, 400)}, ${item.parser_name},
+        ${json({ externalId: item.id, batchId: item.batch_id, legacyReviewStatus: item.review_status, legacyDecision: item.decision })}::jsonb,
+        ${json(item.normalized)}::jsonb, ${item.parse_status}, 'pending', ${item.duplicate_status}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `);
 
-      const key = dedupeKey(item, organizationId);
-      const existingStaging = await tx.select({ id: schema.stagingOpportunities.id }).from(schema.stagingOpportunities).where(eq(schema.stagingOpportunities.dedupeKey, key)).limit(1);
-      if (existingStaging.length) continue;
+    queries.push(sql`
+      INSERT INTO staging_opportunities (
+        id, raw_source_item_id, data_source_id, organization_id,
+        company_name, project_name, recruitment_batch, graduation_years,
+        degree_requirements, original_major_text, normalized_major_names,
+        major_categories, work_locations, published_at, announcement_url,
+        application_url, relevance_status, validation_errors, dedupe_key,
+        review_status, reviewer_note
+      )
+      VALUES (
+        ${stagingId}, ${rawId}, ${sourceId}, ${organizationId},
+        ${organizationName}, ${item.title}, ${batchName}, ${json(normalizedYear == null ? [] : [normalizedYear])}::jsonb,
+        '[]'::jsonb, ${isPdd(item) ? "以官方岗位详情为准" : item.raw_text.slice(0, 500)},
+        '[]'::jsonb, '[]'::jsonb, ${json([String(item.normalized.region ?? "全国")])}::jsonb,
+        ${item.published_at}, ${item.source_url}, ${item.source_url},
+        ${shouldPublish ? "CURRENT_OPEN" : "HISTORICAL"}, '[]'::jsonb, ${key},
+        ${shouldPublish ? "APPROVED" : "PENDING"},
+        ${shouldPublish ? "沿用批次日志中的人工核验结论；未绕过原始层。" : "待管理员在数据库审核工作台复核。"}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `);
 
-      const isPddVerified = isPdd(item) && item.review_status === "approved";
-      const stagingRows = await tx.insert(schema.stagingOpportunities).values({
-        rawSourceItemId: rawId,
-        dataSourceId: sourceId,
-        organizationId,
-        companyName: organizationName,
-        projectName: item.title,
-        recruitmentBatch: String(item.normalized.batch ?? "未标明批次"),
-        graduationYears: item.normalized.year == null ? [] : [Number(item.normalized.year)],
-        degreeRequirements: [],
-        originalMajorText: isPdd(item) ? "以官方岗位详情为准" : item.raw_text.slice(0, 500),
-        normalizedMajorNames: [],
-        majorCategories: [],
-        workLocations: [String(item.normalized.region ?? "全国")],
-        publishedAt: dateOrNull(item.published_at),
-        announcementUrl: item.source_url,
-        applicationUrl: item.source_url,
-        relevanceStatus: isPddVerified ? "CURRENT_OPEN" : "HISTORICAL",
-        validationErrors: [],
-        dedupeKey: key,
-        reviewStatus: publishVerifiedPdd && isPddVerified ? "APPROVED" : "PENDING",
-        reviewerNote: publishVerifiedPdd && isPddVerified ? "沿用批次日志中的人工核验结论；未绕过原始层。" : "待管理员在数据库审核工作台复核。",
-      }).returning({ id: schema.stagingOpportunities.id });
-      summary.stagingInserted += 1;
+    if (shouldPublish) {
+      queries.push(sql`
+        INSERT INTO opportunities (
+          id, title, organization_id, opportunity_type, recruitment_season,
+          recruitment_year, target_graduation_years, batch_name, description,
+          work_locations, degree_requirements, major_requirement_text,
+          official_announcement_url, official_application_url, source_id,
+          source_level, verification_status, last_verified_at,
+          publication_status, calculated_status, manual_status, deadline_type,
+          opportunity_relevance_status, data_credibility, is_demo
+        )
+        VALUES (
+          ${opportunityId}, ${item.title}, ${organizationId}, ${opportunityType(item)},
+          ${item.normalized.season == null ? null : String(item.normalized.season)}, ${normalizedYear},
+          ${json(normalizedYear == null ? [] : [normalizedYear])}::jsonb, ${batchName}, ${item.raw_text},
+          '["全国"]'::jsonb, '[]'::jsonb, '以官方岗位详情为准',
+          ${item.source_url}, ${item.source_url}, ${sourceId}, 'A级', 'verified', now(),
+          'published', 'recruiting', 'recruiting', ${deadlineType}, 'CURRENT_OPEN',
+          'A级官方页面 + 人工核验', false
+        )
+        ON CONFLICT (id) DO NOTHING
+      `);
 
-      if (!publishVerifiedPdd || !isPddVerified) {
-        summary.pendingReview += 1;
-        continue;
-      }
+      queries.push(sql`
+        UPDATE staging_opportunities
+        SET promoted_opportunity_id = ${opportunityId}, review_status = 'APPROVED', reviewed_at = now(), updated_at = now()
+        WHERE id = ${stagingId}
+      `);
 
-      const existingOpportunity = await tx.select({ id: schema.opportunities.id }).from(schema.opportunities).where(and(eq(schema.opportunities.organizationId, organizationId), eq(schema.opportunities.title, item.title))).limit(1);
-      let opportunityId = existingOpportunity[0]?.id;
-      if (!opportunityId) {
-        const inserted = await tx.insert(schema.opportunities).values({
-          title: item.title,
-          organizationId,
-          opportunityType: opportunityType(item),
-          recruitmentSeason: String(item.normalized.season ?? ""),
-          recruitmentYear: item.normalized.year == null ? null : Number(item.normalized.year),
-          targetGraduationYears: item.normalized.year == null ? [] : [Number(item.normalized.year)],
-          batchName: String(item.normalized.batch ?? "未标明批次"),
-          description: item.raw_text,
-          workLocations: ["全国"],
-          degreeRequirements: [],
-          majorRequirementText: "以官方岗位详情为准",
-          officialAnnouncementUrl: item.source_url,
-          officialApplicationUrl: item.source_url,
-          sourceId,
-          sourceLevel: "A级",
-          verificationStatus: "verified",
-          lastVerifiedAt: new Date(),
-          publicationStatus: "published",
-          calculatedStatus: "recruiting",
-          manualStatus: "recruiting",
-          opportunityRelevanceStatus: "CURRENT_OPEN",
-          deadlineType: String(item.normalized.deadline_type ?? "NOT_ANNOUNCED") as "NOT_ANNOUNCED",
-          dataCredibility: "A级官方页面 + 人工核验",
-          isDemo: false,
-        }).returning({ id: schema.opportunities.id });
-        opportunityId = inserted[0].id;
-        summary.published += 1;
-      }
-      await tx.update(schema.stagingOpportunities).set({ promotedOpportunityId: opportunityId, updatedAt: new Date() }).where(eq(schema.stagingOpportunities.id, stagingRows[0].id));
-      await tx.update(schema.rawSourceItems).set({ promotedOpportunityId: opportunityId, reviewStatus: "converted", reviewedAt: new Date(), updatedAt: new Date() }).where(eq(schema.rawSourceItems.id, rawId));
+      queries.push(sql`
+        UPDATE raw_source_items
+        SET promoted_opportunity_id = ${opportunityId}, review_status = 'converted', reviewed_at = now(), updated_at = now()
+        WHERE id = ${rawId}
+      `);
     }
-  });
+  }
 
-  console.log(JSON.stringify({ batch: batchPath, publishVerifiedPdd, ...summary }, null, 2));
+  await sql.transaction(queries, { isolationLevel: "ReadCommitted" });
+  const after = await countRows(sql);
+  const summary = {
+    batch: batchPath,
+    publishVerifiedPdd,
+    inputItems: items.length,
+    pddItemsPublished: items.filter((item) => publishVerifiedPdd && isPdd(item) && item.review_status === "approved").length,
+    pendingReviewItems: items.filter((item) => !(publishVerifiedPdd && isPdd(item) && item.review_status === "approved")).length,
+    inserted: {
+      organizations: after.organizations - before.organizations,
+      dataSources: after.data_sources - before.data_sources,
+      rawSourceItems: after.raw_source_items - before.raw_source_items,
+      stagingOpportunities: after.staging_opportunities - before.staging_opportunities,
+      opportunities: after.opportunities - before.opportunities,
+    },
+    totals: after,
+  };
+  console.log(JSON.stringify(summary, null, 2));
 }
 
 main().catch((error) => {
