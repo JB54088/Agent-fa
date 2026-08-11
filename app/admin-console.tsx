@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { formatDate, projects, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
+import { useEffect, useMemo, useState } from "react";
+import { formatDate, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
 import { dataSourcesSeed } from "../db/seeds/data-sources";
 import { organizationsSeed } from "../db/seeds/organizations";
 import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/seeds/national-source-directory";
@@ -54,21 +54,7 @@ type AdminTask = {
   note: string;
 };
 
-const sourceSeed: SourceRecord[] = Array.from(new Map(projects.map((project) => [project.sourceName, project])).values()).map((project, index) => ({
-  id: `source-${index + 1}`,
-  name: project.sourceName,
-  company: project.company,
-  type: project.sourceType ?? "招聘官网",
-  level: project.sourceLevel,
-  method: "人工整理 + 公开页面核验",
-  frequency: "每日",
-  lastChecked: project.verifiedAt,
-  lastSuccess: project.officialPageStatus === "待复核" ? "待复核" : project.verifiedAt,
-  fingerprint: "人工核验记录",
-  status: project.officialPageStatus === "待复核" ? "待检查" : "运行中",
-  review: true,
-  note: project.note ?? "保留官方公告和报名入口，变化后创建人工复核任务",
-}));
+const sourceSeed: SourceRecord[] = [];
 
 // 静态站点不伪造原始采集记录或管理员任务；真实数据进入数据库后由接口填充。
 const rawSeed: RawItem[] = [];
@@ -86,19 +72,40 @@ const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "settings", label: "站点配置", icon: "⚙" },
 ];
 
-export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }: { brand: BrandConfig; onBrandChange: (brand: BrandConfig) => void; onOpen: (project: Project) => void; onNotify: (message: string) => void }) {
+export default function AdminConsole({ projects: catalogProjects, brand, onBrandChange, onOpen, onNotify }: { projects: Project[]; brand: BrandConfig; onBrandChange: (brand: BrandConfig) => void; onOpen: (project: Project) => void; onNotify: (message: string) => void }) {
   const [tab, setTab] = useState<AdminTab>("overview");
   const [sources, setSources] = useState(sourceSeed);
   const [rawItems, setRawItems] = useState(rawSeed);
   const [tasksState, setTasksState] = useState(taskSeed);
   const [selectedRawId, setSelectedRawId] = useState("");
 
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/collection-review")
+      .then((response) => response.json() as Promise<{ ok?: boolean; items?: RawItem[] }>)
+      .then((payload) => {
+        if (active && payload.ok && Array.isArray(payload.items)) setRawItems(payload.items);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   const pendingReview = rawItems.filter((item) => ["待审核", "审核中"].includes(item.reviewStatus)).length;
   const openTasks = tasksState.filter((task) => task.status !== "已完成").length;
 
-  function updateRaw(id: string, status: RawStatus, message: string) {
-    setRawItems((current) => current.map((item) => item.id === id ? { ...item, reviewStatus: status } : item));
-    onNotify(message);
+  async function updateRaw(id: string, status: RawStatus, message: string) {
+    try {
+      const response = await fetch("/api/admin/collection-review", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, status, note: message }),
+      });
+      if (!response.ok) throw new Error("review_action_failed");
+      setRawItems((current) => current.map((item) => item.id === id ? { ...item, reviewStatus: status } : item));
+      onNotify(message);
+    } catch {
+      onNotify("审核操作未保存：数据库或管理员权限尚未连接");
+    }
   }
 
   function claimTask(task: AdminTask) {
@@ -132,13 +139,13 @@ export default function AdminConsole({ brand, onBrandChange, onOpen, onNotify }:
       {tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
     </div>
 
-    {tab === "overview" && <AdminOverview pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} />}
+    {tab === "overview" && <AdminOverview projects={catalogProjects} pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} />}
     {tab === "targets" && <TargetOrganizationDirectory onNotify={onNotify} />}
     {tab === "coverage" && <NationalCoverageDirectory />}
     {tab === "sources" && <SourceManagement sources={sources} onToggle={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: source.status === "已暂停" ? "待检查" : "已暂停" } : source)); onNotify("数据源状态已更新"); }} onCheck={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: "运行中", lastChecked: "刚刚", lastSuccess: "刚刚" } : source)); onNotify("已创建一次公开页面检查任务"); }} />}
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} />}
-    {tab === "verifications" && <VerificationPanel onNotify={onNotify} onOpen={onOpen} />}
+    {tab === "verifications" && <VerificationPanel projects={catalogProjects} onNotify={onNotify} onOpen={onOpen} />}
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
     {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
   </>;
@@ -192,7 +199,7 @@ function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: 
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SYSTEM CONFIGURATION</span><h2>站点品牌配置</h2><p>名称、Logo、首页标题和宣传文案通过配置管理，保存后同步到前台。</p></div><span className="safe-collection-badge">默认值可随时恢复</span></div><div className="brand-settings"><div className="surface brand-settings-card"><span className="section-kicker">BRAND SETTINGS</span><h3>产品对外信息</h3><p>当前版本先保存为本地草稿，正式环境由 system_configs 表持久化。</p><div className="brand-form-grid"><label className="field"><span>产品名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label className="field"><span>Logo文字</span><input value={draft.logoText} onChange={(event) => setDraft({ ...draft, logoText: event.target.value })} maxLength={3} /></label><label className="field"><span>当前服务届别</span><input value={draft.edition} onChange={(event) => setDraft({ ...draft, edition: event.target.value })} /></label><label className="field"><span>首页主标题</span><input value={draft.homeTitle} onChange={(event) => setDraft({ ...draft, homeTitle: event.target.value })} /></label><label className="field"><span>首页副标题 / 宣传文案</span><textarea value={draft.homeSubtitle} onChange={(event) => setDraft({ ...draft, homeSubtitle: event.target.value })} /></label><label className="field"><span>平台免责声明</span><textarea value={draft.disclaimer} onChange={(event) => setDraft({ ...draft, disclaimer: event.target.value })} /></label></div><div className="brand-form-actions"><button className="secondary-button" onClick={() => setDraft(siteConfig)}>恢复默认</button><button className="primary-button" onClick={() => onSave(draft)}>保存配置 <span>✓</span></button></div></div><div className="brand-preview"><span>LIVE PREVIEW</span><div className="preview-logo">{draft.logoText}</div><h3>{draft.homeTitle}</h3><p>{draft.homeSubtitle}</p><div className="config-row"><span>站点名称</span><strong>{draft.name}</strong></div><div className="config-row"><span>当前版本</span><strong>{draft.edition}</strong></div><div className="config-row"><span>数据策略</span><strong>真实数据 · 官方来源 + 人工核验</strong></div></div></div></div>;
 }
 
-function AdminOverview({ pendingReview, openTasks, onTab, onOpen }: { pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void }) {
+function AdminOverview({ projects, pendingReview, openTasks, onTab, onOpen }: { projects: Project[]; pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void }) {
   const sourceCounts = ["A级", "B级", "C级", "D级"].map((level) => ({ level, count: sourceSeed.filter((source) => source.level === level).length }));
   const healthySources = sourceSeed.filter((source) => source.status === "运行中").length;
   const healthScore = sourceSeed.length ? Math.round((healthySources / sourceSeed.length) * 100) : 0;
@@ -230,8 +237,8 @@ function ImportPanel({ onDownload, onNotify }: { onDownload: () => void; onNotif
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">EXCEL INGESTION</span><h2>Excel导入增强</h2><p>批量数据经过映射、校验、匹配和去重后，统一进入待审核状态。</p></div><button className="secondary-button" onClick={onDownload}>↓ 下载Excel模板</button></div><div className="import-steps"><span className="active"><b>01</b>上传文件</span><i>→</i><span className={preview ? "active" : ""}><b>02</b>字段映射</span><i>→</i><span className={preview ? "active" : ""}><b>03</b>预览校验</span><i>→</i><span><b>04</b>进入审核</span></div>{!preview ? <div className="upload-card"><div className="upload-icon">↑</div><h3>拖入招聘信息Excel</h3><p>支持 .xlsx、.xls、.csv，单次最多 5000 行</p><label className="primary-button">选择文件<input type="file" accept=".xlsx,.xls,.csv" hidden onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setFileName(file.name); setPreview(true); onNotify("文件已读取，等待字段映射和校验"); }} /></label><small>平台不会自动发布导入数据，确认后仍需管理员审核。</small></div> : <div className="import-preview"><div className="preview-header"><div><span className="success-tag">✓ 文件已读取</span><h3>{fileName}</h3><p>下一步执行字段映射、必填字段、日期、URL、企业、专业和重复校验。</p></div><button className="text-button" onClick={() => { setPreview(false); setFileName(""); }}>重新上传</button></div><div className="mapping-grid"><div><span>企业匹配</span><strong>待执行 · 关联企业目录</strong></div><div><span>招聘项目名称</span><strong>待执行 · 必填校验</strong></div><div><span>招聘时间</span><strong>待执行 · 日期格式校验</strong></div><div><span>官方链接</span><strong>待执行 · HTTPS URL校验</strong></div><div><span>专业标签</span><strong>待执行 · 官方专业目录匹配</strong></div><div><span>重复检测</span><strong>待执行 · 企业ID + 项目名称 + 毕业年份 + 批次</strong></div></div><div className="surface empty-state import-queue-note"><h3>等待提交校验</h3><p>文件确认后进入原始采集审核队列，不会直接写入已发布招聘信息。</p></div><button className="primary-button import-confirm" onClick={() => { setPreview(false); onNotify("已提交导入校验，等待管理员审核"); }}>提交校验并进入审核 <span>→</span></button></div>}</div>;
 }
 
-function VerificationPanel({ onNotify, onOpen }: { onNotify: (message: string) => void; onOpen: (project: Project) => void }) {
-  const items = useMemo(() => projects.filter((project) => ["ending", "recruiting", "upcoming"].includes(project.status)).slice(0, 8), []);
+function VerificationPanel({ projects, onNotify, onOpen }: { projects: Project[]; onNotify: (message: string) => void; onOpen: (project: Project) => void }) {
+  const items = useMemo(() => projects.filter((project) => ["ending", "recruiting", "upcoming"].includes(project.status)).slice(0, 8), [projects]);
   const endingCount = projects.filter((project) => project.status === "ending").length;
   const verificationCount = projects.filter((project) => project.officialPageStatus === "待复核").length;
   const linkIssueCount = projects.filter((project) => project.officialPageStatus === "无法访问").length;

@@ -43,6 +43,20 @@
       "when": 1786420581004,
       "tag": "0005_national_source_directory",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786420581005,
+      "tag": "0006_canonical_collection_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786425584000,
+      "tag": "0007_opportunity_positions",
+      "breakpoints": true
     }
   ]
 }

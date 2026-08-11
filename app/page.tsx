@@ -13,7 +13,6 @@ import {
   explainMatch,
   hasExplicitDeadline,
   majorOptions,
-  projects,
   regionOptions,
   siteConfig,
   statusClass,
@@ -22,6 +21,10 @@ import {
 import AdminConsole from "./admin-console";
 import OpportunityHub from "./opportunity-hub";
 import { DEFAULT_REMINDER_SETTINGS, type ReminderSettings } from "../lib/reminders/deadline";
+
+// The published catalog is populated only from /api/opportunities. The old
+// browser fixture is intentionally not used as a production fallback.
+let projects: Project[] = [];
 
 type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "profile" | "admin" | "about";
 type ToastTone = "success" | "info";
@@ -61,6 +64,8 @@ function readLocalStorage<T>(key: string, fallback: T): T {
 }
 
 export default function Home() {
+  const [catalog, setCatalog] = useState<Project[]>([]);
+  const [catalogState, setCatalogState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [view, setView] = useState<View>("home");
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", []));
   const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(() => readLocalStorage("radar-trackers", trackerDefaults));
@@ -87,6 +92,26 @@ export default function Home() {
     nationwide: false,
     acceptAnyMajor: true,
   });
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/opportunities")
+      .then((response) => response.json() as Promise<{ ok?: boolean; projects?: Project[] }>)
+      .then((payload) => {
+        if (!active) return;
+        const next = payload.ok && Array.isArray(payload.projects) ? payload.projects : [];
+        projects = next;
+        setCatalog(next);
+        setCatalogState(payload.ok ? "ready" : "unavailable");
+      })
+      .catch(() => {
+        if (!active) return;
+        projects = [];
+        setCatalog([]);
+        setCatalogState("unavailable");
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     try {
@@ -270,13 +295,15 @@ export default function Home() {
         </header>
 
         <div className="page-content">
-          {view === "home" && <Dashboard brand={brand} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
-          {view === "projects" && <ProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} />}
-          {view === "calendar" && <CalendarView onOpen={setSelectedProject} />}
+          {catalogState === "loading" && <div className="surface empty-state catalog-unavailable"><h3>正在读取正式招聘数据</h3><p>招聘信息来源于公开渠道；真实数据只在数据库查询成功后显示，正在加载最新已审核信息。</p></div>}
+          {catalogState === "unavailable" && <div className="surface empty-state catalog-unavailable"><h3>正式招聘数据暂时不可用</h3><p>数据库尚未连接或当前查询失败。平台不会用前端样例数据替代正式招聘信息。</p></div>}
+          {view === "home" && catalogState === "ready" && <Dashboard brand={brand} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
+          {view === "projects" && catalogState === "ready" && <ProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} />}
+          {view === "calendar" && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
           {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
           {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
           {view === "profile" && <ProfileView profile={profile} onChange={setProfile} onSave={() => notify("求职资料已保存")} />}
-          {view === "admin" && <AdminConsole brand={brand} onBrandChange={setBrand} onOpen={setSelectedProject} onNotify={notify} />}
+          {view === "admin" && <AdminConsole projects={catalog} brand={brand} onBrandChange={setBrand} onOpen={setSelectedProject} onNotify={notify} />}
           {view === "about" && <AboutView brand={brand} />}
         </div>
       </main>

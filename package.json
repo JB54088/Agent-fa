@@ -12,11 +12,14 @@
     "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/collection.test.mjs tests/major-directory.test.mjs tests/reminders.test.mjs tests/national-directory.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:import-current-batch": "node --experimental-strip-types scripts/import-current-batch.ts",
     "db:seed": "node --experimental-strip-types db/seed.ts",
     "sources:export": "node --experimental-strip-types scripts/generate-source-docs.mjs",
     "validate:major-directory": "node scripts/validate-major-directory.mjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",

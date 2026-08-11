@@ -4,9 +4,11 @@
 
 ## 当前版本
 
-- 前台展示 45 条人工整理、带官方入口的招聘记录，其中本次全国采集新增2条已核验的拼多多集团2027届校招和实习项目。
+- 前台正式数据现在只从 PostgreSQL + Drizzle 查询；数据库未连接时显示明确的不可用状态，不再把前端静态数组作为发布源。`app/real-projects.ts` 仅保留为历史迁移/开发 fixture。
 - 本次全国采集执行日志保存在 `logs/national-collection/2026-08-11/`；已实际联网扫描38个官方来源，未核验内容没有进入前台。
-- 当前部署未配置 `DATABASE_URL` 或 D1 绑定，本次2条通过记录已进入前台静态正式数据集，未冒充写入 PostgreSQL/D1。
+- 当前环境仍未配置 `DATABASE_URL`，`.openai/hosting.json` 的 D1 绑定为空；因此本次没有声称2条 PDD 记录已写入正式库，也没有启动第二轮全国采集。当前批次导入器会在缺少连接时失败退出。
+- 新链路为 `raw_source_items → staging_opportunities → opportunities`；旧 `raw_collected_items` 会在迁移中保留并复制，核对数量后再单独清理。
+- `source-access-diagnosis.csv` 记录38个来源的访问结果、空正文、超时、502、重定向、安全策略和工具错误；超时/502最多重试一次，连续3次失败后转 `NEEDS_REVIEW`。
 - 已导入教育部《普通高等学校本科专业目录（2026年）》883 条本科专业。
 - 已导入国务院学位委员会、教育部《研究生教育学科专业目录（2022年）》181 条研究生学科和专业学位类别。
 - 目录保留版本、代码、学科门类、来源 URL 和官方通知 URL。
@@ -21,6 +23,23 @@
 npm install
 npm run dev
 ```
+
+## 数据库初始化与当前批次导入
+
+先将真实 PostgreSQL 连接写入未提交的 `.env` 或部署密钥，再执行：
+
+```bash
+npm run db:migrate
+npm run db:import-current-batch
+```
+
+以上命令会把当前12条原始记录写入 raw/staging；两条 PDD 记录只有在明确带上 `--publish-verified-pdd` 时，才会沿用已有人工核验日志进入正式库：
+
+```bash
+npm run db:import-current-batch -- --publish-verified-pdd
+```
+
+未提供数据库连接时不会创建任何数据库记录。D级来源默认不能发布，必须有更高等级来源或数据库中的特别批准记录。
 
 ## 校验与构建
 

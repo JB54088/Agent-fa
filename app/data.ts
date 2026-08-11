@@ -60,6 +60,7 @@ export type Project = {
   deadline: string;
   opportunityType?: OpportunityType;
   deadlineType?: DeadlineType;
+  opportunityRelevanceStatus?: "CURRENT_OPEN" | "UPCOMING" | "RECENT_CLOSED" | "HISTORICAL" | "PUBLIC_NOTICE" | "RESULT_NOTICE" | "NOT_AN_OPPORTUNITY";
   status: ProjectStatus;
   sourceName: string;
   sourceLevel: "A级" | "B级" | "C级" | "D级";

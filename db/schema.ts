@@ -50,6 +50,8 @@ export const collectionReviewStatusEnum = pgEnum("collection_review_status", ["P
 export const collectionReviewTaskTypeEnum = pgEnum("collection_review_task_type", ["NEW_ITEM", "CHANGED_ITEM", "POSSIBLE_DUPLICATE", "PARSE_FAILURE", "SOURCE_AUDIT", "SOURCE_HEALTH"]);
 export const sourceCategoryEnum = pgEnum("source_category", ["ENTERPRISE", "CENTRAL_SOE", "LOCAL_SOE", "NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE", "GOVERNMENT", "UNIVERSITY_EMPLOYMENT", "OTHER_OFFICIAL", "ENTERPRISE_DISCOVERY"]);
 export const sourceFrequencyEnum = pgEnum("source_frequency", ["DAILY", "EVERY_7_DAYS", "MANUAL"]);
+export const stagingReviewStatusEnum = pgEnum("staging_review_status", ["PENDING", "IN_REVIEW", "AUTO_APPROVED", "APPROVED", "REJECTED", "DUPLICATE", "NEEDS_MORE_INFORMATION"]);
+export const opportunityRelevanceStatusEnum = pgEnum("opportunity_relevance_status", ["CURRENT_OPEN", "UPCOMING", "RECENT_CLOSED", "HISTORICAL", "PUBLIC_NOTICE", "RESULT_NOTICE", "NOT_AN_OPPORTUNITY"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -227,6 +229,9 @@ export const opportunities = pgTable("opportunities", {
   officialApplicationUrl: text("official_application_url"),
   sourceId: uuid("source_id").references(() => dataSources.id),
   sourceLevel: sourceLevelEnum("source_level"),
+  dSpecialApproval: boolean("d_special_approval").default(false).notNull(),
+  dSpecialApprovalReason: text("d_special_approval_reason"),
+  dSpecialApprovedBy: uuid("d_special_approved_by").references(() => users.id),
   verificationStatus: verificationStatusEnum("verification_status").default("unverified").notNull(),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
   publicationStatus: publishStatusEnum("publication_status").default("draft").notNull(),
@@ -235,6 +240,7 @@ export const opportunities = pgTable("opportunities", {
   statusOverride: boolean("status_override").default(false).notNull(),
   deadlineType: deadlineTypeEnum("deadline_type").default("NOT_ANNOUNCED").notNull(),
   deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+  opportunityRelevanceStatus: opportunityRelevanceStatusEnum("opportunity_relevance_status").default("CURRENT_OPEN").notNull(),
   dataCredibility: text("data_credibility").default("待评估").notNull(),
   isDemo: boolean("is_demo").default(false).notNull(),
   ...timestamps,
@@ -280,6 +286,20 @@ export const opportunityRegions = pgTable("opportunity_regions", {
   regionId: uuid("region_id").notNull().references(() => regions.id),
 }, (table) => [primaryKey({ columns: [table.opportunityId, table.regionId] }), index("opportunity_regions_region_idx").on(table.regionId)]);
 
+export const opportunityPositions = pgTable("opportunity_positions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  positionName: text("position_name").notNull(),
+  positionCode: text("position_code"),
+  department: text("department"),
+  location: text("location"),
+  description: text("description"),
+  requirements: text("requirements"),
+  sourceUrl: text("source_url"),
+  isActive: boolean("is_active").default(true).notNull(),
+  ...timestamps,
+}, (table) => [index("opportunity_positions_opportunity_idx").on(table.opportunityId), index("opportunity_positions_code_idx").on(table.positionCode)]);
+
 export const recruitmentProjects = pgTable("recruitment_projects", {
   id: uuid("id").defaultRandom().primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id),
@@ -298,6 +318,7 @@ export const recruitmentProjects = pgTable("recruitment_projects", {
   publishedAt: date("published_at"),
   startAt: date("start_at"),
   deadline: date("deadline"),
+  opportunityRelevanceStatus: opportunityRelevanceStatusEnum("opportunity_relevance_status").default("CURRENT_OPEN").notNull(),
   announcementUrl: text("announcement_url").notNull(),
   applicationUrl: text("application_url").notNull(),
   status: projectStatusEnum("status").default("pending_review").notNull(),
@@ -565,6 +586,69 @@ export const rawCollectedItems = pgTable("raw_collected_items", {
   errorMessage: text("error_message"),
   ...timestamps,
 }, (table) => [index("raw_items_source_collected_idx").on(table.dataSourceId, table.collectedAt), index("raw_items_review_idx").on(table.reviewStatus), index("raw_items_hash_idx").on(table.contentHash)]);
+
+/**
+ * Canonical raw layer for new collection batches. raw_collected_items remains
+ * as a compatibility table until every historical record has been migrated.
+ */
+export const rawSourceItems = pgTable("raw_source_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  dataSourceId: uuid("data_source_id").notNull().references(() => dataSources.id),
+  collectionRunId: uuid("collection_run_id").references(() => collectionRuns.id),
+  sourceUrl: text("source_url").notNull(),
+  originalTitle: text("original_title"),
+  originalContent: text("original_content"),
+  originalHtml: text("original_html"),
+  attachmentUrls: jsonb("attachment_urls").$type<string[]>().default([]).notNull(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  collectedAt: timestamp("collected_at", { withTimezone: true }).defaultNow().notNull(),
+  contentHash: text("content_hash").notNull(),
+  previousContentHash: text("previous_content_hash"),
+  contentSummary: text("content_summary"),
+  previousContentSummary: text("previous_content_summary"),
+  parserName: text("parser_name"),
+  parserResult: jsonb("parser_result"),
+  normalizedPayload: jsonb("normalized_payload"),
+  parseStatus: parseStatusEnum("parse_status").default("pending").notNull(),
+  reviewStatus: rawReviewStatusEnum("review_status").default("pending").notNull(),
+  duplicateStatus: duplicateStatusEnum("duplicate_status").default("pending").notNull(),
+  promotedOpportunityId: uuid("promoted_opportunity_id").references(() => opportunities.id),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  errorMessage: text("error_message"),
+  ...timestamps,
+}, (table) => [index("raw_source_items_source_collected_idx").on(table.dataSourceId, table.collectedAt), index("raw_source_items_review_idx").on(table.reviewStatus), index("raw_source_items_hash_idx").on(table.contentHash)]);
+
+export const stagingOpportunities = pgTable("staging_opportunities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  rawSourceItemId: uuid("raw_source_item_id").references(() => rawSourceItems.id),
+  dataSourceId: uuid("data_source_id").references(() => dataSources.id),
+  importBatchId: uuid("import_batch_id").references(() => importBatches.id),
+  organizationId: uuid("organization_id").references(() => organizations.id),
+  companyName: text("company_name").notNull(),
+  projectName: text("project_name").notNull(),
+  recruitmentBatch: text("recruitment_batch"),
+  graduationYears: jsonb("graduation_years").$type<number[]>().default([]).notNull(),
+  degreeRequirements: jsonb("degree_requirements").$type<string[]>().default([]).notNull(),
+  originalMajorText: text("original_major_text").notNull(),
+  normalizedMajorNames: jsonb("normalized_major_names").$type<string[]>().default([]).notNull(),
+  majorCategories: jsonb("major_categories").$type<string[]>().default([]).notNull(),
+  workLocations: jsonb("work_locations").$type<string[]>().default([]).notNull(),
+  publishedAt: date("published_at"),
+  startAt: date("start_at"),
+  deadline: date("deadline"),
+  announcementUrl: text("announcement_url"),
+  applicationUrl: text("application_url"),
+  relevanceStatus: opportunityRelevanceStatusEnum("relevance_status").default("CURRENT_OPEN").notNull(),
+  validationErrors: jsonb("validation_errors").$type<string[]>().default([]).notNull(),
+  dedupeKey: text("dedupe_key"),
+  reviewStatus: stagingReviewStatusEnum("review_status").default("PENDING").notNull(),
+  reviewerNote: text("reviewer_note"),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  promotedOpportunityId: uuid("promoted_opportunity_id").references(() => opportunities.id),
+  ...timestamps,
+}, (table) => [index("staging_opportunities_review_idx").on(table.reviewStatus, table.createdAt), index("staging_opportunities_dedupe_idx").on(table.dedupeKey), index("staging_opportunities_raw_idx").on(table.rawSourceItemId)]);
 
 export const sourceChangeEvents = pgTable("source_change_events", {
   id: uuid("id").defaultRandom().primaryKey(),
