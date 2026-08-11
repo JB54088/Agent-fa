@@ -1,0 +1,15 @@
+[
+  {
+    "batch_id": "NATIONAL-COLLECTION-2026-08-11",
+    "type": "NATIONAL_COLLECTION",
+    "status": "PARTIAL_SUCCESS_DATABASE_NOT_CONFIGURED",
+    "started_on": "2026-08-11",
+    "raw_source_items": 12,
+    "approved_items": 2,
+    "needs_review_items": 10,
+    "database_rows_inserted": 0,
+    "frontend_static_records_added": 2,
+    "transaction_scope": "not_started",
+    "reason": "没有 DATABASE_URL，无法建立正式库事务。"
+  }
+]
