@@ -68,7 +68,7 @@ function collectionStatus(status: string) {
   return "failed";
 }
 
-async function runBatch1(adminId: string) {
+export async function runBatch1(adminId: string | null) {
   const sql = neon(getDatabaseUrl());
   const before = await countRows(sql);
   const queries: any[] = [];
