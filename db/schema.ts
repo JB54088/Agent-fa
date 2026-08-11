@@ -38,7 +38,7 @@ export const adminTaskStatusEnum = pgEnum("admin_task_status", ["open", "claimed
 export const adminTaskTypeEnum = pgEnum("admin_task_type", ["new_recruitment", "page_changed", "official_link_invalid", "deadline_soon", "verification_overdue", "user_correction", "suspected_duplicate", "parse_failed"]);
 export const eventTimeStatusEnum = pgEnum("event_time_status", ["待公布", "预计时间", "已确认", "已变更", "已结束"]);
 export const personalTaskStatusEnum = pgEnum("personal_task_status", ["待处理", "进行中", "已完成", "已取消"]);
-export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "delivered", "failed", "skipped"]);
+export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "delivered", "cancelled", "failed", "skipped"]);
 export const opportunityTypeEnum = pgEnum("opportunity_type", ["ENTERPRISE_CAMPUS", "CENTRAL_SOE", "LOCAL_SOE", "NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE", "SELECTED_GRADUATE", "PUBLIC_INSTITUTION", "MILITARY_CIVILIAN", "OTHER"]);
 export const deadlineTypeEnum = pgEnum("deadline_type", ["FIXED_DATE", "UNTIL_FILLED", "NOT_ANNOUNCED", "LONG_TERM", "ESTIMATED", "OTHER"]);
 export const opportunityEventTimeStatusEnum = pgEnum("opportunity_event_time_status", ["CONFIRMED", "ESTIMATED", "NOT_ANNOUNCED", "CHANGED", "ENDED"]);
@@ -206,6 +206,7 @@ export const opportunities = pgTable("opportunities", {
   manualStatus: projectStatusEnum("manual_status"),
   statusOverride: boolean("status_override").default(false).notNull(),
   deadlineType: deadlineTypeEnum("deadline_type").default("NOT_ANNOUNCED").notNull(),
+  deadlineAt: timestamp("deadline_at", { withTimezone: true }),
   dataCredibility: text("data_credibility").default("待评估").notNull(),
   isDemo: boolean("is_demo").default(false).notNull(),
   ...timestamps,
@@ -352,9 +353,15 @@ export const opportunityReminderSettings = pgTable("opportunity_reminder_setting
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  remind7Days: boolean("remind_7_days").default(true).notNull(),
+  remind3Days: boolean("remind_3_days").default(true).notNull(),
+  remind1Day: boolean("remind_1_day").default(true).notNull(),
+  remindSameDay: boolean("remind_same_day").default(false).notNull(),
   beforeDays: jsonb("before_days").$type<number[]>().default([7, 3, 1]).notNull(),
-  eventTypes: jsonb("event_types").$type<string[]>().default([]).notNull(),
-  onChange: boolean("on_change").default(true).notNull(),
+  eventTypes: jsonb("event_types").$type<string[]>().default(["DEADLINE"]).notNull(),
+  changeNotificationEnabled: boolean("change_notification_enabled").default(true).notNull(),
+  autoCreated: boolean("auto_created").default(true).notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
   ...timestamps,
 }, (table) => [uniqueIndex("opportunity_reminders_user_opportunity_uidx").on(table.userId, table.opportunityId)]);
 
@@ -362,9 +369,15 @@ export const reminderSettings = pgTable("reminder_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   projectId: uuid("project_id").notNull().references(() => recruitmentProjects.id),
+  remind7Days: boolean("remind_7_days").default(true).notNull(),
+  remind3Days: boolean("remind_3_days").default(true).notNull(),
+  remind1Day: boolean("remind_1_day").default(true).notNull(),
+  remindSameDay: boolean("remind_same_day").default(false).notNull(),
   onStart: boolean("on_start").default(true).notNull(),
   beforeDays: jsonb("before_days").$type<number[]>().default([7, 3, 1]).notNull(),
   onChange: boolean("on_change").default(true).notNull(),
+  autoCreated: boolean("auto_created").default(true).notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
   ...timestamps,
 }, (table) => [uniqueIndex("reminders_user_project_uidx").on(table.userId, table.projectId)]);
 
@@ -372,9 +385,11 @@ export const notifications = pgTable("notifications", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   projectId: uuid("project_id").references(() => recruitmentProjects.id),
+  opportunityId: uuid("opportunity_id").references(() => opportunities.id),
   type: text("type").notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
+  actionUrl: text("action_url"),
   readAt: timestamp("read_at", { withTimezone: true }),
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
@@ -707,6 +722,8 @@ export const notificationDeliveries = pgTable("notification_deliveries", {
   userId: uuid("user_id").notNull().references(() => users.id),
   recruitmentProjectId: uuid("recruitment_project_id").references(() => recruitmentProjects.id),
   recruitmentEventId: uuid("recruitment_event_id").references(() => recruitmentEvents.id),
+  opportunityId: uuid("opportunity_id").references(() => opportunities.id),
+  opportunityEventId: uuid("opportunity_event_id").references(() => opportunityEvents.id),
   reminderType: text("reminder_type").notNull(),
   channel: text("channel").default("in_app").notNull(),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),

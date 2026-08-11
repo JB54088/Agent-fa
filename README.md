@@ -9,6 +9,7 @@
 - 已导入国务院学位委员会、教育部《研究生教育学科专业目录（2022年）》181 条研究生学科和专业学位类别。
 - 目录保留版本、代码、学科门类、来源 URL 和官方通知 URL。
 - 原始采集、Excel 导入、页面变化和复核任务均以人工审核为发布闸门。
+- 收藏截止提醒核心已支持截止前7天、3天、1天和可选当天提醒；消息通过站内通知展示。
 - 不绕过登录、验证码、访问限制或反爬措施。
 
 ## 本地运行
@@ -38,6 +39,17 @@ node scripts/validate-major-directory.mjs
 ```
 
 导入说明见 [data/major-directory/README.md](data/major-directory/README.md)。数据库迁移见 `drizzle/0003_major_directory_formalization.sql`，目录版本和原始文件哈希应写入 `major_sources`、`major_directory_versions` 和 `major_import_runs`。
+
+## 收藏截止提醒
+
+提醒接口和每日任务位于：
+
+- `POST/DELETE /api/favorites/:opportunityId`：收藏或取消收藏，并创建/取消未来提醒；
+- `GET/PATCH /api/reminders`：读取和修改7天、3天、1天、当天及信息变更提醒；
+- `GET /api/notifications`、`PATCH /api/notifications/:notificationId`：消息中心和已读状态；
+- `POST /api/cron/recruitment-deadline-reminders`：每日任务，使用 `Authorization: Bearer $CRON_SECRET` 调用。
+
+提醒只针对 `FIXED_DATE` 且已经核验的截止时间，数据库保存 UTC，业务时区为 `Asia/Shanghai`。生产环境必须配置真实 PostgreSQL 连接和数据库适配器；未配置时接口返回 503，不使用浏览器或内存数据冒充提醒成功。
 
 ## 安全清理
 

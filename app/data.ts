@@ -1,5 +1,6 @@
 import { realProjects } from "./real-projects";
 import { majorOptions } from "./major-directory";
+import { isFixedConfirmedDeadline } from "../lib/reminders/deadline";
 
 export type BrandConfig = {
   name: string;
@@ -78,6 +79,11 @@ export type Project = {
 export const projects = realProjects;
 export const notificationSeed: Array<{ id: string; icon: string; title: string; text: string; time: string; unread: boolean; color: string }> = [];
 export { majorOptions };
+
+export function hasExplicitDeadline(project: Project): boolean {
+  const deadlineType = project.deadlineType ?? (project.deadline ? "FIXED_DATE" : "NOT_ANNOUNCED");
+  return isFixedConfirmedDeadline(deadlineType, project.deadline);
+}
 
 export const regionOptions = ["全国", "北京", "上海", "深圳", "杭州", "广州", "成都", "武汉", "南京", "苏州"];
 

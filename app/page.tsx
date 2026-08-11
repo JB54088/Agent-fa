@@ -2,437 +2,458 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  aiAnalysisSteps,
-  dataAssets,
-  issueTypeDistribution,
-  issueTypeOptions,
-  lineageNodes,
-  qualityIssues,
-  riskDistribution,
-  trendData,
-  type DataAsset,
-  type IssueStatus,
-  type IssueType,
-  type LineageNode,
-  type QualityIssue,
-  type ViewKey,
-  type WorkOrder,
-  type WorkOrderStatus,
-  workOrdersSeed,
-} from "./governance-mock";
+  ApplicationStatus,
+  Project,
+  ProjectStatus,
+  MatchLevel,
+  BrandConfig,
+  formatDate,
+  formatDateWithWeekday,
+  getMatch,
+  explainMatch,
+  hasExplicitDeadline,
+  majorOptions,
+  projects,
+  regionOptions,
+  siteConfig,
+  statusClass,
+  statusLabel,
+} from "./data";
+import AdminConsole from "./admin-console";
+import OpportunityHub from "./opportunity-hub";
+import { DEFAULT_REMINDER_SETTINGS, type ReminderSettings } from "../lib/reminders/deadline";
 
-type ToastTone = "success" | "info" | "warning";
-type Toast = { message: string; tone: ToastTone } | null;
+type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "profile" | "admin" | "about";
+type ToastTone = "success" | "info";
+type Toast = { message: string; tone?: ToastTone } | null;
+type UserProfile = {
+  name: string;
+  major: string;
+  degree: string;
+  graduation: string;
+  regions: string[];
+  nationwide: boolean;
+  acceptAnyMajor: boolean;
+};
+type PersonalTaskStatus = "待处理" | "进行中" | "已完成" | "已取消";
+type PersonalTask = { id: string; projectId?: string; title: string; status: PersonalTaskStatus; due?: string; suggested?: boolean };
+type AppNotification = { id: string; opportunityId: string | null; type: string; title: string; body: string; actionUrl: string | null; readAt: string | null; createdAt: string };
 
-const navItems: Array<{ key: ViewKey; label: string; icon: string; badge?: string }> = [
-  { key: "health", label: "数据健康", icon: "⌂" },
-  { key: "diagnosis", label: "智能诊断", icon: "⌁", badge: "137" },
-  { key: "root-cause", label: "根因分析", icon: "◈" },
-  { key: "lineage", label: "数据血缘", icon: "⌬" },
-  { key: "remediation", label: "整改闭环", icon: "✓", badge: "3" },
-  { key: "rules", label: "治理规则", icon: "▦" },
+const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
+  { id: "home", label: "总览", icon: "⌂" },
+  { id: "projects", label: "招聘信息", icon: "▤" },
+  { id: "calendar", label: "招聘日历", icon: "□" },
+  { id: "my-projects", label: "我的招聘", icon: "♡" },
+  { id: "messages", label: "消息中心", icon: "◌" },
 ];
 
-const analysisScenarioId = "Q-2026-0001";
+const trackerDefaults: Record<string, { status: ApplicationStatus; note: string }> = {};
+const personalTaskDefaults: PersonalTask[] = [];
 
-function readHashRoute() {
-  if (typeof window === "undefined") return { view: "health" as ViewKey, issueId: undefined };
-  const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0];
-  if (raw.startsWith("diagnosis/")) return { view: "diagnosis" as ViewKey, issueId: raw.split("/")[1] };
-  const view = raw as ViewKey;
-  return { view: navItems.some((item) => item.key === view) ? view : "health", issueId: undefined };
+function readLocalStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored ? (JSON.parse(stored) as T) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-function formatIssueStatus(status: IssueStatus) {
-  return status;
-}
+export default function Home() {
+  const [view, setView] = useState<View>("home");
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", []));
+  const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(() => readLocalStorage("radar-trackers", trackerDefaults));
+  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(() => readLocalStorage("radar-personal-tasks", personalTaskDefaults));
+  const [reminderSettings, setReminderSettings] = useState<Record<string, ReminderSettings>>({});
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [brand, setBrand] = useState<BrandConfig>(() => readLocalStorage("radar-brand-config", siteConfig));
+  const [search, setSearch] = useState("");
+  const [projectScope, setProjectScope] = useState("全部");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [externalProject, setExternalProject] = useState<Project | null>(null);
+  const [correctionProject, setCorrectionProject] = useState<Project | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [toast, setToast] = useState<Toast>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [profile, setProfile] = useState<UserProfile>({
+    name: "",
+    major: "",
+    degree: "本科",
+    graduation: "2027",
+    regions: [],
+    nationwide: false,
+    acceptAnyMajor: true,
+  });
 
-function statusClass(status: string) {
-  if (["高", "已解决", "已关闭"].includes(status)) return "status-danger";
-  if (["中", "待确认", "整改中", "待复检"].includes(status)) return "status-warning";
-  return "status-safe";
-}
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("radar-favorites", JSON.stringify(favoriteIds));
+      window.localStorage.setItem("radar-trackers", JSON.stringify(trackers));
+      window.localStorage.setItem("radar-personal-tasks", JSON.stringify(personalTasks));
+      window.localStorage.setItem("radar-brand-config", JSON.stringify(brand));
+    } catch {
+      // Local storage is limited to non-authoritative UI preferences until account APIs are connected.
+    }
+  }, [favoriteIds, trackers, personalTasks, brand]);
 
-function riskClass(risk: string) {
-  return risk === "高" ? "risk-high" : risk === "中" ? "risk-medium" : "risk-low";
-}
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/me")
+      .then((response) => response.ok ? response.json() as Promise<{ authenticated?: boolean; user?: { displayName?: string } }> : null)
+      .then((payload) => {
+        if (!active || !payload?.authenticated) return;
+        setLoggedIn(true);
+        if (payload.user?.displayName) setProfile((current) => ({ ...current, name: payload.user!.displayName! }));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
-function AppIcon({ children }: { children: string }) {
-  return <span className="app-icon" aria-hidden="true">{children}</span>;
-}
+  useEffect(() => {
+    if (!loggedIn) return;
+    let active = true;
+    fetch("/api/notifications")
+      .then((response) => response.ok ? response.json() as Promise<{ notifications?: AppNotification[] }> : null)
+      .then((payload) => { if (active && payload?.notifications) setNotifications(payload.notifications); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [loggedIn]);
 
-function AppShell({
-  view,
-  onNavigate,
-  children,
-}: {
-  view: ViewKey;
-  onNavigate: (view: ViewKey) => void;
-  children: React.ReactNode;
-}) {
+  function notify(message: string, tone: ToastTone = "success") {
+    setToast({ message, tone });
+    window.setTimeout(() => setToast(null), 2600);
+  }
+
+  async function toggleFavorite(project: Project) {
+    if (!loggedIn) {
+      setLoginOpen(true);
+      return;
+    }
+    const exists = favoriteIds.includes(project.id);
+    if (exists) {
+      setFavoriteIds((current) => current.filter((id) => id !== project.id));
+      try {
+        const response = await fetch(`/api/favorites/${encodeURIComponent(project.id)}`, { method: "DELETE" });
+        notify(response.ok ? "已取消收藏，未来截止提醒已关闭" : "已取消本地收藏，但提醒服务暂未同步", "info");
+      } catch {
+        notify("已取消本地收藏，但提醒服务暂未同步", "info");
+      }
+      return;
+    }
+
+    setFavoriteIds((current) => [...current, project.id]);
+    if (hasExplicitDeadline(project)) setReminderSettings((current) => ({ ...current, [project.id]: DEFAULT_REMINDER_SETTINGS }));
+    try {
+      const response = await fetch(`/api/favorites/${encodeURIComponent(project.id)}`, { method: "POST" });
+      if (response.ok) {
+        const payload = await response.json() as { message?: string; reminderSettings?: ReminderSettings };
+        if (payload.reminderSettings) setReminderSettings((current) => ({ ...current, [project.id]: payload.reminderSettings! }));
+        notify(payload.message ?? (hasExplicitDeadline(project) ? "收藏成功，已为你开启报名截止提醒。" : "收藏成功。该项目暂未公布明确截止日期，时间更新后将提醒你。"));
+      } else {
+        notify(hasExplicitDeadline(project) ? "已收藏，但截止提醒服务尚未连接。" : "已收藏。该项目暂未公布明确截止日期。", "info");
+      }
+    } catch {
+      notify(hasExplicitDeadline(project) ? "已收藏，但截止提醒服务尚未连接。" : "已收藏。该项目暂未公布明确截止日期。", "info");
+    }
+  }
+
+  async function updateReminderSettings(project: Project, patch: Partial<ReminderSettings>) {
+    const previous = reminderSettings[project.id] ?? DEFAULT_REMINDER_SETTINGS;
+    const next = { ...previous, ...patch };
+    setReminderSettings((current) => ({ ...current, [project.id]: next }));
+    try {
+      const response = await fetch("/api/reminders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ opportunityId: project.id, patch }) });
+      if (!response.ok) throw new Error("reminder_persistence_unavailable");
+      notify("提醒设置已保存");
+    } catch {
+      setReminderSettings((current) => ({ ...current, [project.id]: previous }));
+      notify("提醒服务尚未连接，设置未保存", "info");
+    }
+  }
+
+  async function markNotificationRead(notificationId: string) {
+    setNotifications((current) => current.map((item) => item.id === notificationId ? { ...item, readAt: new Date().toISOString() } : item));
+    try {
+      await fetch(`/api/notifications/${encodeURIComponent(notificationId)}`, { method: "PATCH" });
+    } catch {
+      // The next database refresh restores the server state if the write failed.
+    }
+  }
+
+  function updateTracker(project: Project, status: ApplicationStatus, note = "") {
+    setTrackers((current) => ({ ...current, [project.id]: { status, note: note || current[project.id]?.note || "" } }));
+    if (status === "已报名") {
+      setPersonalTasks((current) => current.some((task) => task.projectId === project.id && task.title.includes("测评")) ? current : [...current, { id: `todo-${Date.now()}`, projectId: project.id, title: "关注测评通知", status: "待处理", due: "本周", suggested: true }]);
+    }
+    if (status === "已完成测评") {
+      setPersonalTasks((current) => current.some((task) => task.projectId === project.id && task.title.includes("笔试")) ? current : [...current, { id: `todo-${Date.now()}`, projectId: project.id, title: "准备笔试", status: "待处理", due: "本周", suggested: true }]);
+    }
+    notify(`已标记为「${status}」`);
+  }
+
+  function addPersonalTask(title: string, projectId?: string) {
+    setPersonalTasks((current) => [...current, { id: `todo-${Date.now()}`, projectId, title, status: "待处理", due: "自定义" }]);
+    notify("待办事项已添加");
+  }
+
+  function togglePersonalTask(taskId: string) {
+    setPersonalTasks((current) => current.map((task) => task.id === taskId ? { ...task, status: task.status === "已完成" ? "待处理" : "已完成" } : task));
+  }
+
+  function navigate(nextView: View) {
+    setView(nextView);
+    setSearch("");
+    setFilterOpen(false);
+  }
+
+  const favoriteProjects = projects.filter((project) => favoriteIds.includes(project.id));
+
   return (
-    <div className="governance-shell">
-      <aside className="governance-sidebar">
-        <div className="product-brand" onClick={() => onNavigate("health")} role="button" tabIndex={0}>
-          <div className="product-mark"><span>AI</span></div>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand-lockup" onClick={() => navigate("home")} role="button" tabIndex={0}>
+          <div className="brand-mark"><span>{brand.logoText}</span></div>
           <div>
-            <strong>智能诊断中心</strong>
-            <small>AI Data Governance</small>
+            <div className="brand-name">{brand.name}</div>
+            <div className="brand-subtitle">校园招聘信息雷达</div>
           </div>
         </div>
 
-        <div className="sidebar-context">
-          <span className="context-dot" />
-          <div>
-            <strong>福建省企业法人主题数据域</strong>
-            <small>政企数据平台 · 生产演示域</small>
-          </div>
-        </div>
-
-        <div className="nav-caption">智能治理工作台</div>
-        <nav className="governance-nav" aria-label="治理中心主导航">
+        <div className="sidebar-section-label">工作台</div>
+        <nav className="side-nav" aria-label="主导航">
           {navItems.map((item) => (
-            <button key={item.key} className={`governance-nav-item ${view === item.key ? "active" : ""}`} onClick={() => onNavigate(item.key)}>
-              <AppIcon>{item.icon}</AppIcon>
+            <button key={item.id} className={`nav-item ${view === item.id ? "active" : ""}`} onClick={() => navigate(item.id)}>
+              <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
-              {item.badge && <em>{item.badge}</em>}
+              {((item.id === "messages" && notifications.some((notification) => !notification.readAt)) || item.id === "my-projects") && <span className={`nav-badge ${item.id === "messages" ? "nav-badge-hot" : ""}`}>{item.id === "my-projects" ? favoriteIds.length : notifications.filter((notification) => !notification.readAt).length}</span>}
             </button>
           ))}
         </nav>
 
-        <div className="sidebar-flow-card">
-          <div className="flow-card-topline"><span className="flow-pulse" />AI 治理闭环</div>
-          <strong>让问题自己找到答案</strong>
-          <p>从发现异常到自动复检，持续沉淀治理规则。</p>
-          <div className="flow-mini-line"><span>发现</span><i>→</i><span>分析</span><i>→</i><span>修复</span></div>
-        </div>
+        <div className="sidebar-section-label side-secondary-label">更多</div>
+        <nav className="side-nav" aria-label="更多导航">
+          <button className={`nav-item ${view === "profile" ? "active" : ""}`} onClick={() => navigate("profile")}><span className="nav-icon">◎</span><span>求职资料</span></button>
+          <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span></button>
+          <button className={`nav-item ${view === "about" ? "active" : ""}`} onClick={() => navigate("about")}><span className="nav-icon">i</span><span>关于平台</span></button>
+        </nav>
 
-        <div className="sidebar-footer">
-          <div className="demo-tag"><span />Demo 模拟数据</div>
-          <div className="operator-profile">
-            <div className="operator-avatar">数</div>
-            <div><strong>数据治理管理员</strong><small>省大数据运营中心</small></div>
-            <span className="operator-more">•••</span>
+        <div className="sidebar-bottom">
+          <div className="help-card">
+            <div className="help-spark">✦</div>
+            <div><strong>把机会留给准备好的人</strong><span>完善资料，匹配更精准</span></div>
           </div>
+          <button className="user-mini" onClick={() => setProfileOpen(true)}>
+            <span className="avatar">林</span>
+            <span className="user-mini-text"><strong>{loggedIn ? profile.name : "未登录"}</strong><small>{loggedIn ? `${profile.graduation}届 · ${profile.degree}` : "登录后管理招聘"}</small></span>
+            <span className="user-more">•••</span>
+          </button>
         </div>
       </aside>
 
-      <main className="governance-main">
-        <header className="governance-topbar">
-          <div className="breadcrumb"><span>福建省企业法人主题数据域</span><b>/</b><strong>{navItems.find((item) => item.key === view)?.label}</strong></div>
-          <div className="topbar-tools">
-            <span className="system-status"><i />数据服务正常</span>
-            <span className="last-sync">最后同步 2026-08-11 09:30</span>
-            <button className="topbar-icon" aria-label="帮助">?</button>
-            <button className="topbar-icon notification-dot" aria-label="通知">♧</button>
-            <div className="topbar-avatar">管</div>
+      <main className="main-column">
+        <header className="topbar">
+          <button className="mobile-brand" onClick={() => navigate("home")}><span className="brand-mark small"><span>{brand.logoText}</span></span><strong>{brand.name}</strong></button>
+          <div className="topbar-search">
+            <span className="search-icon">⌕</span>
+            <input aria-label="搜索招聘项目" value={search} onChange={(event) => { setSearch(event.target.value); if (view !== "projects") setView("projects"); }} placeholder="搜索企业、项目、专业或地区" />
+            <kbd>⌘ K</kbd>
+          </div>
+          <div className="topbar-actions">
+            <span className="trust-pill"><span className="pulse-dot" />官方来源 · 人工核验</span>
+            <button className="icon-button" aria-label="帮助" onClick={() => navigate("about")}>?</button>
+            <button className="icon-button notification-button" aria-label="消息中心" onClick={() => navigate("messages")}>♧{notifications.some((notification) => !notification.readAt) && <span />}</button>
+            <button className="top-avatar" onClick={() => setProfileOpen(true)}>林</button>
           </div>
         </header>
-        <div className="governance-content">{children}</div>
-      </main>
-    </div>
-  );
-}
 
-function PageTitle({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) {
-  return (
-    <div className="page-title-row">
-      <div>
-        <div className="page-eyebrow"><span />{eyebrow}</div>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {actions && <div className="page-actions">{actions}</div>}
-    </div>
-  );
-}
-
-function MetricCard({ label, value, note, tone, onClick }: { label: string; value: string; note: string; tone: string; onClick?: () => void }) {
-  return (
-    <button className={`metric-card ${tone}`} onClick={onClick}>
-      <span className="metric-icon"><AppIcon>{tone === "teal" ? "◈" : tone === "orange" ? "!" : tone === "red" ? "⌁" : "▦"}</AppIcon></span>
-      <span className="metric-label">{label}</span>
-      <strong>{value}</strong>
-      <small>{note}</small>
-      <span className="metric-arrow">↗</span>
-    </button>
-  );
-}
-
-function HealthScoreCard({ currentScore, forecastScore }: { currentScore: number; forecastScore: number }) {
-  return (
-    <div className="health-score-card">
-      <div>
-        <div className="card-kicker">DATA HEALTH SCORE</div>
-        <h2>数据健康评分</h2>
-        <p>基于完整性、一致性、及时性与准确性综合计算。</p>
-        <div className="score-change"><strong>{currentScore}</strong><span>→</span><b>{forecastScore}</b><small>预计整改后</small></div>
-      </div>
-      <div className="score-ring" style={{ "--score": `${currentScore * 3.6}deg` } as React.CSSProperties}><div><strong>{currentScore}</strong><small>/100</small></div></div>
-    </div>
-  );
-}
-
-function TrendChart() {
-  const maxIssues = Math.max(...trendData.map((item) => item.issues));
-  return (
-    <div className="surface chart-surface trend-surface">
-      <div className="surface-heading"><div><span className="section-kicker">QUALITY TREND</span><h3>数据质量趋势</h3></div><span className="surface-meta">近 30 天</span></div>
-      <div className="trend-chart">
-        <div className="trend-grid"><i /><i /><i /><i /></div>
-        <div className="trend-bars">
-          {trendData.map((item) => <div key={item.label} className="trend-bar-wrap"><span style={{ height: `${Math.max(22, ((item.issues - 130) / (maxIssues - 130)) * 76 + 20)}%` }} /><b>{item.score}</b><small>{item.label}</small></div>)}
+        <div className="page-content">
+          {view === "home" && <Dashboard brand={brand} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
+          {view === "projects" && <ProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} />}
+          {view === "calendar" && <CalendarView onOpen={setSelectedProject} />}
+          {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
+          {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
+          {view === "profile" && <ProfileView profile={profile} onChange={setProfile} onSave={() => notify("求职资料已保存")} />}
+          {view === "admin" && <AdminConsole brand={brand} onBrandChange={setBrand} onOpen={setSelectedProject} onNotify={notify} />}
+          {view === "about" && <AboutView brand={brand} />}
         </div>
+      </main>
+
+      {selectedProject && <ProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenExternal={() => setExternalProject(selectedProject)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
+      {externalProject && <ExternalLinkModal project={externalProject} onClose={() => setExternalProject(null)} />}
+      {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={() => { setCorrectionProject(null); notify("纠错已提交，管理员会在核验后处理"); }} />}
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={() => { window.location.assign("/signin-with-chatgpt?return_to=/"); }} />}
+      {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { setLoggedIn(false); setProfileOpen(false); notify("已退出当前账号", "info"); }} />}
+      {toast && <div className={`toast ${toast.tone === "info" ? "toast-info" : ""}`}><span>{toast.tone === "info" ? "i" : "✓"}</span>{toast.message}</div>}
+    </div>
+  );
+}
+
+function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onToggleFavorite, favoriteIds, profile, loggedIn, tasks }: { brand: BrandConfig; onNavigate: (view: View) => void; onBrowseProjects: (scope: string) => void; onLogin: () => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { name: string; major: string; degree: string; graduation: string }; loggedIn: boolean; tasks: PersonalTask[] }) {
+  const focusProjects = projects.filter((project) => project.status === "ending" || project.recommended).slice(0, 4);
+  const matchedCount = projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length;
+  const pendingTasks = tasks.filter((task) => task.status !== "已完成" && task.status !== "已取消");
+  const leadExplanation = projects[0] ? explainMatch(projects[0], profile.major) : { level: "暂无匹配依据" as MatchLevel, evidence: "当前没有可用于匹配的招聘信息。", needsManualReview: true, risk: "" };
+  const enterpriseCount = projects.filter((project) => ["央企", "地方国企"].includes(project.companyType)).length;
+  const internetCount = projects.filter((project) => ["互联网公司", "科技企业", "知名企业"].includes(project.companyType)).length;
+  const publishedToday = projects.filter((project) => project.publishedAt === new Date().toISOString().slice(0, 10)).length;
+  return (
+    <>
+      <div className="welcome-row">
+        <div><div className="eyebrow"><span className="eyebrow-line" />{brand.edition}求职季 · 早上好</div><h1>{brand.homeTitle}</h1><p className="hero-copy">{brand.homeSubtitle}</p><div className="hero-actions"><button className="primary-button" onClick={() => onNavigate("profile")}>填写专业，查看匹配 <span>→</span></button><button className="text-button" onClick={() => onNavigate("projects")}>查看近期机会 <span>↗</span></button></div></div>
+        <div className="hero-illustration"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="radar-core"><span>⌁</span><small>RADAR</small></div><span className="float-chip chip-one">央国企 <b>{enterpriseCount}</b></span><span className="float-chip chip-two">知名企业 <b>{internetCount}</b></span><span className="float-chip chip-three">今日新增 <b>{publishedToday}</b></span><span className="radar-signal signal-one" /><span className="radar-signal signal-two" /></div>
       </div>
-      <div className="chart-legend"><span><i className="legend-teal" />健康评分</span><span><i className="legend-slate" />问题数量</span><b>较上周期 +4.8%</b></div>
-    </div>
-  );
-}
 
-function IssueDistribution({ onFilter }: { onFilter: (type?: IssueType) => void }) {
-  return (
-    <div className="surface chart-surface distribution-surface">
-      <div className="surface-heading"><div><span className="section-kicker">ISSUE CATEGORIES</span><h3>问题类型分布</h3></div><button className="surface-link" onClick={() => onFilter()}>查看全部 <span>→</span></button></div>
-      <div className="distribution-list">
-        {issueTypeDistribution.map((item) => <button key={item.label} className="distribution-row" onClick={() => onFilter(item.type)}><span className={`distribution-dot ${item.tone}`} /><span>{item.label}</span><div className="distribution-track"><i className={item.tone} style={{ width: `${(item.value / 62) * 100}%` }} /></div><strong>{item.value}</strong><small>条</small></button>)}
+      <div className="notice-strip"><span className="notice-icon">i</span><span>招聘信息来源于公开渠道，平台仅提供整理、筛选和提醒服务，最终信息请以招聘单位官方网站为准。</span><button onClick={() => onNavigate("about")}>了解详情 <span>→</span></button></div>
+
+      {loggedIn ? <div className="weekly-action-board"><div><span className="section-kicker">THIS WEEK&apos;S ACTIONS</span><h2>本周求职清单</h2><p>登录后优先处理与你当前报名进度直接相关的事项。</p></div><div className="weekly-action-stats"><div><strong>{pendingTasks.length}</strong><span>待处理任务</span></div><div><strong>{projects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length}</strong><span>新增匹配</span></div></div><button className="weekly-action-link" onClick={() => onNavigate("my-projects")}>管理我的进度 <span>→</span></button></div> : <div className="guest-value-board"><div><span className="section-kicker">WHY RADAR</span><h2>不是职位堆积，而是下一步行动</h2><p>按专业解释匹配、按时间整理节点、按来源追溯公告，帮你减少筛选和错过。</p></div><div className="guest-value-points"><span>✦ 专业匹配有依据</span><span>◷ 招聘时间更清晰</span><span>↗ 官方来源可追溯</span><span>♡ 收藏与进度管理</span></div><button className="primary-button" onClick={onLogin}>填写专业，查看匹配 <span>→</span></button></div>}
+      <div className="match-evidence-strip"><span className="match-evidence-icon">✦</span><div><strong>匹配结果有依据 · {leadExplanation.level}</strong><p>{leadExplanation.evidence}</p></div><small>{leadExplanation.needsManualReview ? "需要人工核实" : "规则已解释"}</small></div>
+
+      <OpportunityHub onBrowse={onBrowseProjects} />
+
+      <div className="stats-grid">
+        <StatCard label="真实数据" value={String(projects.length).padStart(2, "0")} suffix="条" trend="官方来源已核验" icon="✦" accent="orange" />
+        <StatCard label="正在招聘" value={String(projects.filter((project) => project.status === "recruiting").length).padStart(2, "0")} suffix="个" trend="以官方页面为准" icon="◒" accent="teal" />
+        <StatCard label="7天内截止" value={String(projects.filter((project) => project.status === "ending").length).padStart(2, "0")} suffix="个" trend="未确认不补写日期" icon="◷" accent="coral" />
+        <StatCard label="与我匹配" value={String(matchedCount).padStart(2, "0")} suffix="个" trend="基于你的资料" icon="✧" accent="violet" />
       </div>
-      <div className="distribution-foot"><span>高频问题集中在经营状态与主体识别字段</span><b>AI 已标记 31 条优先分析</b></div>
-    </div>
+
+      <div className="section-heading"><div><span className="section-kicker">TODAY&apos;S FOCUS</span><h2>今天值得关注</h2></div><button className="link-button" onClick={() => onNavigate("projects")}>查看全部 <span>→</span></button></div>
+      <div className="focus-grid">
+        {focusProjects.map((project) => <ProjectCard key={project.id} project={project} compact onOpen={onOpen} onToggleFavorite={onToggleFavorite} isFavorite={favoriteIds.includes(project.id)} profileMajor={profile.major} />)}
+      </div>
+
+      <div className="lower-grid">
+        <div className="surface profile-summary"><div className="surface-heading"><div><span className="section-kicker">YOUR RADAR</span><h3>你的求职雷达</h3></div><button className="more-button" onClick={() => onNavigate("profile")}>编辑 <span>↗</span></button></div><div className="profile-line"><div className="profile-avatar-large">{profile.name.slice(0, 1) || "·"}</div><div><strong>{profile.major || "尚未选择专业"}</strong><span>{profile.degree} · {profile.graduation}届 · {profile.name || "登录后保存资料"}</span></div></div><div className="radar-progress"><div className="progress-label"><span>资料完善度</span><strong>{profile.major ? "80%" : "20%"}</strong></div><div className="progress-track"><i style={{ width: profile.major ? "80%" : "20%" }} /></div></div><div className="match-callout"><span>✦</span><p>已为你找到 <b>{matchedCount} 个</b>可重点关注的项目</p><button onClick={() => onNavigate("projects")}>去看看</button></div></div>
+        <div className="surface company-trends"><div className="surface-heading"><div><span className="section-kicker">HOT COMPANIES</span><h3>近期热门企业</h3></div><button className="more-button" onClick={() => onNavigate("projects")}>更多 <span>↗</span></button></div><div className="company-list">{[projects[2], projects[0], projects[6], projects[14]].map((project, index) => <button className="company-row" key={project.id} onClick={() => onOpen(project)}><span className={`company-mark tiny ${project.logoTone}`}>{project.shortName.slice(0, 1)}</span><span className="company-row-name"><strong>{project.company}</strong><small>{project.companyNature} · {project.companyType}</small></span><span className="company-row-count">{[8, 12, 5, 3][index]} 个项目 <span>›</span></span></button>)}</div></div>
+      </div>
+    </>
   );
 }
 
-function RiskDistribution() {
-  return (
-    <div className="surface chart-surface risk-surface">
-      <div className="surface-heading"><div><span className="section-kicker">RISK LEVEL</span><h3>风险等级分布</h3></div><span className="surface-meta">共 137 条</span></div>
-      <div className="risk-content"><div className="risk-donut"><div><strong>18</strong><small>高风险</small></div></div><div className="risk-list">{riskDistribution.map((item) => <div key={item.label}><span><i className={item.tone} />{item.label}</span><strong>{item.value}</strong><small>条</small></div>)}</div></div>
-      <div className="risk-foot"><span className="pulse-dot" />高风险问题需要责任部门在 24 小时内确认</div>
-    </div>
-  );
+function StatCard({ label, value, suffix, trend, icon, accent }: { label: string; value: string; suffix: string; trend: string; icon: string; accent: string }) {
+  return <div className="stat-card"><div className={`stat-icon ${accent}`}>{icon}</div><span className="stat-label">{label}</span><div className="stat-value">{value}<small>{suffix}</small></div><span className="stat-trend">{trend}</span></div>;
 }
 
-function AssetTable({ onAssetClick }: { onAssetClick: (asset: DataAsset) => void }) {
-  return (
-    <div className="surface asset-surface">
-      <div className="surface-heading"><div><span className="section-kicker">DATA ASSETS</span><h3>数据资产列表</h3></div><span className="surface-meta">8 张核心数据表</span></div>
-      <div className="asset-table-head"><span>数据资产</span><span>所属域</span><span>记录数</span><span>更新时间</span><span>健康度</span><span>问题数</span></div>
-      {dataAssets.map((asset) => <button key={asset.id} className="asset-row" onClick={() => onAssetClick(asset)}><span className="asset-name"><i>{asset.name.slice(0, 1)}</i><strong>{asset.name}<small>{asset.tableName}</small></strong></span><span>{asset.domain}</span><span>{asset.recordCount}</span><span>{asset.updateTime.slice(5)}</span><span><b className={`health-mini ${asset.healthScore < 75 ? "low" : asset.healthScore < 88 ? "mid" : "high"}`}>{asset.healthScore}</b></span><span><b className={asset.issueCount > 25 ? "issue-hot" : "issue-normal"}>{asset.issueCount}</b></span></button>)}
-    </div>
-  );
+function ProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOpen, onOpen, onToggleFavorite, favoriteIds, profile }: { initialScope: string; search: string; setSearch: (value: string) => void; filterOpen: boolean; setFilterOpen: (value: boolean) => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { major: string } }) {
+  const [status, setStatus] = useState<"全部" | ProjectStatus>("全部");
+  const [type, setType] = useState("全部类型");
+  const [region, setRegion] = useState("全部地区");
+  const [matchOnly, setMatchOnly] = useState(false);
+  const [scope, setScope] = useState(initialScope);
+  const filtered = useMemo(() => projects.filter((project) => {
+    const query = search.trim().toLowerCase();
+    const textMatch = !query || `${project.company} ${project.title} ${project.originalMajors} ${project.regions.join(" ")}`.toLowerCase().includes(query);
+    const scopeMatch = scope === "全部" || (scope === "秋招" && project.batch.includes("秋招")) || (scope === "春招" && project.batch.includes("春招")) || (scope === "央企" && project.companyType === "央企") || (scope === "国企" && ["央企", "地方国企"].includes(project.companyType)) || (scope === "大厂" && ["互联网公司", "科技企业", "知名企业"].includes(project.companyType)) || (scope === "即将截止" && project.status === "ending") || (scope === "不限专业" && project.noMajorLimit) || (scope === "与我匹配" && ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major)));
+    return textMatch && scopeMatch && (status === "全部" || project.status === status) && (type === "全部类型" || project.companyType === type) && (region === "全部地区" || project.regions.includes(region)) && (!matchOnly || ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major)));
+  }), [search, scope, status, type, region, matchOnly, profile.major]);
+  const scopes = ["全部", "秋招", "春招", "央企", "国企", "大厂", "即将截止", "不限专业", "与我匹配"];
+  return <>
+    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>招聘信息</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button className={`filter-button ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 筛选 <b>{[type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
+    <div className="opportunity-scope-tabs" aria-label="机会专区">{scopes.map((item) => <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>{item}</button>)}</div>
+    <div className="list-caption"><span>批次口径</span><span className="caption-divider" /><span className="soft-text">春招 = 官方标注春季/春招批次；秋招 = 官方标注秋季/秋招批次；实习与专项招聘单独展示，不混入春秋招统计。</span></div>
+    <div className="list-toolbar"><div className="list-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索企业、招聘项目、专业关键词" /></div><div className="result-count">共 <strong>{filtered.length}</strong> 个项目</div></div>
+    {filterOpen && <div className="filter-panel"><FilterSelect label="招聘状态" value={status === "全部" ? "全部状态" : statusLabel[status]} onChange={(value) => setStatus(value === "全部状态" ? "全部" : (Object.entries(statusLabel).find(([, label]) => label === value)?.[0] as ProjectStatus))} options={["全部状态", "招聘中", "即将开始", "即将截止", "已截止"]} /><FilterSelect label="企业类型" value={type} onChange={setType} options={["全部类型", "央企", "地方国企", "互联网公司", "科技企业", "制造业企业", "金融企业", "知名企业"]} /><FilterSelect label="工作地区" value={region} onChange={setRegion} options={["全部地区", ...regionOptions]} /><label className="match-filter"><input type="checkbox" checked={matchOnly} onChange={(event) => setMatchOnly(event.target.checked)} /><span className="fake-checkbox">✓</span>只看与我匹配</label><button className="reset-button" onClick={() => { setScope("全部"); setStatus("全部"); setType("全部类型"); setRegion("全部地区"); setMatchOnly(false); }}>重置</button></div>}
+    <div className="list-caption"><span>推荐排序</span><span className="caption-divider" /><span className="soft-text">优先展示与你专业匹配、近期截止的项目</span></div>
+    <div className="project-list">{filtered.length ? filtered.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpen} onToggleFavorite={onToggleFavorite} isFavorite={favoriteIds.includes(project.id)} profileMajor={profile.major} />) : <EmptyState onReset={() => { setSearch(""); setScope("全部"); setStatus("全部"); setType("全部类型"); setRegion("全部地区"); setMatchOnly(false); }} />}</div>
+  </>;
 }
 
-function RecentIssues({ issues, onIssueClick }: { issues: QualityIssue[]; onIssueClick: (issue: QualityIssue) => void }) {
-  return (
-    <div className="surface recent-surface">
-      <div className="surface-heading"><div><span className="section-kicker">RECENT FINDINGS</span><h3>最近发现的问题</h3></div><button className="surface-link" onClick={() => onIssueClick(issues[0])}>进入诊断中心 <span>→</span></button></div>
-      <div className="recent-list">{issues.slice(0, 5).map((issue) => <button key={issue.id} className="recent-row" onClick={() => onIssueClick(issue)}><span className={`recent-risk ${riskClass(issue.risk)}`} /> <span className="recent-main"><strong>{issue.description}</strong><small>{issue.id} · {issue.tableLabel} · {issue.fieldLabel}</small></span><span className="recent-confidence">AI {issue.confidence}%</span><span className={`status-pill ${statusClass(issue.status)}`}>{formatIssueStatus(issue.status)}</span></button>)}</div>
-    </div>
-  );
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  return <label className="filter-select"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select><b>⌄</b></label>;
 }
 
-function HealthDashboard({ currentScore, forecastScore, onNavigate, onIssueClick, onFilter, onAssetClick, issues }: { currentScore: number; forecastScore: number; onNavigate: (view: ViewKey) => void; onIssueClick: (issue: QualityIssue) => void; onFilter: (type?: IssueType) => void; onAssetClick: (asset: DataAsset) => void; issues: QualityIssue[] }) {
-  return (
-    <div className="page-stack">
-      <PageTitle eyebrow="AI DATA GOVERNANCE / HEALTH OVERVIEW" title="数据健康驾驶舱" description="以企业法人主体为核心，实时感知数据质量、风险分布与整改进展。" actions={<><button className="secondary-btn" onClick={() => onNavigate("lineage")}>查看数据血缘 <span>↗</span></button><button className="primary-btn" onClick={() => onNavigate("diagnosis")}>进入智能诊断 <span>→</span></button></>} />
-      <div className="dashboard-alert"><span className="alert-icon">✦</span><div><strong>AI 已发现 31 条跨系统语义冲突</strong><p>其中 18 条为高风险问题，建议优先分析企业经营状态与统一社会信用代码相关异常。</p></div><button onClick={() => onFilter("跨系统数据冲突")}>查看优先问题 <span>→</span></button></div>
-      <div className="metric-grid"><MetricCard label="核心数据表" value="8" note="已纳入 AI 诊断" tone="teal" onClick={() => onNavigate("health")} /><MetricCard label="数据记录数" value="126 万" note="较昨日 +2.1%" tone="blue" /><MetricCard label="疑似质量问题" value="137" note="较上周期 -12 条" tone="orange" onClick={() => onNavigate("diagnosis")} /><MetricCard label="高风险问题" value="18" note="需 24 小时内确认" tone="red" onClick={() => onFilter("跨系统数据冲突")} /></div>
-      <div className="dashboard-grid top-grid"><HealthScoreCard currentScore={currentScore} forecastScore={forecastScore} /><TrendChart /><IssueDistribution onFilter={onFilter} /><RiskDistribution /></div>
-      <div className="section-heading"><div><span className="section-kicker">ASSET MONITORING</span><h2>资产与问题概览</h2></div><span className="section-note">数据均标明为 Demo 模拟数据</span></div>
-      <div className="dashboard-grid bottom-grid"><AssetTable onAssetClick={onAssetClick} /><RecentIssues issues={issues} onIssueClick={onIssueClick} /></div>
-    </div>
-  );
+function EmptyState({ onReset }: { onReset: () => void }) {
+  return <div className="empty-state"><div className="empty-mark">⌁</div><h3>没有找到匹配的项目</h3><p>换个关键词或放宽筛选条件，再试一次。</p><button className="secondary-button" onClick={onReset}>清除筛选</button></div>;
 }
 
-function IssueFilters({ filter, onFilter }: { filter?: IssueType; onFilter: (type?: IssueType) => void }) {
-  return <div className="issue-filters">{issueTypeOptions.map((item) => <button key={item.label} className={filter === item.value || (!filter && !item.value) ? "active" : ""} onClick={() => onFilter(item.value)}>{item.label}{item.value && <b>{issueTypeDistribution.find((entry) => entry.type === item.value)?.value ?? ""}</b>}</button>)}</div>;
+function ProjectCard({ project, compact = false, onOpen, onToggleFavorite, isFavorite, profileMajor }: { project: Project; compact?: boolean; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; isFavorite: boolean; profileMajor: string }) {
+  const match = getMatch(project, profileMajor);
+  return <article className={`project-card ${compact ? "project-card-compact" : ""} ${project.pinned ? "is-pinned" : ""}`} onClick={() => onOpen(project)}>
+    <div className="card-topline"><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="project-heading"><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span>{project.sourceLevel === "A级" && <span className="official-tag">官方来源</span>}</div><h3>{project.title}</h3></div><button className={`favorite-button ${isFavorite ? "hearted" : ""}`} aria-label={isFavorite ? "取消收藏" : "收藏项目"} onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>{isFavorite ? "♥" : "♡"}</button></div>
+    <div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span className="plain-tag">{project.companyType}</span><span className="plain-tag">{project.batch}</span>{match !== "暂无匹配依据" && <span className={`match-tag ${match === "不限专业" ? "match-any" : ""}`}>✦ {match}</span>}</div>
+    <p className="project-summary">{project.originalMajors}</p>
+    <div className="project-meta"><span><i className="meta-icon">⌖</i>{project.regions.slice(0, 3).join(" · ")}</span><span><i className="meta-icon">▣</i>{project.degrees.join(" / ")}</span><span className={project.status === "ending" ? "deadline-hot" : ""}><i className="meta-icon">◷</i>截止 {formatDate(project.deadline)}</span></div>
+    {!compact && <div className="card-footer"><span>来源：{project.sourceName} <b className="source-level">{project.sourceLevel}</b></span><span>最近核验 {formatDate(project.verifiedAt)}</span><span className="card-open">查看详情 <b>→</b></span></div>}
+  </article>;
 }
 
-function IssueList({ issues, onIssueClick, filter, onFilter }: { issues: QualityIssue[]; onIssueClick: (issue: QualityIssue) => void; filter?: IssueType; onFilter: (type?: IssueType) => void }) {
-  return (
-    <div className="page-stack">
-      <PageTitle eyebrow="AI QUALITY DIAGNOSIS" title="AI 数据质量问题诊断" description="集中查看质量异常，筛选高风险问题并让 AI 解释问题背后的业务原因。" actions={<button className="primary-btn" onClick={() => onFilter("跨系统数据冲突")}>优先分析跨系统冲突 <span>→</span></button>} />
-      <div className="diagnosis-summary"><div><span>当前展示问题</span><strong>{issues.length}</strong><small>条样例</small></div><div><span>AI 建议高优先级</span><strong>31</strong><small>条</small></div><div><span>平均 AI 置信度</span><strong>91.4%</strong><small>基于规则与血缘</small></div><div><span>待责任部门确认</span><strong>3</strong><small>条</small></div></div>
-      <div className="filter-toolbar"><div><span className="toolbar-label">问题分类</span><IssueFilters filter={filter} onFilter={onFilter} /></div><div className="toolbar-right"><span className="data-freshness"><i />扫描完成 · 2026-08-11 09:24</span><button className="secondary-btn compact" onClick={() => onFilter()}>重置筛选</button></div></div>
-      <div className="surface issue-list-surface"><div className="issue-table-head"><span>问题编号</span><span>问题描述 / 数据表</span><span>字段</span><span>问题类型</span><span>风险</span><span>AI 置信度</span><span>发现时间</span><span>状态</span></div>{issues.map((issue) => <button key={issue.id} className="issue-table-row" onClick={() => onIssueClick(issue)}><span className="issue-id">{issue.id}<small>规则自动发现</small></span><span className="issue-description"><strong>{issue.description}</strong><small>{issue.tableLabel} · {issue.tableName}</small></span><span className="field-cell"><b>{issue.fieldLabel}</b><small>{issue.field}</small></span><span><span className="type-pill">{issue.issueType}</span></span><span><span className={`risk-pill ${riskClass(issue.risk)}`}>{issue.risk}风险</span></span><span className="confidence-cell"><strong>{issue.confidence}%</strong><i><b style={{ width: `${issue.confidence}%` }} /></i></span><span className="time-cell">{issue.foundAt}<small>约 {issue.id.endsWith("0001") ? "10" : "35"} 分钟前</small></span><span><span className={`status-pill ${statusClass(issue.status)}`}>{issue.status}</span></span></button>)}</div>
-    </div>
-  );
+function CalendarView({ onOpen }: { onOpen: (project: Project) => void }) {
+  const calendarEvents: Record<number, { label: string; type: "start" | "end"; project: Project }[]> = {};
+  projects.forEach((project) => {
+    const date = project.status === "upcoming" ? Number(project.startAt.slice(-2)) : Number(project.deadline.slice(-2));
+    if (!calendarEvents[date]) calendarEvents[date] = [];
+    calendarEvents[date].push({ label: project.status === "upcoming" ? "开始报名" : "报名截止", type: project.status === "upcoming" ? "start" : "end", project });
+  });
+  const days = Array.from({ length: 42 }, (_, index) => index - 5);
+  return <>
+    <div className="page-heading calendar-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR TIMELINE</span><h1>招聘日历</h1><p>把开始报名、报名截止和你的跟进节点放在同一张日历里。</p></div><div className="calendar-month"><button aria-label="上个月">‹</button><strong>2026年 8月</strong><button aria-label="下个月">›</button></div></div>
+    <div className="calendar-layout"><div className="surface calendar-surface"><div className="calendar-weekdays">{["一", "二", "三", "四", "五", "六", "日"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{days.map((day, index) => { const inMonth = day > 0 && day <= 31; const events = inMonth ? calendarEvents[day] ?? [] : []; return <div className={`calendar-day ${!inMonth ? "muted-day" : ""} ${day === 6 ? "today-day" : ""}`} key={`${day}-${index}`}><span className="day-number">{inMonth ? day : day <= 0 ? 27 + day : day - 31}</span>{day === 6 && <span className="today-label">今天</span>}<div className="day-events">{events.slice(0, 2).map((event) => <button key={`${event.project.id}-${event.type}`} className={`calendar-event ${event.type}`} onClick={() => onOpen(event.project)}><b>{event.type === "end" ? "截止" : "开始"}</b><span>{event.project.shortName}</span></button>)}</div></div>; })}</div></div><aside className="calendar-aside"><div className="surface upcoming-panel"><div className="surface-heading"><div><span className="section-kicker">UP NEXT</span><h3>接下来</h3></div><span className="date-count">4 件</span></div>{projects.filter((project) => project.status !== "closed").slice(0, 4).map((project) => <button className="upcoming-row" key={project.id} onClick={() => onOpen(project)}><span className={`date-bullet ${project.status === "ending" ? "hot" : ""}`}><b>{formatDate(project.deadline).split("月")[1].replace("日", "")}</b><small>8月</small></span><span><strong>{project.status === "upcoming" ? "开始报名" : "报名截止"}</strong><small>{project.shortName}</small></span><i>›</i></button>)}</div><div className="surface legend-panel"><h4>日历说明</h4><div><span className="legend-dot start" />开始报名</div><div><span className="legend-dot end" />报名截止</div><div><span className="legend-dot mine" />我的跟进</div></div></aside></div>
+  </>;
 }
 
-function AnalysisTimeline({ active, ready }: { active: boolean; ready: boolean }) {
-  const [step, setStep] = useState(active ? 0 : ready ? aiAnalysisSteps.length : 0);
-  useEffect(() => {
-    if (!active || step >= aiAnalysisSteps.length) return;
-    const timer = window.setTimeout(() => setStep((current) => current + 1), 260);
-    return () => window.clearTimeout(timer);
-  }, [active, step]);
-  const displayStep = active ? step : ready ? aiAnalysisSteps.length : 0;
-  return <div className="ai-timeline">{aiAnalysisSteps.map((item, index) => <div key={item.label} className={`ai-step ${index < displayStep ? "done" : index === displayStep && active ? "current" : ""}`}><span className="ai-step-icon">{index < displayStep ? "✓" : index + 1}</span><div><strong>{item.label}</strong><p>{index < displayStep ? item.detail : index === displayStep && active ? "AI 正在检索本地 Mock 数据与血缘关系…" : "等待分析"}</p></div><small>{index < displayStep ? "完成" : index === displayStep && active ? "分析中" : ""}</small></div>)}</div>;
+function LegacyMyProjectsView({ projects: favoriteProjects, trackers, onOpen, onToggleFavorite, onUpdateTracker }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void }) {
+  const [filter, setFilter] = useState<"全部" | ApplicationStatus>("全部");
+  const list = favoriteProjects.filter((project) => filter === "全部" || trackers[project.id]?.status === filter);
+  const statusList: ("全部" | ApplicationStatus)[] = ["全部", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"];
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MY TRACKER</span><h1>我的招聘</h1><p>收藏、进度和备注都放在这里，按自己的节奏推进。</p></div><button className="secondary-button" onClick={() => setFilter("全部")}>导出清单 <span>↓</span></button></div><div className="tracker-summary"><div><strong>{favoriteProjects.length}</strong><span>已收藏</span></div><div><strong>{favoriteProjects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{Object.values(trackers).filter((item) => item.status === "已报名").length}</strong><span>已报名</span></div><div className="tracker-summary-note"><span>✦</span><p>建议先处理 <b>7天内截止</b> 的项目，避免错过窗口。</p></div></div><div className="status-tabs">{statusList.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}{item === "全部" && <small>{favoriteProjects.length}</small>}</button>)}</div><div className="project-list">{list.length ? list.map((project) => <article className="tracker-card" key={project.id} onClick={() => onOpen(project)}><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="tracker-main"><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span></div><h3>{project.title}</h3><div className="tracker-line"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span>截止 {formatDate(project.deadline)}</span><span>✦ {getMatch(project)}</span></div>{trackers[project.id]?.note && <div className="note-line"><span>▰</span>{trackers[project.id].note}</div>}</div><div className="tracker-actions"><select value={trackers[project.id]?.status ?? "暂未处理"} onClick={(event) => event.stopPropagation()} onChange={(event) => onUpdateTracker(project, event.target.value as ApplicationStatus)} aria-label={`${project.title}报名状态`}>{["暂未处理", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"].map((status) => <option key={status}>{status}</option>)}</select><button className="favorite-button hearted" onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>♥</button></div></article>) : <EmptyState onReset={() => setFilter("全部")} />}</div></>;
 }
 
-function IssueDetail({ issue, onBack, onAnalyze, analyzing, analysisReady }: { issue: QualityIssue; onBack: () => void; onAnalyze: () => void; analyzing: boolean; analysisReady: boolean }) {
-  return (
-    <div className="page-stack detail-page">
-      <button className="back-link" onClick={onBack}>← 返回问题列表</button>
-      <PageTitle eyebrow={`ISSUE DETAIL / ${issue.id}`} title="质量问题详情" description="查看异常样本、规则证据与 AI 诊断入口。" actions={<span className={`status-pill ${statusClass(issue.status)} large-status`}>{issue.status}</span>} />
-      <div className="detail-grid"><div className="detail-main"><div className="surface issue-hero"><div className="issue-hero-top"><div><span className={`risk-pill ${riskClass(issue.risk)}`}>{issue.risk}风险</span><span className="type-pill">{issue.issueType}</span></div><span className="detail-found">发现于 {issue.foundAt}</span></div><h2>{issue.description}</h2><p>{issue.tableLabel}中的「{issue.fieldLabel}」触发了跨数据集质量检测。AI 会结合元数据、规则、血缘与历史异常进行进一步判断。</p><div className="detail-kv-grid"><div><span>问题编号</span><strong>{issue.id}</strong></div><div><span>数据表</span><strong>{issue.tableLabel}</strong><small>{issue.tableName}</small></div><div><span>异常字段</span><strong>{issue.fieldLabel}</strong><small>{issue.field}</small></div><div><span>涉及系统</span><strong>{issue.systems.length} 个</strong><small>{issue.systems.join(" / ")}</small></div></div></div><div className="surface evidence-card"><div className="surface-heading"><div><span className="section-kicker">OBSERVED EVIDENCE</span><h3>异常样本与规则证据</h3></div><span className="rule-code">RULE · Q-STATUS-004</span></div><div className="evidence-value"><span>同一主体的经营状态返回值</span><strong>{issue.sampleValue}</strong></div><div className="evidence-checks"><div><i>✓</i><span>字段定义已匹配<small>operation_status · 枚举型</small></span></div><div><i>✓</i><span>跨系统一致性规则已命中<small>同一主体状态差异不得超过 1 个同步周期</small></span></div><div><i>!</i><span>同步时间存在异常<small>源系统领先主数据 17 小时 26 分</small></span></div></div></div></div><aside className="detail-side"><div className="surface ai-action-card"><div className="ai-card-glow">✦</div><span className="section-kicker">AI DIAGNOSIS</span><h3>让 AI 分析根因</h3><p>AI 将读取元数据、字段定义、数据质量规则、上下游血缘、历史异常与数据更新时间。</p><button className="primary-btn full-width" onClick={onAnalyze} disabled={analyzing}>{analyzing ? "AI 正在分析…" : analysisReady ? "重新分析根因" : "让 AI 分析根因"}<span>{analyzing ? "···" : "→"}</span></button><AnalysisTimeline key={`${analyzing}-${analysisReady}`} active={analyzing} ready={analysisReady} /></div><div className="surface confidence-card"><span className="section-kicker">MODEL EVIDENCE</span><div className="confidence-big"><strong>{issue.confidence}%</strong><span>AI 置信度</span></div><p>基于 6 类证据综合判断，已达到高可信分析阈值。</p><div className="confidence-bar"><i style={{ width: `${issue.confidence}%` }} /></div></div></aside></div>
-    </div>
-  );
+function MyProjectsView({ projects: favoriteProjects, trackers, tasks, onOpen, onToggleFavorite, onUpdateTracker, onAddTask, onToggleTask }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; tasks: PersonalTask[]; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void; onAddTask: (title: string, projectId?: string) => void; onToggleTask: (taskId: string) => void }) {
+  return <><PersonalTasksPanel tasks={tasks} projects={favoriteProjects} onAddTask={onAddTask} onToggleTask={onToggleTask} /><LegacyMyProjectsView projects={favoriteProjects} trackers={trackers} onOpen={onOpen} onToggleFavorite={onToggleFavorite} onUpdateTracker={onUpdateTracker} /></>;
 }
 
-function LineageNodeCard({ node, onClick, compact = false }: { node: LineageNode; onClick: (node: LineageNode) => void; compact?: boolean }) {
-  return <button className={`lineage-node ${node.status} ${compact ? "compact" : ""}`} onClick={() => onClick(node)}><span className="node-type">{node.type === "system" ? "SYS" : node.type === "table" ? "DB" : node.type === "job" ? "JOB" : node.type === "api" ? "API" : "APP"}</span><strong>{node.label}</strong><small>{node.subLabel}</small><i className="node-status-dot" /></button>;
+function PersonalTasksPanel({ tasks, projects: favoriteProjects, onAddTask, onToggleTask }: { tasks: PersonalTask[]; projects: Project[]; onAddTask: (title: string, projectId?: string) => void; onToggleTask: (taskId: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const activeTasks = tasks.filter((task) => task.status !== "已取消");
+  return <div className="surface personal-task-board"><div className="surface-heading"><div><span className="section-kicker">PERSONAL ACTIONS</span><h3>我的求职待办</h3></div><span className="task-count">{activeTasks.filter((task) => task.status !== "已完成").length} 项待处理</span></div><p className="task-board-copy">把收藏的招聘项目变成下一步行动，系统会根据报名状态给出简单提示。</p><div className="task-add-row"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="添加待办，例如：修改技术岗位简历" onKeyDown={(event) => { if (event.key === "Enter" && draft.trim()) { onAddTask(draft.trim(), favoriteProjects[0]?.id); setDraft(""); } }} /><button className="primary-button" onClick={() => { if (draft.trim()) { onAddTask(draft.trim(), favoriteProjects[0]?.id); setDraft(""); } }}>＋ 添加待办</button></div><div className="personal-task-list">{activeTasks.slice(0, 5).map((task) => { const project = favoriteProjects.find((item) => item.id === task.projectId) ?? projects.find((item) => item.id === task.projectId); return <button className={`personal-task-row ${task.status === "已完成" ? "done" : ""}`} key={task.id} onClick={() => onToggleTask(task.id)}><span className="task-check">{task.status === "已完成" ? "✓" : ""}</span><span><strong>{task.title}</strong><small>{project ? project.shortName : "个人待办"} · {task.due ?? "自定义时间"}{task.suggested && <em>系统建议</em>}</small></span><b>{task.status === "已完成" ? "已完成" : task.status}</b></button>; })}</div></div>;
 }
 
-function MetadataDrawer({ node, onClose }: { node: LineageNode; onClose: () => void }) {
-  return <div className="metadata-drawer"><div className="drawer-heading"><div><span className="section-kicker">NODE METADATA</span><h3>{node.label}</h3></div><button onClick={onClose}>×</button></div><span className={`node-state ${node.status}`}>{node.status === "error" ? "异常节点" : node.status === "warning" ? "存在影响" : "运行正常"}</span><p>{node.metadata.description}</p><div className="drawer-kv"><div><span>节点类型</span><strong>{node.type === "table" ? "数据表" : node.type === "job" ? "任务" : node.type === "api" ? "数据服务 API" : node.type === "application" ? "应用" : "系统"}</strong></div><div><span>数据负责人</span><strong>{node.metadata.owner}</strong></div><div><span>最近更新时间</span><strong>{node.metadata.updateTime}</strong></div><div><span>数据规模</span><strong>{node.metadata.recordCount}</strong></div></div><button className="secondary-btn full-width" onClick={onClose}>关闭节点详情</button></div>;
+function MessagesView({ notifications, onRead }: { notifications: AppNotification[]; onRead: (id: string) => void }) {
+  const messages = notifications.map((notification) => ({ id: notification.id, icon: "◷", title: notification.title, text: notification.body, time: notification.createdAt, unread: !notification.readAt, color: "teal" }));
+  const hasMessages = messages.length > 0;
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />INBOX</span><h1>消息中心</h1><p>和你收藏的校招项目有关的重要变化，会在这里提醒你。</p></div></div>{hasMessages ? <><div className="message-banner"><div className="message-banner-icon">◷</div><div><strong>提醒已开启</strong><p>收藏项目的截止、开始和信息变化会在这里显示。</p></div><span className="plain-tag">站内提醒</span></div><div className="message-list">{messages.map((notification) => <article className={`message-card ${notification.unread ? "unread" : ""}`} key={notification.id}><div className={`message-icon ${notification.color}`}>{notification.icon}</div><div className="message-copy"><div><strong>{notification.title}</strong>{notification.unread && <span className="unread-dot" />}</div><p>{notification.text}</p><small>{notification.time}</small></div>{notification.unread && <button className="message-arrow" onClick={() => onRead(notification.id)} aria-label="标记已读">✓</button>}</article>)}</div></> : <div className="surface empty-state"><div className="empty-state-icon">◌</div><h3>暂无提醒</h3><p>收藏招聘后，我们会在重要报名时间前提醒你。</p></div>}</>;
 }
 
-function RootLineage({ onNodeClick }: { onNodeClick: (node: LineageNode) => void }) {
-  const node = (id: string) => lineageNodes.find((item) => item.id === id)!;
-  return <div className="lineage-canvas"><div className="lineage-column source-col"><span className="lineage-col-label">权威源</span><LineageNodeCard node={node("source-registration")} onClick={onNodeClick} /><div className="lineage-connector vertical" /><LineageNodeCard node={node("source-change")} onClick={onNodeClick} compact /></div><div className="lineage-column base-col"><span className="lineage-col-label">基础数据层</span><LineageNodeCard node={node("base-enterprise")} onClick={onNodeClick} /><div className="lineage-connector vertical" /><LineageNodeCard node={node("base-status")} onClick={onNodeClick} /><div className="lineage-connector vertical faint" /><LineageNodeCard node={node("relationship")} onClick={onNodeClick} compact /></div><div className="lineage-column master-col"><span className="lineage-col-label">主数据层</span><div className="lineage-branch"><LineageNodeCard node={node("master-data")} onClick={onNodeClick} /><div className="lineage-alert-note"><span>!</span>异常：同步任务失败</div></div><div className="lineage-connector vertical" /><LineageNodeCard node={node("etl-increment")} onClick={onNodeClick} compact /><div className="lineage-connector vertical faint" /><LineageNodeCard node={node("quality-job")} onClick={onNodeClick} compact /></div><div className="lineage-column service-col"><span className="lineage-col-label">服务层</span><LineageNodeCard node={node("query-api")} onClick={onNodeClick} compact /><LineageNodeCard node={node("risk-api")} onClick={onNodeClick} compact /><LineageNodeCard node={node("search-index")} onClick={onNodeClick} compact /></div><div className="lineage-column app-col"><span className="lineage-col-label">应用层</span><LineageNodeCard node={node("portrait-app")} onClick={onNodeClick} /><div className="lineage-connector vertical" /><LineageNodeCard node={node("risk-app")} onClick={onNodeClick} compact /></div><div className="lineage-horizontal h-1" /><div className="lineage-horizontal h-2" /><div className="lineage-horizontal h-3" /><div className="lineage-horizontal h-4" /><div className="lineage-flow-label source-to-base">字段同步</div><div className="lineage-flow-label master-to-api">主数据分发</div><div className="lineage-flow-label api-to-app">服务调用</div></div>;
+function ProfileView({ profile, onChange, onSave }: { profile: UserProfile; onChange: (profile: UserProfile) => void; onSave: () => void }) {
+  function toggleRegion(region: string) { onChange({ ...profile, regions: profile.regions.includes(region) ? profile.regions.filter((item) => item !== region) : [...profile.regions, region] }); }
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR PROFILE</span><h1>求职资料</h1><p>告诉我们你的方向，校招雷达会用规则帮你找到值得关注的项目。</p></div><button className="primary-button" onClick={onSave}>保存资料 <span>✓</span></button></div><div className="profile-layout"><div className="surface form-surface"><div className="form-section"><div className="form-section-title"><span className="form-number">01</span><div><h3>基础信息</h3><p>用于计算毕业年份和学历匹配。</p></div></div><div className="form-grid"><label className="field"><span>称呼</span><input value={profile.name} onChange={(event) => onChange({ ...profile, name: event.target.value })} /></label><label className="field"><span>毕业年份</span><select value={profile.graduation} onChange={(event) => onChange({ ...profile, graduation: event.target.value })}><option>2027</option><option>2028</option><option>2026</option><option>2029</option></select></label><label className="field"><span>当前学历</span><select value={profile.degree} onChange={(event) => onChange({ ...profile, degree: event.target.value })}><option>本科</option><option>硕士</option><option>博士</option></select></label><label className="field"><span>意向招聘类型</span><select defaultValue="央企、国企、互联网公司"><option>央企、国企、互联网公司</option><option>央企、国企</option><option>互联网公司、知名企业</option><option>全部类型</option></select></label></div></div><div className="form-section"><div className="form-section-title"><span className="form-number">02</span><div><h3>专业方向</h3><p>匹配结果仅作筛选参考，以官方要求为准。</p></div></div><div className="form-grid"><label className="field"><span>学科门类</span><select value={majorOptions.find((group) => group.majors.includes(profile.major))?.category ?? ""} onChange={(event) => onChange({ ...profile, major: majorOptions.find((group) => group.category === event.target.value)?.majors[0] ?? profile.major })}><option value="">请选择学科门类</option>{majorOptions.map((group) => <option key={group.category}>{group.category}</option>)}</select></label><label className="field"><span>具体专业</span><select value={profile.major} onChange={(event) => onChange({ ...profile, major: event.target.value })}>{majorOptions.flatMap((group) => group.majors).map((major) => <option key={major}>{major}</option>)}<option>其他专业</option></select></label></div><label className="check-row"><input type="checkbox" checked={profile.acceptAnyMajor} onChange={(event) => onChange({ ...profile, acceptAnyMajor: event.target.checked })} /><span className="fake-checkbox">✓</span><span><strong>愿意查看不限专业的招聘</strong><small>在匹配结果中展示不限专业项目</small></span></label></div><div className="form-section"><div className="form-section-title"><span className="form-number">03</span><div><h3>地区偏好</h3><p>可以多选，也可以接受全国岗位。</p></div></div><div className="region-picker">{regionOptions.filter((region) => region !== "全国").map((region) => <button key={region} className={profile.regions.includes(region) ? "selected" : ""} onClick={() => toggleRegion(region)}>{region}{profile.regions.includes(region) && <span>✓</span>}</button>)}</div><label className="check-row"><input type="checkbox" checked={profile.nationwide} onChange={(event) => onChange({ ...profile, nationwide: event.target.checked })} /><span className="fake-checkbox">✓</span><span><strong>接受全国岗位</strong><small>扩大可见项目范围</small></span></label></div></div><aside className="profile-aside"><div className="profile-score"><span className="score-label">PROFILE SCORE</span><div className="score-ring"><strong>80</strong><small>/ 100</small></div><h3>资料完成得不错</h3><p>再补充一下提醒偏好，匹配会更贴近你的节奏。</p><button onClick={onSave}>保存并更新雷达 <span>→</span></button></div><div className="tip-list"><h4>填写小提示</h4><div><span>01</span>专业选择越具体，匹配结果越有参考价值</div><div><span>02</span>地区可以多选，不设限也能发现新机会</div><div><span>03</span>信息仅用于筛选，不代表最终报名资格</div></div></aside></div></>;
 }
 
-function ImpactPanel() {
-  return <div className="impact-panel"><div className="surface-heading"><div><span className="section-kicker">IMPACT SCOPE</span><h3>影响范围</h3></div><span className="impact-badge">AI 已定位</span></div><div className="impact-total"><strong>7</strong><span>个下游对象受到影响</span></div><div className="impact-list"><div><span className="impact-icon table">▤</span><strong>4</strong><span>张下游数据表</span></div><div><span className="impact-icon api">⌁</span><strong>2</strong><span>个数据服务 API</span></div><div><span className="impact-icon app">◫</span><strong>1</strong><span>个企业画像应用</span></div></div><p>异常经营状态可能影响企业查询、风险识别与画像展示结果。</p></div>;
+function AboutView({ brand }: { brand: BrandConfig }) {
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />ABOUT RADAR</span><h1>关于{brand.name}</h1><p>{brand.marketingCopy}</p></div></div><div className="about-layout"><div className="surface about-main"><div className="about-quote">“少一点错过，多一点准备。”</div><p>{brand.marketingCopy}平台聚合企业、央国企及后续招录模块的公开信息，帮助你按专业、学历、地区和时间筛选机会，也可以收藏、设置提醒和记录申请进度。</p><div className="about-points"><div><span>01</span><strong>公开来源</strong><small>信息来自企业官网、官方账号与高校就业渠道</small></div><div><span>02</span><strong>规则匹配</strong><small>匹配结果帮助筛选，不替代招聘方审核</small></div><div><span>03</span><strong>保持更新</strong><small>展示最近核验时间和信息变更记录</small></div></div></div><div className="surface disclaimer-card"><span className="notice-icon">i</span><h3>重要说明</h3><p>{brand.disclaimer}</p><div className="source-legend"><strong>信息来源级别</strong><span><b>A</b> 企业官方招聘网站或政府网站</span><span><b>B</b> 企业官方公众号、官方招聘账号</span><span><b>C</b> 高校就业网站转载</span><span><b>D</b> 第三方平台或用户提交</span></div></div></div></>;
 }
 
-function RootCausePage({ issue, analysisReady, analyzing, suggestionGenerated, onAnalyze, onGenerateSuggestion, onCreateWorkOrder, onRecheck, onNavigate, onNodeClick, workOrder }: { issue: QualityIssue; analysisReady: boolean; analyzing: boolean; suggestionGenerated: boolean; onAnalyze: () => void; onGenerateSuggestion: () => void; onCreateWorkOrder: () => void; onRecheck: () => void; onNavigate: (view: ViewKey) => void; onNodeClick: (node: LineageNode) => void; workOrder?: WorkOrder }) {
-  const scenarioReady = analysisReady || issue.status !== "待诊断";
-  return <div className="page-stack root-page"><PageTitle eyebrow="AI ROOT CAUSE & IMPACT ANALYSIS" title="AI 根因与影响分析" description="AI 不只告诉你数据错了，还会解释为什么错、影响谁、应该怎么改。" actions={<><button className="secondary-btn" onClick={() => onNavigate("diagnosis")}>返回问题列表</button><button className="primary-btn" onClick={onAnalyze} disabled={analyzing}>{analyzing ? "分析中…" : "重新运行 AI 分析"} <span>✦</span></button></>} />
-    {!scenarioReady && <div className="analysis-pending"><div className="pending-icon">✦</div><div><strong>准备开始 AI 根因分析</strong><p>点击右上角按钮，AI 将读取元数据、质量规则、血缘关系与历史异常。</p></div><button className="primary-btn" onClick={onAnalyze}>让 AI 分析根因 <span>→</span></button></div>}
-    <div className="root-summary-grid"><div className="root-verdict surface"><div className="verdict-label"><span className="ai-spark">✦</span>问题判断</div><h2>同一企业主体在多个业务系统中的经营状态存在冲突。</h2><div className="system-status-grid"><div><span className="system-letter">A</span><div><strong>企业登记源系统</strong><small>正常经营</small></div><b className="status-safe">权威源</b></div><div className="conflict-cell"><span>≠</span><small>语义不一致</small></div><div><span className="system-letter b">B</span><div><strong>企业主数据</strong><small>已注销</small></div><b className="status-danger">异常值</b></div><div><span className="system-letter c">C</span><div><strong>企业画像应用</strong><small>正常经营</small></div><b className="status-warning">未同步</b></div></div></div><div className="root-confidence surface"><span className="section-kicker">AI CONFIDENCE</span><div className="root-confidence-value"><strong>{scenarioReady ? "92%" : "—"}</strong><span>综合置信度</span></div><p>结合 6 类证据计算</p><div className="confidence-bar"><i style={{ width: scenarioReady ? "92%" : "0%" }} /></div><div className="confidence-evidence"><span>元数据</span><span>规则</span><span>血缘</span><span>历史</span></div></div><div className="root-cause-card surface"><div className="verdict-label"><span className="ai-spark orange">⌁</span>疑似根因</div><p>权威源系统于 <strong>2026-07-18</strong> 更新企业经营状态，但下游 ETL 增量同步任务执行失败，导致企业主数据系统未同步最新状态。</p><div className="root-cause-meta"><span><i />检测到 ETL 失败记录</span><span><i />源数据领先 17 小时 26 分</span></div></div></div>
-    <div className="section-heading root-section-heading"><div><span className="section-kicker">LINEAGE IMPACT MAP</span><h2>数据血缘影响分析</h2></div><span className="section-note"><i className="legend-error" />异常节点 <i className="legend-warning" />受影响节点 <b>点击节点查看元数据</b></span></div>
-    <div className="root-lineage-surface surface"><div className="lineage-header-note"><span><i className="lineage-live-dot" />影响路径已展开</span><strong>企业经营状态字段 · 2026-07-18 同步窗口</strong></div><RootLineage onNodeClick={onNodeClick} /></div>
-    <div className="impact-recommend-grid"><ImpactPanel /><div className="surface recommendation-card"><div className="surface-heading"><div><span className="section-kicker">AI REMEDIATION PLAN</span><h3>AI 整改建议</h3></div><span className={`suggestion-state ${suggestionGenerated ? "generated" : ""}`}>{suggestionGenerated ? "已生成" : "待生成"}</span></div>{!suggestionGenerated ? <div className="recommend-empty"><div className="recommend-orbit">✦</div><p>让 AI 根据当前根因和影响范围生成可执行的整改步骤。</p><button className="primary-btn" onClick={onGenerateSuggestion}>生成整改建议 <span>✦</span></button></div> : <div className="recommend-list"><div><span>01</span><p>将企业登记源系统作为经营状态字段的权威数据源。</p></div><div><span>02</span><p>检查 2026-07-18 ETL 增量任务执行日志，定位失败原因。</p></div><div><span>03</span><p>对经营状态字段执行增量补同步，并对 4 张下游表重新校验。</p></div><div><span>04</span><p>连续 7 天监控该字段同步质量，新增跨系统语义冲突告警。</p></div><div className="recommend-actions">{!workOrder ? <button className="primary-btn" onClick={onCreateWorkOrder}>提交整改工单 <span>→</span></button> : workOrder.status === "待复检" ? <button className="primary-btn" onClick={onRecheck}>重新检测 <span>↻</span></button> : workOrder.status === "已关闭" ? <span className="workorder-created"><i>✓</i>问题已关闭并沉淀治理规则</span> : <button className="secondary-btn" onClick={() => onNavigate("remediation")}>前往整改闭环 <span>→</span></button>}</div></div>}</div></div>
-  </div>;
+function ProjectModal({ project, userMajor, isFavorite, tracker, reminderSettings, onClose, onToggleFavorite, onUpdateTracker, onUpdateReminderSettings, onOpenExternal, onOpenCorrection, onNotify }: { project: Project; userMajor: string; isFavorite: boolean; tracker?: { status: ApplicationStatus; note: string }; reminderSettings?: ReminderSettings; onClose: () => void; onToggleFavorite: () => void; onUpdateTracker: (status: ApplicationStatus, note?: string) => void; onUpdateReminderSettings: (patch: Partial<ReminderSettings>) => void; onOpenExternal: () => void; onOpenCorrection: () => void; onNotify: (message: string) => void }) {
+  const [note, setNote] = useState(tracker?.note ?? "");
+  const match = getMatch(project, userMajor);
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="project-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="关闭">×</button><div className="modal-header"><div className={`company-mark large ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div><h2>{project.title}</h2><div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span className="plain-tag">{project.companyType}</span><span className="plain-tag">{project.batch}</span></div></div></div><div className="modal-deadline"><div><span>报名截止</span><strong>{formatDateWithWeekday(project.deadline)}</strong></div><div><span>报名开始</span><strong>{formatDateWithWeekday(project.startAt)}</strong></div><div><span>工作地区</span><strong>{project.regions.join(" · ")}</strong></div></div><div className="modal-body"><section><div className="detail-title"><span>01</span><h3>招聘简介</h3></div><p>{project.intro}</p><div className="detail-grid"><div><span>面向毕业年份</span><strong>{project.graduationYears.map((year) => `${year}届`).join("、")}</strong></div><div><span>学历要求</span><strong>{project.degrees.join(" / ")}</strong></div><div><span>专业要求</span><strong>{project.originalMajors}</strong></div><div><span>标准专业标签</span><strong>{project.majors.length ? project.majors.join("、") : "不限专业"}</strong></div></div></section><section className="match-result"><div className="detail-title"><span>02</span><h3>你的专业匹配</h3></div><div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div><strong>{match}</strong><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据专业大类和招聘原文整理，仅供筛选参考。"}</p></div></div><small className="match-disclaimer">专业匹配结果仅供信息筛选参考，是否符合报名条件请以招聘单位官方审核结果为准。</small></section><section><div className="detail-title"><span>03</span><h3>我的跟进</h3></div><div className="tracker-editor"><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加一条个人备注，例如：周日前完成网申" /><button onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div></section><ReminderControls project={project} isFavorite={isFavorite} settings={reminderSettings} onUpdate={onUpdateReminderSettings} /></div><div className="modal-footer"><div><span>来源：{project.sourceName}</span><span>最近核验：{formatDate(project.verifiedAt)}</span></div><div className="modal-actions">{project.announcementUrl && <a className="secondary-button" href={project.announcementUrl} target="_blank" rel="noreferrer">官方公告 <span>↗</span></a>}<button className="text-button correction-button" onClick={onOpenCorrection}>提交纠错</button><button className={`secondary-button favorite-action ${isFavorite ? "active" : ""}`} onClick={onToggleFavorite}>{isFavorite ? "♥ 已收藏" : "♡ 收藏项目"}</button><button className="primary-button" onClick={onOpenExternal}>前往官方报名 <span>↗</span></button></div></div></div></div>;
 }
 
-function StandaloneLineagePage({ onNodeClick }: { onNodeClick: (node: LineageNode) => void }) {
-  return <div className="page-stack"><PageTitle eyebrow="DATA LINEAGE EXPLORER" title="数据血缘" description="从权威源到数据服务，查看企业法人主题数据的上下游依赖关系。" actions={<span className="lineage-mode-pill"><i />影响模式已开启</span>} /><div className="lineage-kpi-row"><div><span>血缘节点</span><strong>16</strong><small>系统 / 表 / 服务 / 应用</small></div><div><span>可追溯字段</span><strong>286</strong><small>已纳入规则管理</small></div><div><span>异常节点</span><strong className="text-danger">3</strong><small>需要关注</small></div><div><span>最近变更</span><strong>09:24</strong><small>数据质量扫描</small></div></div><div className="surface standalone-lineage"><div className="lineage-header-note"><span><i className="lineage-live-dot" />全域血缘图</span><strong>共 16 个节点 · 22 条数据流</strong></div><RootLineage onNodeClick={onNodeClick} /></div></div>;
+function ReminderControls({ project, isFavorite, settings, onUpdate }: { project: Project; isFavorite: boolean; settings?: ReminderSettings; onUpdate: (patch: Partial<ReminderSettings>) => void }) {
+  const eligible = hasExplicitDeadline(project);
+  if (!eligible) return <div className="reminder-note"><span>◷</span><div><strong>{project.deadline ? "截止时间需要人工复核" : "暂未公布明确截止日期"}</strong><small>{project.deadline ? "当前不会生成固定日期倒计时提醒。" : "收藏后，时间更新并核验后才会生成截止提醒。"}</small></div></div>;
+  const current = settings ?? DEFAULT_REMINDER_SETTINGS;
+  return <section className="reminder-controls"><div className="detail-title"><span>04</span><h3>报名截止提醒</h3><span className={isFavorite && current.enabled ? "reminder-enabled" : "reminder-disabled"}>{isFavorite && current.enabled ? "已开启提醒" : "收藏后自动开启"}</span></div><div className="reminder-options"><label><input type="checkbox" checked={current.remind7Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind7Days: event.target.checked })} /><span>截止前7天</span></label><label><input type="checkbox" checked={current.remind3Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind3Days: event.target.checked })} /><span>截止前3天</span></label><label><input type="checkbox" checked={current.remind1Day} disabled={!isFavorite} onChange={(event) => onUpdate({ remind1Day: event.target.checked })} /><span>截止前1天</span></label><label><input type="checkbox" checked={current.remindSameDay} disabled={!isFavorite} onChange={(event) => onUpdate({ remindSameDay: event.target.checked })} /><span>当天提醒</span></label><label><input type="checkbox" checked={current.changeNotificationEnabled} disabled={!isFavorite} onChange={(event) => onUpdate({ changeNotificationEnabled: event.target.checked })} /><span>招聘信息变更</span></label></div><small className="reminder-footnote">{isFavorite ? "站内消息会在这里展示；取消收藏后，未来未发送提醒会被取消。" : "收藏这个项目后，系统会按选中的时间点创建站内提醒。"}</small></section>;
 }
 
-function WorkOrderTable({ workOrders, onAdvance }: { workOrders: WorkOrder[]; onAdvance: (order: WorkOrder) => void }) {
-  const actionLabel = (status: WorkOrderStatus) => status === "待确认" ? "确认接单" : status === "整改中" ? "模拟整改完成" : status === "待复检" ? "重新检测" : "已关闭";
-  return <div className="surface workorder-surface"><div className="surface-heading"><div><span className="section-kicker">REMEDIATION WORK ORDERS</span><h3>整改工单列表</h3></div><span className="surface-meta">共 {workOrders.length} 条工单</span></div><div className="workorder-head"><span>工单 / 整改事项</span><span>责任部门</span><span>Owner</span><span>优先级</span><span>整改状态</span><span>复检结果</span><span>操作</span></div>{workOrders.map((order) => <div key={order.id} className="workorder-row"><span><strong>{order.title}</strong><small>{order.id} · 关联问题 {order.issueId}</small></span><span>{order.department}</span><span>{order.owner}</span><span><b className={`priority-badge ${order.priority.toLowerCase()}`}>{order.priority}</b></span><span><span className={`status-pill ${statusClass(order.status)}`}>{order.status}</span></span><span className={order.recheckResult === "已通过" ? "recheck-ok" : "recheck-pending"}>{order.recheckResult}</span><span>{order.status !== "已关闭" && <button className="table-action-btn" onClick={() => onAdvance(order)}>{actionLabel(order.status)} <span>→</span></button>}</span></div>)}</div>;
+function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: () => void }) {
+  const [type, setType] = useState("时间错误");
+  const [content, setContent] = useState("");
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal correction-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="external-icon">✎</div><h3>提交信息纠错</h3><p className="correction-project">{project.title}</p><label className="login-field"><span>纠错类型</span><select value={type} onChange={(event) => setType(event.target.value)}><option>时间错误</option><option>官方链接失效</option><option>招聘已截止</option><option>专业要求错误</option><option>招聘信息重复</option><option>其他问题</option></select></label><label className="login-field"><span>补充说明</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="请尽量提供可核验的线索" /></label><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={onSubmit}>提交纠错 <span>→</span></button></div></div></div>;
 }
 
-function RemediationPage({ workOrders, currentScore, onAdvance }: { workOrders: WorkOrder[]; currentScore: number; onAdvance: (order: WorkOrder) => void }) {
-  const closed = workOrders.filter((order) => order.status === "已关闭").length;
-  return <div className="page-stack"><PageTitle eyebrow="CLOSED-LOOP GOVERNANCE" title="整改闭环" description="让 AI 建议进入治理工单，责任部门执行整改，系统自动复检并沉淀规则。" actions={<button className="primary-btn" onClick={() => onAdvance(workOrders[0])}>推进首条工单 <span>→</span></button>} /><div className="closure-flow"><div className="closure-flow-line" />{["发现问题", "AI 判断", "高优先级问题", "责任部门确认", "执行整改", "自动复检", "关闭问题", "沉淀治理规则"].map((label, index) => <div key={label} className={`closure-step ${index < 5 ? "done" : index === 5 ? "current" : ""}`}><span>{index < 5 ? "✓" : index + 1}</span><strong>{label}</strong></div>)}</div><div className="closure-metrics"><div><span>发现问题</span><strong>137</strong><small>本周期累计</small></div><div><span>AI 建议高优先级</span><strong>31</strong><small>优先分析</small></div><div><span>已整改</span><strong>{28 + Math.max(0, closed - 7)}</strong><small>已通过复检</small></div><div><span>待确认</span><strong>{workOrders.filter((order) => order.status === "待确认").length}</strong><small>责任部门确认</small></div><div className="closure-score"><span>健康评分</span><strong>{currentScore} <b>→</b> 89</strong><small>整改闭环目标</small></div></div><div className="closure-callout"><span className="callout-icon">✦</span><div><strong>AI 正在帮助治理团队把“问题发现”变成“结果可验证”</strong><p>当前已有 28 个问题完成整改并通过自动复检，3 个高风险问题等待责任部门确认。</p></div><span className="callout-progress"><i style={{ width: "90%" }} />90%</span></div><WorkOrderTable workOrders={workOrders} onAdvance={onAdvance} /></div>;
+function ExternalLinkModal({ project, onClose }: { project: Project; onClose: () => void }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="external-icon">↗</div><h3>即将前往第三方官方网站</h3><p>请注意核实网站域名和招聘信息，具体招聘条件、报名时间及岗位要求以招聘单位官方发布为准。</p><div className="external-domain">{project.link.replace("https://", "")}</div><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>返回查看</button><a className="primary-button" href={project.link} target="_blank" rel="noreferrer">继续访问 <span>↗</span></a></div></div></div>;
 }
 
-function RulesPage() {
-  const rules = [
-    ["Q-STATUS-004", "经营状态跨系统一致性", "跨系统", "已启用", "每 30 分钟"],
-    ["Q-MASTER-001", "统一社会信用代码唯一性", "主键约束", "已启用", "每日 02:00"],
-    ["Q-REL-006", "企业关联关系主体可解析", "关联一致性", "已启用", "每小时"],
-    ["Q-FIELD-018", "法人姓名非空校验", "完整性", "已启用", "每小时"],
-    ["Q-ADDR-012", "行政区划编码有效性", "字段有效性", "待优化", "每日 03:00"],
-  ];
-  return <div className="page-stack"><PageTitle eyebrow="GOVERNANCE RULE CENTER" title="治理规则" description="查看支撑 AI 诊断的字段、跨表与跨系统质量规则。" actions={<button className="primary-btn">新建治理规则 <span>＋</span></button>} /><div className="rule-overview"><div><span>规则总数</span><strong>286</strong><small>启用 244 条</small></div><div><span>跨系统规则</span><strong>42</strong><small>覆盖 8 张核心表</small></div><div><span>本周期命中</span><strong>137</strong><small>自动生成质量问题</small></div></div><div className="surface rules-surface"><div className="surface-heading"><div><span className="section-kicker">RULE CATALOG</span><h3>核心治理规则</h3></div><span className="surface-meta">规则会作为 AI 诊断证据</span></div><div className="rules-head"><span>规则编号</span><span>规则名称</span><span>规则类型</span><span>状态</span><span>执行频率</span></div>{rules.map((rule) => <div className="rules-row" key={rule[0]}><strong>{rule[0]}</strong><span>{rule[1]}</span><span className="type-pill">{rule[2]}</span><span className={`status-pill ${rule[3] === "已启用" ? "status-safe" : "status-warning"}`}>{rule[3]}</span><span>{rule[4]}</span></div>)}</div></div>;
+function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
+  const [mode, setMode] = useState<"email" | "phone">("email");
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>欢迎回到校招雷达</h2><p>登录后收藏招聘项目，设置属于你的提醒。</p><div className="login-tabs"><button className={mode === "email" ? "active" : ""} onClick={() => setMode("email")}>邮箱登录</button><button className={mode === "phone" ? "active" : ""} onClick={() => setMode("phone")}>手机号登录</button></div>{mode === "email" ? <><label className="login-field"><span>邮箱</span><input placeholder="you@domain.cn" type="email" /></label><label className="login-field"><span>密码</span><input placeholder="请输入密码" type="password" /></label></> : <><label className="login-field"><span>手机号</span><input placeholder="请输入手机号" /></label><label className="login-field"><span>验证码</span><div className="code-input"><input placeholder="6位验证码" /><button>获取验证码</button></div></label></>}<button className="primary-button login-submit" onClick={onLogin}>登录并继续 <span>→</span></button><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
 }
 
-export default function Home() {
-  const initialRoute = readHashRoute();
-  const [view, setView] = useState<ViewKey>(initialRoute.view);
-  const [selectedIssueId, setSelectedIssueId] = useState(initialRoute.issueId);
-  const [issueFilter, setIssueFilter] = useState<IssueType | undefined>();
-  const [issues, setIssues] = useState(qualityIssues);
-  const [workOrders, setWorkOrders] = useState(workOrdersSeed);
-  const [analysisReady, setAnalysisReady] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [suggestionGenerated, setSuggestionGenerated] = useState(false);
-  const [selectedNode, setSelectedNode] = useState<LineageNode | null>(null);
-  const [toast, setToast] = useState<Toast>(null);
-
-  const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? issues[0];
-  const scenarioIssue = issues.find((issue) => issue.id === analysisScenarioId) ?? issues[0];
-  const scenarioWorkOrder = workOrders.find((order) => order.issueId === analysisScenarioId);
-  const resolvedCount = issues.filter((issue) => issue.status === "已解决").length;
-  const currentScore = resolvedCount > 0 ? 89 : 72;
-  const filteredIssues = useMemo(() => issueFilter ? issues.filter((issue) => issue.issueType === issueFilter) : issues, [issueFilter, issues]);
-
-  function notify(message: string, tone: ToastTone = "success") {
-    setToast({ message, tone });
-    window.setTimeout(() => setToast(null), 2800);
-  }
-
-  function navigate(nextView: ViewKey, issueId?: string) {
-    const hash = issueId ? `#/diagnosis/${issueId}` : `#/${nextView}`;
-    if (typeof window !== "undefined" && window.location.hash !== hash) window.location.hash = hash;
-    setView(nextView);
-    setSelectedIssueId(issueId);
-    if (nextView !== "diagnosis") setIssueFilter(undefined);
-  }
-
-  function navigateToIssue(issue: QualityIssue) {
-    setSelectedIssueId(issue.id);
-    navigate("diagnosis", issue.id);
-  }
-
-  function filterIssues(type?: IssueType) {
-    setIssueFilter(type);
-    navigate("diagnosis");
-  }
-
-  function startAnalysis() {
-    setSelectedIssueId(analysisScenarioId);
-    setAnalysisReady(false);
-    setAnalyzing(true);
-    setSuggestionGenerated(false);
-    navigate("root-cause");
-    notify("AI 已开始读取元数据、规则与数据血缘", "info");
-    window.setTimeout(() => {
-      setAnalyzing(false);
-      setAnalysisReady(true);
-      setIssues((current) => current.map((issue) => issue.id === analysisScenarioId ? { ...issue, status: "待确认" } : issue));
-      notify("AI 根因分析完成，已定位影响范围", "success");
-    }, 1900);
-  }
-
-  function generateSuggestion() {
-    setSuggestionGenerated(true);
-    notify("AI 整改建议已生成，可提交为治理工单", "success");
-  }
-
-  function createWorkOrder() {
-    if (scenarioWorkOrder) {
-      notify(`工单 ${scenarioWorkOrder.id} 已存在`, "info");
-      return;
-    }
-    const newOrder: WorkOrder = { id: "WO-2026-0119", issueId: analysisScenarioId, title: "补同步企业经营状态字段并重跑下游校验", department: "省大数据运营中心", owner: "陈立峰", priority: "P0", status: "待确认", aiSuggestion: "将企业登记源系统作为权威源，检查 2026-07-18 ETL 增量任务并执行补同步。", recheckResult: "待复检", dueDate: "2026-08-12" };
-    setWorkOrders((current) => [newOrder, ...current]);
-    setIssues((current) => current.map((issue) => issue.id === analysisScenarioId ? { ...issue, status: "整改中" } : issue));
-    notify(`整改工单 ${newOrder.id} 已提交，责任部门待确认`, "success");
-  }
-
-  function advanceWorkOrder(order: WorkOrder) {
-    const next: WorkOrderStatus = order.status === "待确认" ? "整改中" : order.status === "整改中" ? "待复检" : order.status === "待复检" ? "已关闭" : "已关闭";
-    if (next === order.status) return;
-    setWorkOrders((current) => current.map((item) => item.id === order.id ? { ...item, status: next, recheckResult: next === "已关闭" ? "已通过" : item.recheckResult } : item));
-    setIssues((current) => current.map((issue) => issue.id === order.issueId ? { ...issue, status: next === "已关闭" ? "已解决" : next } : issue));
-    notify(next === "已关闭" ? "自动复检通过，问题已关闭" : `工单已推进至「${next}」`, next === "已关闭" ? "success" : "info");
-  }
-
-  useEffect(() => {
-    function syncRoute() {
-      const route = readHashRoute();
-      setView(route.view);
-      setSelectedIssueId(route.issueId);
-    }
-    window.addEventListener("hashchange", syncRoute);
-    return () => window.removeEventListener("hashchange", syncRoute);
-  }, []);
-
-  return <AppShell view={view} onNavigate={(nextView) => navigate(nextView)}>
-    {view === "health" && <HealthDashboard currentScore={currentScore} forecastScore={91} onNavigate={navigate} onIssueClick={navigateToIssue} onFilter={filterIssues} onAssetClick={(asset) => { notify(`${asset.name} 已打开，正在跳转智能诊断`, "info"); filterIssues(); }} issues={issues} />}
-    {view === "diagnosis" && selectedIssueId && <IssueDetail issue={selectedIssue} onBack={() => navigate("diagnosis")} onAnalyze={startAnalysis} analyzing={analyzing} analysisReady={analysisReady} />}
-    {view === "diagnosis" && !selectedIssueId && <IssueList issues={filteredIssues} onIssueClick={navigateToIssue} filter={issueFilter} onFilter={filterIssues} />}
-    {view === "root-cause" && <RootCausePage issue={scenarioIssue} analysisReady={analysisReady} analyzing={analyzing} suggestionGenerated={suggestionGenerated} onAnalyze={startAnalysis} onGenerateSuggestion={generateSuggestion} onCreateWorkOrder={createWorkOrder} onRecheck={() => scenarioWorkOrder && advanceWorkOrder({ ...scenarioWorkOrder, status: "待复检" })} onNavigate={navigate} onNodeClick={setSelectedNode} workOrder={scenarioWorkOrder} />}
-    {view === "lineage" && <StandaloneLineagePage onNodeClick={setSelectedNode} />}
-    {view === "remediation" && <RemediationPage workOrders={workOrders} currentScore={currentScore} onAdvance={advanceWorkOrder} />}
-    {view === "rules" && <RulesPage />}
-    {selectedNode && <MetadataDrawer node={selectedNode} onClose={() => setSelectedNode(null)} />}
-    {toast && <div className={`toast-message ${toast.tone}`}><span>{toast.tone === "success" ? "✓" : toast.tone === "warning" ? "!" : "✦"}</span>{toast.message}</div>}
-  </AppShell>;
+function ProfileQuickPanel({ profile, onClose, onEdit, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; onClose: () => void; onEdit: () => void; onLogout: () => void }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><aside className="quick-panel" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="quick-profile"><div className="profile-avatar-large">{profile.name.slice(0, 1) || "·"}</div><h3>{profile.name || "当前账号"}</h3><p>{profile.major || "尚未选择专业"}</p><span>{profile.degree} · {profile.graduation}届</span></div><div className="quick-links"><button onClick={onEdit}><span>◎</span>编辑求职资料 <b>→</b></button><button onClick={onClose}><span>◌</span>提醒设置 <b>→</b></button><button onClick={onClose}><span>◫</span>隐私与账号 <b>→</b></button></div><button className="logout-button" onClick={onLogout}>退出当前账号</button></aside></div>;
 }
