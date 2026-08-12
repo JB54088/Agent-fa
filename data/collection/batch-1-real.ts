@@ -20,6 +20,7 @@ export type Batch1Record = {
   title: string;
   originalContent: string;
   opportunityType: "ENTERPRISE_CAMPUS" | "BANK_CAMPUS";
+  opportunityStatus?: "recruiting" | "upcoming";
   recruitmentSeason: "EARLY" | "AUTUMN" | "SPRING" | "SUPPLEMENTARY" | "INTERNSHIP" | "DAILY" | "OTHER";
   recruitmentYear: number;
   batchName: string;
@@ -139,6 +140,7 @@ export const batch1Records: Batch1Record[] = [
     externalId: "batch1-byd-2027-campus", sourceKey: "byd-campus", organizationName: "比亚迪", title: "比亚迪2027届校园招聘",
     originalContent: "比亚迪官方校园招聘页显示：26届校招已结束，27届校招即将开始；页面展示2027届毕业时间范围、网申入口和校园招聘流程。",
     opportunityType: "ENTERPRISE_CAMPUS", recruitmentSeason: "AUTUMN", recruitmentYear: 2027, batchName: "27届校招", targetGraduationYears: [2027], degreeRequirements: [], majorRequirementText: "具体专业要求以官方岗位详情为准", workLocations: ["全国"], publishedAt: null, deadlineAt: null, deadlineType: "NOT_ANNOUNCED",
+    opportunityStatus: "upcoming",
     officialAnnouncementUrl: "https://job.byd.com/portal/mobile/school-home", officialApplicationUrl: "https://job.byd.com/portal/mobile/school-home", sourceEvidence: "比亚迪招聘官网页面正文明确写明27届校招即将开始，并展示官方Apply Now入口。",
   },
   {

@@ -314,7 +314,7 @@ export async function runBatch1(adminId: string | null) {
           ${json(record.workLocations)}::jsonb, ${record.organizationName === "百度" ? 147 : null}, ${json(record.degreeRequirements)}::jsonb,
           ${json(record.degreeRequirements)}::jsonb, ${record.majorRequirementText}, ${record.officialAnnouncementUrl},
           ${record.officialApplicationUrl}, ${sourceId}, 'A级', 'verified', now(), ${adminId}, now() + interval '1 day', 'accessible',
-          'published', 'recruiting', 'recruiting', ${record.deadlineType}, ${deadline}, 'CURRENT_OPEN', '已核验', false
+          'published', ${record.opportunityStatus ?? "recruiting"}, ${record.opportunityStatus ?? "recruiting"}, ${record.deadlineType}, ${deadline}, 'CURRENT_OPEN', '已核验', false
         )
       `);
       queries.push(sql`
@@ -344,6 +344,13 @@ export async function runBatch1(adminId: string | null) {
         WHERE id = ${stagingId}
       `);
     }
+    queries.push(sql`
+      UPDATE opportunities
+      SET calculated_status = ${record.opportunityStatus ?? "recruiting"},
+          manual_status = ${record.opportunityStatus ?? "recruiting"},
+          updated_at = now()
+      WHERE id = ${opportunityId}
+    `);
   }
 
   await sql.transaction(queries, { isolationLevel: "ReadCommitted" });
