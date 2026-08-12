@@ -38,6 +38,13 @@ export async function POST(request: Request) {
           await sql`UPDATE data_sources SET discovery_status = 'VERIFIED', status = 'active', automation_allowed = false, requires_manual_review = true, source_last_verified_at = now(), recruitment_link_status = ${linkStatus}, updated_at = now() WHERE id = ${body.sourceId}`;
         }
         break;
+      case "verify_and_publish":
+        {
+          const linkStatus = ["OFFICIAL_ENTRY_ONLY", "HAS_ACTIVE_RECRUITMENT", "UPCOMING_RECRUITMENT", "NO_CURRENT_RECRUITMENT"].includes(body.recruitmentLinkStatus ?? "") ? body.recruitmentLinkStatus : "OFFICIAL_ENTRY_ONLY";
+          await sql`UPDATE data_sources SET discovery_status = 'VERIFIED', status = 'active', automation_allowed = false, requires_manual_review = true, source_last_verified_at = now(), recruitment_link_status = ${linkStatus}, updated_at = now() WHERE id = ${body.sourceId}`;
+          const summary = await syncVerifiedSourcesToOpportunities(body.sourceId);
+          return NextResponse.json({ ok: true, sourceId: body.sourceId, action: body.action, summary });
+        }
       case "unverify":
         await sql`UPDATE data_sources SET discovery_status = 'NEEDS_REVIEW', automation_allowed = false, incremental_sync_enabled = false, recruitment_link_status = 'NEEDS_REVIEW', updated_at = now() WHERE id = ${body.sourceId}`;
         break;

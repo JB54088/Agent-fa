@@ -34,24 +34,37 @@ function opportunityType(category: string | null, organizationType: string | nul
  * without a concrete current project gets an official-entry record only; no
  * recruitment batch, date or requirement is invented here.
  */
-export async function syncVerifiedSourcesToOpportunities(): Promise<FeedSummary> {
+export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Promise<FeedSummary> {
   const sql = neon(getDatabaseUrl());
   await Promise.all([
     sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`,
     sql`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS display_type text NOT NULL DEFAULT 'RECRUITMENT_PROJECT'`,
   ]);
 
-  const sources = await sql`
-    SELECT s.id::text AS id, s.name, s.source_url, s.list_page_url, s.level,
-           s.source_category, s.discovery_status, s.status,
-           o.id::text AS organization_id, o.name AS organization_name,
-           o.organization_type, o.industry
-    FROM data_sources s
-    JOIN organizations o ON o.id = s.organization_id
-    WHERE s.status = 'active'
-      AND s.discovery_status IN ('VERIFIED', 'AUTO_ALLOWED')
-      AND COALESCE(s.source_url, s.list_page_url) IS NOT NULL
-  `;
+  const sources = sourceId
+    ? await sql`
+      SELECT s.id::text AS id, s.name, s.source_url, s.list_page_url, s.level,
+             s.source_category, s.discovery_status, s.status,
+             o.id::text AS organization_id, o.name AS organization_name,
+             o.organization_type, o.industry
+      FROM data_sources s
+      JOIN organizations o ON o.id = s.organization_id
+      WHERE s.id = ${sourceId}
+        AND s.status = 'active'
+        AND s.discovery_status IN ('VERIFIED', 'AUTO_ALLOWED')
+        AND COALESCE(s.source_url, s.list_page_url) IS NOT NULL
+    `
+    : await sql`
+      SELECT s.id::text AS id, s.name, s.source_url, s.list_page_url, s.level,
+             s.source_category, s.discovery_status, s.status,
+             o.id::text AS organization_id, o.name AS organization_name,
+             o.organization_type, o.industry
+      FROM data_sources s
+      JOIN organizations o ON o.id = s.organization_id
+      WHERE s.status = 'active'
+        AND s.discovery_status IN ('VERIFIED', 'AUTO_ALLOWED')
+        AND COALESCE(s.source_url, s.list_page_url) IS NOT NULL
+    `;
   let activeRecruitment = 0;
   let upcomingRecruitment = 0;
   let officialEntryOnly = 0;
