@@ -19,6 +19,8 @@ export const INITIAL_SYNC_STATUSES = [
 ] as const;
 
 type InitialSyncStatus = typeof INITIAL_SYNC_STATUSES[number];
+export type InitialSyncScope = "monitoring" | "target_100";
+const TARGET_AUDIT_MARKER = "%target-100-audit:v1%";
 type OrganizationRow = {
   id: string;
   name: string;
@@ -121,6 +123,20 @@ function classifyPage(text: string, month: number): { status: InitialSyncStatus;
   return { status, title: "", season, year: recruitmentYear, reason: upcoming ? "官方页面明确预告2027招聘" : current ? "官方页面出现当前应届/校园招聘项目" : recruitmentSignal ? "官方招聘入口可访问，但未确认当前2027项目" : "官方来源页面可访问" };
 }
 
+function isConcreteRecruitmentPage(title: string, text: string, url: string) {
+  const genericTitle = /招聘官网|招聘网站|校园招聘|人才招聘|招聘入口|官方招聘|首页|主页/i.test(title);
+  const detailPath = (() => {
+    try {
+      const parsed = new URL(url);
+      return parsed.pathname.length > 8 || Boolean(parsed.search || parsed.hash);
+    } catch {
+      return false;
+    }
+  })();
+  const concreteSignal = /招聘公告|招聘简章|招聘启事|报名|投递|岗位|职位|申请|管培生|应届生招聘/i.test(text);
+  return !genericTitle && detailPath && /2027|27届|应届|毕业生|校园招聘|校招/i.test(text) && concreteSignal;
+}
+
 function opportunityType(category: string | null) {
   const value = normalize(category);
   if (/银行|金融/.test(value)) return "BANK_CAMPUS";
@@ -211,11 +227,23 @@ async function absorbBatch1State(sql: SqlClient) {
   `;
 }
 
-export async function getInitialSyncProgress(sqlInput?: SqlClient) {
+export async function getInitialSyncProgress(sqlInput?: SqlClient, scope: InitialSyncScope = "monitoring") {
   const sql = sqlInput ?? neon(getDatabaseUrl());
   await ensureInitialSyncColumns(sql);
-  await absorbBatch1State(sql);
-  const rows = await sql`
+  if (scope === "monitoring") await absorbBatch1State(sql);
+  const rows = scope === "target_100" ? await sql`
+    SELECT count(*)::int AS total,
+      count(*) FILTER (WHERE o.initial_sync_status = 'CURRENT_RECRUITMENT')::int AS current_recruitment,
+      count(*) FILTER (WHERE o.initial_sync_status = 'OFFICIAL_SOURCE_FOUND')::int AS official_source_found,
+      count(*) FILTER (WHERE o.initial_sync_status = 'NO_CURRENT_RECRUITMENT')::int AS no_current_recruitment,
+      count(*) FILTER (WHERE o.initial_sync_status = 'UPCOMING')::int AS upcoming,
+      count(*) FILTER (WHERE o.initial_sync_status = 'ACCESS_FAILED')::int AS access_failed,
+      count(*) FILTER (WHERE o.initial_sync_status = 'SOURCE_NOT_FOUND')::int AS source_not_found,
+      count(*) FILTER (WHERE o.initial_sync_status = 'NEEDS_REVIEW')::int AS needs_review,
+      count(*) FILTER (WHERE o.initial_sync_status = 'NOT_CHECKED')::int AS not_checked
+    FROM organizations o
+    WHERE EXISTS (SELECT 1 FROM data_sources target_ds WHERE target_ds.organization_id = o.id AND target_ds.admin_note LIKE ${TARGET_AUDIT_MARKER})
+  ` : await sql`
     SELECT count(*)::int AS total,
       count(*) FILTER (WHERE initial_sync_status = 'CURRENT_RECRUITMENT')::int AS current_recruitment,
       count(*) FILTER (WHERE initial_sync_status = 'OFFICIAL_SOURCE_FOUND')::int AS official_source_found,
@@ -227,8 +255,12 @@ export async function getInitialSyncProgress(sqlInput?: SqlClient) {
       count(*) FILTER (WHERE initial_sync_status = 'NOT_CHECKED')::int AS not_checked
     FROM organizations WHERE monitoring_enabled = true
   `;
-  const categoryRows = await sql`SELECT COALESCE(monitoring_category, '未分类') AS category, initial_sync_status AS status, count(*)::int AS count FROM organizations WHERE monitoring_enabled = true GROUP BY 1, 2 ORDER BY 1, 2`;
-  const regionRows = await sql`SELECT COALESCE(monitoring_region_name, '全国') AS region, initial_sync_status AS status, count(*)::int AS count FROM organizations WHERE monitoring_enabled = true GROUP BY 1, 2 ORDER BY 1, 2`;
+  const categoryRows = scope === "target_100"
+    ? await sql`SELECT COALESCE(o.organization_type, '未分类') AS category, o.initial_sync_status AS status, count(*)::int AS count FROM organizations o WHERE EXISTS (SELECT 1 FROM data_sources target_ds WHERE target_ds.organization_id = o.id AND target_ds.admin_note LIKE ${TARGET_AUDIT_MARKER}) GROUP BY 1, 2 ORDER BY 1, 2`
+    : await sql`SELECT COALESCE(monitoring_category, '未分类') AS category, initial_sync_status AS status, count(*)::int AS count FROM organizations WHERE monitoring_enabled = true GROUP BY 1, 2 ORDER BY 1, 2`;
+  const regionRows = scope === "target_100"
+    ? await sql`SELECT '全国' AS region, o.initial_sync_status AS status, count(*)::int AS count FROM organizations o WHERE EXISTS (SELECT 1 FROM data_sources target_ds WHERE target_ds.organization_id = o.id AND target_ds.admin_note LIKE ${TARGET_AUDIT_MARKER}) GROUP BY 1, 2 ORDER BY 1, 2`
+    : await sql`SELECT COALESCE(monitoring_region_name, '全国') AS region, initial_sync_status AS status, count(*)::int AS count FROM organizations WHERE monitoring_enabled = true GROUP BY 1, 2 ORDER BY 1, 2`;
   const row = rows[0] as Record<string, number>;
   return {
     total: Number(row?.total ?? 0),
@@ -241,13 +273,34 @@ export async function getInitialSyncProgress(sqlInput?: SqlClient) {
     sourceNotFound: Number(row?.source_not_found ?? 0),
     needsReview: Number(row?.needs_review ?? 0),
     notChecked: Number(row?.not_checked ?? 0),
+    scope,
     byCategory: categoryRows,
     byRegion: regionRows,
   };
 }
 
-async function nextOrganizations(sql: SqlClient, batchSize: number) {
-  const rows = await sql`
+async function nextOrganizations(sql: SqlClient, batchSize: number, scope: InitialSyncScope) {
+  const rows = scope === "target_100" ? await sql`
+    SELECT o.id::text AS id, o.name, o.monitoring_category, o.monitoring_region_name, o.monitoring_source,
+      o.priority, o.official_website, o.recruitment_website,
+      ds.id::text AS source_id, ds.name AS source_name, ds.source_url, ds.list_page_url, ds.source_domain,
+      ds.level AS source_level, ds.discovery_status, ds.requires_login, ds.has_captcha,
+      ds.requires_javascript, ds.request_interval_seconds, ds.user_agent
+    FROM organizations o
+    LEFT JOIN LATERAL (
+      SELECT d.* FROM data_sources d
+      WHERE d.organization_id = o.id AND d.status = 'active'
+        AND d.level <> 'D级' AND d.admin_note LIKE ${TARGET_AUDIT_MARKER}
+        AND (d.list_page_url IS NOT NULL OR d.source_url IS NOT NULL)
+      ORDER BY CASE WHEN d.discovery_status = 'VERIFIED' THEN 0 ELSE 1 END,
+        d.source_last_verified_at DESC NULLS LAST, d.updated_at DESC
+      LIMIT 1
+    ) ds ON true
+    WHERE EXISTS (SELECT 1 FROM data_sources target_ds WHERE target_ds.organization_id = o.id AND target_ds.admin_note LIKE ${TARGET_AUDIT_MARKER})
+      AND o.initial_sync_status = 'NOT_CHECKED'
+    ORDER BY CASE o.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END, o.name
+    LIMIT ${batchSize}
+  ` : await sql`
     SELECT o.id::text AS id, o.name, o.monitoring_category, o.monitoring_region_name, o.monitoring_source,
       o.priority, o.official_website, o.recruitment_website,
       ds.id::text AS source_id, ds.name AS source_name, ds.source_url, ds.list_page_url, ds.source_domain,
@@ -322,7 +375,7 @@ async function persistCandidate(sql: SqlClient, row: OrganizationRow, sourceUrlV
     LIMIT 1
   `;
   const duplicate = Boolean(existingFormal[0]?.id);
-  const autoPublish = !duplicate && Boolean(sourceId) && sourceLevel === "A级" && classification.status === "CURRENT_RECRUITMENT";
+  const autoPublish = !duplicate && Boolean(sourceId) && sourceLevel === "A级" && classification.status === "CURRENT_RECRUITMENT" && isConcreteRecruitmentPage(pageTitle, text, sourceUrlValue);
   const opportunityTypeValue = opportunityType(row.monitoring_category);
   const title = pageTitle || `${row.name}官方招聘页面`;
   const batch = classification.season === "AUTUMN" ? "秋招" : classification.season === "SPRING" ? "春招" : "公开招聘";
@@ -452,24 +505,25 @@ async function scanOrganization(sql: SqlClient, row: OrganizationRow, batchName:
   }
 }
 
-export async function runInitialSyncBatch(options: { databaseUrl?: string; adminId: string; batchSize?: number; batchName?: string; now?: Date }) {
+export async function runInitialSyncBatch(options: { databaseUrl?: string; adminId: string; batchSize?: number; batchName?: string; now?: Date; scope?: InitialSyncScope }) {
   const sql = neon(options.databaseUrl ?? getDatabaseUrl());
   const now = options.now ?? new Date();
+  const scope = options.scope ?? "monitoring";
   await ensureInitialSyncColumns(sql);
-  await absorbBatch1State(sql);
-  const before = await getInitialSyncProgress(sql);
+  if (scope === "monitoring") await absorbBatch1State(sql);
+  const before = await getInitialSyncProgress(sql, scope);
   const batchSize = Math.max(1, Math.min(options.batchSize ?? 50, 100));
-  const batchName = options.batchName ?? `BATCH_${Math.floor(before.completed / batchSize) + 2}`;
-  const rows = await nextOrganizations(sql, batchSize);
+  const batchName = options.batchName ?? (scope === "target_100" ? `TARGET_100_BATCH_${Math.floor(before.completed / batchSize) + 1}` : `BATCH_${Math.floor(before.completed / batchSize) + 2}`);
+  const rows = await nextOrganizations(sql, batchSize, scope);
   const month = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", month: "numeric" }).format(now));
   const client = new SafeSourceHttpClient({ policy: { maxRetries: 1, timeoutMs: 12_000, maxResponseBytes: 2_000_000, retryBackoffMs: 1_000 } });
   const results: ScanResult[] = [];
   for (let offset = 0; offset < rows.length; offset += 4) {
     results.push(...await Promise.all(rows.slice(offset, offset + 4).map((row) => scanOrganization(sql, row, batchName, options.adminId, month, client, now))));
   }
-  const after = await getInitialSyncProgress(sql);
+  const after = await getInitialSyncProgress(sql, scope);
   return {
-    ok: true, mode: "INITIAL_SYNC", batch: batchName, batchSize, executedAt: now.toISOString(),
+    ok: true, mode: scope === "target_100" ? "TARGET_100_OFFICIAL_AUDIT" : "INITIAL_SYNC", scope, batch: batchName, batchSize, executedAt: now.toISOString(),
     before, after, processed: results.length, results,
     summary: {
       successful: results.filter((item) => item.status !== "ACCESS_FAILED" && item.status !== "NOT_CHECKED").length,
@@ -495,4 +549,48 @@ export async function initialSyncExport(sqlInput: SqlClient, kind: "failed" | "n
   if (kind === "failed") return sql`SELECT name AS organization_name, monitoring_category AS category, monitoring_region_name AS province, initial_sync_official_url AS official_url, initial_sync_failure_type AS failure_type, initial_sync_last_checked_at AS last_checked_at, initial_sync_retry_count AS retry_count, initial_sync_next_check_at AS next_action FROM organizations WHERE monitoring_enabled = true AND initial_sync_status = 'ACCESS_FAILED' ORDER BY priority, name`;
   if (kind === "no-current") return sql`SELECT name AS organization_name, initial_sync_official_url AS official_recruitment_url, initial_sync_last_checked_at AS last_checked_at, initial_sync_next_check_at AS next_check_at FROM organizations WHERE monitoring_enabled = true AND initial_sync_status IN ('NO_CURRENT_RECRUITMENT', 'OFFICIAL_SOURCE_FOUND') ORDER BY priority, name`;
   return sql`SELECT o.name AS organization, op.title, o.monitoring_category AS category, op.recruitment_season AS season, op.recruitment_year AS graduation_year, NULL AS publication_date, NULL AS application_start, op.deadline_at AS application_deadline, NULL AS region, op.official_announcement_url, op.official_application_url, op.source_level, op.last_verified_at, op.publication_status FROM organizations o JOIN opportunities op ON op.organization_id = o.id WHERE o.monitoring_enabled = true AND o.initial_sync_status IN ('CURRENT_RECRUITMENT', 'UPCOMING') ORDER BY o.priority, o.name, op.created_at DESC`;
+}
+
+export async function targetAuditRows(sqlInput: SqlClient) {
+  const sql = sqlInput;
+  return sql`
+    SELECT
+      o.name AS organization_name,
+      o.organization_type,
+      o.priority,
+      o.official_website,
+      COALESCE(o.initial_sync_official_url, ds.source_url) AS official_recruitment_url,
+      (ds.discovery_status = 'VERIFIED') AS official_confirmed,
+      o.initial_sync_status AS current_recruitment_status,
+      current_op.title AS current_recruitment_title,
+      current_op.official_announcement_url AS current_recruitment_url,
+      current_op.official_application_url AS application_url,
+      o.initial_sync_last_checked_at AS last_checked_at,
+      CASE
+        WHEN o.initial_sync_status = 'ACCESS_FAILED' THEN 'ACCESS_FAILED'
+        WHEN o.initial_sync_status = 'SOURCE_NOT_FOUND' THEN 'SOURCE_NOT_FOUND'
+        WHEN o.initial_sync_status = 'NOT_CHECKED' THEN 'NOT_CHECKED'
+        WHEN ds.discovery_status = 'VERIFIED' THEN 'VERIFIED'
+        ELSE 'NEEDS_REVIEW'
+      END AS source_status,
+      o.initial_sync_failure_type AS failure_type,
+      (SELECT count(*)::int FROM opportunities published_op WHERE published_op.organization_id = o.id AND published_op.publication_status = 'published') AS published_opportunity_count,
+      COALESCE(o.initial_sync_last_result->>'reason', '') AS notes
+    FROM organizations o
+    LEFT JOIN LATERAL (
+      SELECT d.* FROM data_sources d
+      WHERE d.organization_id = o.id AND d.status = 'active' AND d.admin_note LIKE ${TARGET_AUDIT_MARKER}
+      ORDER BY CASE WHEN d.source_url IS NOT NULL THEN 0 ELSE 1 END, d.updated_at DESC
+      LIMIT 1
+    ) ds ON true
+    LEFT JOIN LATERAL (
+      SELECT op.title, op.official_announcement_url, op.official_application_url
+      FROM opportunities op
+      WHERE op.organization_id = o.id AND op.publication_status = 'published'
+      ORDER BY op.created_at DESC
+      LIMIT 1
+    ) current_op ON true
+    WHERE EXISTS (SELECT 1 FROM data_sources target_ds WHERE target_ds.organization_id = o.id AND target_ds.admin_note LIKE ${TARGET_AUDIT_MARKER})
+    ORDER BY CASE o.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END, o.name
+  `;
 }

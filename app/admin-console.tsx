@@ -323,16 +323,74 @@ function NationalCoverageDirectory() {
 }
 
 function TargetOrganizationDirectory({ onNotify }: { onNotify: (message: string) => void }) {
+  type TargetAuditRow = {
+    organization_name: string;
+    organization_type: string;
+    priority: string;
+    official_website: string | null;
+    official_recruitment_url: string | null;
+    official_confirmed: boolean;
+    current_recruitment_status: string;
+    current_recruitment_title: string | null;
+    current_recruitment_url: string | null;
+    application_url: string | null;
+    last_checked_at: string | null;
+    source_status: string;
+    failure_type: string | null;
+    published_opportunity_count: number;
+    notes: string;
+  };
   const [query, setQuery] = useState("");
   const [priority, setPriority] = useState("全部");
-  const [started, setStarted] = useState<string[]>([]);
+  const [auditRows, setAuditRows] = useState<TargetAuditRow[]>([]);
+  const [auditProgress, setAuditProgress] = useState<InitialSyncProgress | null>(null);
+  const [auditRunning, setAuditRunning] = useState(false);
+  const [auditReport, setAuditReport] = useState<{ processed: number; currentRecruitment: number; upcoming: number; officialSourceFound: number; noCurrentRecruitment: number; accessFailed: number; sourceNotFound: number; needsReview: number; rawInserted: number; stagingInserted: number; formalAdded: number; duplicate: number; updated: number } | null>(null);
   const sourceByOrganization = new Map(dataSourcesSeed.map((source) => [source.organizationName, source]));
+  const auditByOrganization = new Map(auditRows.map((row) => [row.organization_name, row]));
   const visible = organizationsSeed.filter((organization) => {
     const matchesQuery = !query.trim() || `${organization.name} ${organization.shortName} ${organization.industry}`.toLowerCase().includes(query.trim().toLowerCase());
     return matchesQuery && (priority === "全部" || organization.priority === priority);
   });
   const counts = { P0: organizationsSeed.filter((item) => item.priority === "P0").length, P1: organizationsSeed.filter((item) => item.priority === "P1").length, P2: organizationsSeed.filter((item) => item.priority === "P2").length };
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">TARGET ORGANIZATIONS</span><h2>首批目标单位</h2><p>100家重点企业、央企、国企、银行和知名企业，网址确认前统一保持待核验。</p></div><span className="review-guard">不预填未经确认网址</span></div><div className="target-summary"><div><strong>{organizationsSeed.length}</strong><span>目标单位</span></div><div><strong>{counts.P0}</strong><span>P0首批调研</span></div><div><strong>{dataSourcesSeed.filter((item) => item.officialConfirmed).length}</strong><span>已确认入口</span></div><div><strong>{dataSourcesSeed.filter((item) => item.sourceStatus === "NEEDS_REVIEW").length}</strong><span>待完成审计</span></div><div><strong>0</strong><span>已允许自动采集</span></div></div><div className="admin-filter-bar"><div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索单位、简称或行业" /></div>{["全部", "P0", "P1", "P2"].map((item) => <button key={item} className={priority === item ? "active" : ""} onClick={() => setPriority(item)}>{item}</button>)}</div><div className="target-table"><div className="target-table-head"><span>单位</span><span>类型 / 行业</span><span>优先级</span><span>数据源状态</span><span>采集策略</span><span>操作</span></div>{visible.map((organization) => { const source = sourceByOrganization.get(organization.name); const isStarted = started.includes(organization.name); return <div className="target-table-row" key={organization.name}><span><strong>{organization.name}</strong><small>{organization.shortName}</small></span><span>{organization.organizationType}<small>{organization.industry}</small></span><span className={`priority-pill ${organization.priority.toLowerCase()}`}>{organization.priority}</span><span><b className="source-status pending"><i />{source?.sourceStatus}</b><small>官方入口待人工核验</small></span><span>{source?.crawlerStrategy}<small>{source?.recommendedFrequency}</small></span><span><button className="text-button" onClick={() => { setStarted((current) => current.includes(organization.name) ? current : [...current, organization.name]); onNotify(isStarted ? "该单位已在调研队列中" : `${organization.shortName}已加入人工调研队列`); }}>{isStarted ? "已加入调研" : "开始调研"}</button></span></div>; })}</div></div>;
+  async function refreshAuditReport() {
+    const response = await fetch("/api/admin/target-audit/report");
+    const payload = await response.json() as { ok?: boolean; error?: string; progress?: InitialSyncProgress; rows?: TargetAuditRow[] };
+    if (!response.ok || !payload.ok) throw new Error(payload.error ?? "首批100家核验报告读取失败");
+    setAuditProgress(payload.progress ?? null);
+    setAuditRows(Array.isArray(payload.rows) ? payload.rows : []);
+    return payload.progress;
+  }
+  useEffect(() => { void refreshAuditReport().catch(() => undefined); }, []);
+  async function runTargetAudit() {
+    setAuditRunning(true);
+    try {
+      const directoryResponse = await fetch("/api/admin/source-directory", { method: "POST" });
+      const directoryPayload = await directoryResponse.json() as { ok?: boolean; error?: string };
+      if (!directoryResponse.ok || !directoryPayload.ok) throw new Error(directoryPayload.error ?? "首批目标单位来源登记失败");
+      let latest = auditProgress;
+      let totals = { processed: 0, currentRecruitment: 0, upcoming: 0, officialSourceFound: 0, noCurrentRecruitment: 0, accessFailed: 0, sourceNotFound: 0, needsReview: 0, rawInserted: 0, stagingInserted: 0, formalAdded: 0, duplicate: 0, updated: 0 };
+      for (let index = 0; index < 10; index += 1) {
+        const response = await fetch("/api/admin/initial-sync/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "target_100", batchSize: 20, batchName: `TARGET_100_BATCH_${index + 1}` }) });
+        const payload = await response.json() as { ok?: boolean; error?: string; processed?: number; after?: InitialSyncProgress; summary?: Partial<typeof totals> };
+        if (!response.ok || !payload.ok || !payload.after) throw new Error(payload.error ?? "首批100家核验执行失败");
+        latest = payload.after;
+        setAuditProgress(latest);
+        totals.processed += payload.processed ?? 0;
+        for (const key of Object.keys(totals) as Array<keyof typeof totals>) totals[key] += Number(payload.summary?.[key] ?? 0);
+        if (latest.notChecked === 0 || payload.processed === 0) break;
+      }
+      await refreshAuditReport();
+      setAuditReport(totals);
+      onNotify(latest?.notChecked === 0 ? "首批100家官方入口核验已完成，逐家状态已写入生产库" : `首批100家核验已继续执行，剩余 ${latest?.notChecked ?? "未知"} 家`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "首批100家核验执行失败");
+    } finally {
+      setAuditRunning(false);
+    }
+  }
+  const statusLabelFor = (status: string) => ({ CURRENT_RECRUITMENT: "当前有招聘", UPCOMING: "即将开始", OFFICIAL_SOURCE_FOUND: "已找到官方入口", NO_CURRENT_RECRUITMENT: "当前无招聘", ACCESS_FAILED: "访问失败", SOURCE_NOT_FOUND: "未找到官方入口", NEEDS_REVIEW: "待人工复核", NOT_CHECKED: "未检查" } as Record<string, string>)[status] ?? status;
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">TARGET ORGANIZATIONS</span><h2>首批目标单位</h2><p>100家重点企业、央企、国企、银行和知名企业，执行真实公开入口核验；名单本身不等于招聘岗位。</p></div><div className="admin-heading-actions"><a className="secondary-button" href="/api/admin/initial-sync/export?kind=target-100">下载逐家报告</a><button className="primary-button" disabled={auditRunning} onClick={runTargetAudit}>{auditRunning ? "100家核验执行中…" : "执行100家官方核验"} <span>→</span></button></div></div><div className="target-summary"><div><strong>{organizationsSeed.length}</strong><span>目标单位</span></div><div><strong>{counts.P0}</strong><span>P0首批调研</span></div><div><strong>{auditProgress?.completed ?? 0}</strong><span>已完成检查</span></div><div><strong>{auditProgress?.officialSourceFound ?? dataSourcesSeed.filter((item) => item.officialConfirmed).length}</strong><span>官方入口确认</span></div><div><strong>{auditProgress?.currentRecruitment ?? 0}</strong><span>当前有招聘</span></div><div><strong>{auditProgress?.notChecked ?? 100}</strong><span>未检查</span></div></div>{auditReport && <div className="coverage-batch-report"><div className="coverage-batch-note">本次实际处理 {auditReport.processed} 家：当前招聘 {auditReport.currentRecruitment}、即将开始 {auditReport.upcoming}、官方入口 {auditReport.officialSourceFound}、当前无招聘 {auditReport.noCurrentRecruitment}、访问失败 {auditReport.accessFailed}、未找到官方入口 {auditReport.sourceNotFound}、待复核 {auditReport.needsReview}；raw {auditReport.rawInserted}、staging {auditReport.stagingInserted}、正式新增 {auditReport.formalAdded}、重复 {auditReport.duplicate}、更新 {auditReport.updated}。</div></div>}<div className="admin-filter-bar"><div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索单位、简称或行业" /></div>{["全部", "P0", "P1", "P2"].map((item) => <button key={item} className={priority === item ? "active" : ""} onClick={() => setPriority(item)}>{item}</button>)}</div><div className="target-table"><div className="target-table-head"><span>单位</span><span>类型 / 行业</span><span>优先级</span><span>真实核验状态</span><span>官方入口 / 招聘</span><span>最近检查</span></div>{visible.map((organization) => { const source = sourceByOrganization.get(organization.name); const audit = auditByOrganization.get(organization.name); const status = audit?.current_recruitment_status ?? "NOT_CHECKED"; return <div className="target-table-row" key={organization.name}><span><strong>{organization.name}</strong><small>{organization.shortName}</small></span><span>{organization.organizationType}<small>{organization.industry}</small></span><span className={`priority-pill ${organization.priority.toLowerCase()}`}>{organization.priority}</span><span><b className={`source-status ${status === "CURRENT_RECRUITMENT" ? "verified" : "pending"}`}><i />{statusLabelFor(status)}</b><small>{audit?.failure_type ?? (audit?.notes || source?.sourceStatus || "尚未执行")}</small></span><span>{audit?.current_recruitment_title ? <><strong>{audit.current_recruitment_title}</strong><small><a href={audit.current_recruitment_url ?? audit.official_recruitment_url ?? "#"} target="_blank" rel="noreferrer">打开官方页面 ↗</a></small></> : <small>{audit?.official_recruitment_url ?? "未登记官方URL"}</small>}</span><span>{audit?.last_checked_at ? formatDate(audit.last_checked_at) : "—"}</span></div>; })}</div></div>;
 }
 
 function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: BrandConfig) => void }) {

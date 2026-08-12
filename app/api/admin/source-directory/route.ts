@@ -87,6 +87,7 @@ export async function POST() {
     const regionIds = new Map<string, string>();
     const organizationIds = new Map<string, string>();
     const sourceDirectoryMarker = "source-directory-sync:v1";
+    const targetAuditMarker = "target-100-audit:v1";
 
     const regionSeeds = [
       { code: "CN", name: "全国", sortOrder: 0 },
@@ -123,7 +124,7 @@ export async function POST() {
         : await sql`SELECT id::text AS id FROM data_sources WHERE organization_id = ${organizationId} AND name = ${source.sourceName} LIMIT 1`;
       const id = existing[0]?.id ?? await stableUuid(`source-directory:enterprise-source:${source.organizationName}`);
       const discoveryStatus = source.officialConfirmed ? "VERIFIED" : "NEEDS_REVIEW";
-      const note = `${source.notes} [${sourceDirectoryMarker}]`;
+      const note = `${source.notes} [${sourceDirectoryMarker}] [${targetAuditMarker}]`;
       queries.push(sql`
         INSERT INTO data_sources (
           id, name, organization_id, level, source_category, source_type,
