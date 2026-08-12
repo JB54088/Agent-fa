@@ -562,6 +562,8 @@ export async function targetAuditRows(sqlInput: SqlClient) {
       ds.id::text AS source_id,
       COALESCE(o.initial_sync_official_url, ds.source_url, ds.list_page_url) AS official_recruitment_url,
       (ds.discovery_status = 'VERIFIED') AS official_confirmed,
+      (COALESCE(ds.admin_note, '') LIKE '%[manual-review-requested:%') AS manual_review_requested,
+      (COALESCE(ds.admin_note, '') LIKE '%[manual-review-confirmed:%') AS manual_review_confirmed,
       o.initial_sync_status AS current_recruitment_status,
       current_op.title AS current_recruitment_title,
       current_op.official_announcement_url AS current_recruitment_url,
