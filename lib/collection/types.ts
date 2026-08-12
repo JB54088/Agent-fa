@@ -22,6 +22,7 @@ export type SourceAuditRecord = {
   hasCaptcha: boolean | null;
   discoveryStatus: SourceDiscoveryStatus;
   automationAllowed: boolean;
+  incrementalSyncEnabled?: boolean;
   requestIntervalSeconds: number;
   maxRequestsPerRun: number;
   maxRequestsPerDay: number;

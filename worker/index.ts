@@ -2,10 +2,12 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { configureDatabase } from "../db/index";
+import { runIncrementalSync } from "../lib/collection/incremental-sync";
 
 interface Env {
   ASSETS: Fetcher;
   DATABASE_URL?: string;
+  CRON_SECRET?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -43,6 +45,9 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runIncrementalSync({ databaseUrl: env.DATABASE_URL, triggerType: "cloudflare_cron" }));
   },
 };
 

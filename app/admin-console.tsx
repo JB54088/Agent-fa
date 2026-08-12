@@ -180,6 +180,8 @@ function NationalCoverageDirectory() {
   const [batchRunning, setBatchRunning] = useState(false);
   const [directorySyncRunning, setDirectorySyncRunning] = useState(false);
   const [monitoringImportRunning, setMonitoringImportRunning] = useState(false);
+  const [incrementalRunning, setIncrementalRunning] = useState(false);
+  const [incrementalReport, setIncrementalReport] = useState<{ activePeriod: string; sourceSummary?: { due: number; scanned: number; unchanged: number; changed: number; blocked: number; failed: number }; pipeline?: { rawInserted: number; stagingInserted: number; reviewTasksCreated: number; opportunitiesAutoPublished: number }; reminders?: { favoritesScanned: number; deliveriesSynchronized: number } } | null>(null);
   const [monitoringPoolText, setMonitoringPoolText] = useState("");
   const [monitoringImportReport, setMonitoringImportReport] = useState<{ received: number; unique: number; duplicateRows: number; inserted: number; updated: number; monitoredOrganizations: number } | null>(null);
   const [directoryReport, setDirectoryReport] = useState<{ catalog?: DirectoryCatalog; databaseAfter?: DirectoryDatabaseAfter } | null>(null);
@@ -242,6 +244,20 @@ function NationalCoverageDirectory() {
       setMonitoringImportRunning(false);
     }
   }
+  async function runIncremental() {
+    setIncrementalRunning(true);
+    try {
+      const response = await fetch("/api/admin/incremental-sync", { method: "POST" });
+      const payload = await response.json() as { ok?: boolean; error?: string; activePeriod?: string; sourceSummary?: { due: number; scanned: number; unchanged: number; changed: number; blocked: number; failed: number }; pipeline?: { rawInserted: number; stagingInserted: number; reviewTasksCreated: number; opportunitiesAutoPublished: number }; reminders?: { favoritesScanned: number; deliveriesSynchronized: number } };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "增量同步失败");
+      setIncrementalReport({ activePeriod: payload.activePeriod ?? "", sourceSummary: payload.sourceSummary, pipeline: payload.pipeline, reminders: payload.reminders });
+      onNotify("增量扫描完成：新增和变化已进入人工审核队列");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "增量同步失败");
+    } finally {
+      setIncrementalRunning(false);
+    }
+  }
   return <div className="admin-section">
     <div className="admin-panel-heading">
       <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
@@ -254,6 +270,11 @@ function NationalCoverageDirectory() {
       <div><strong>{nationalSourceDirectorySummary.localSoe}</strong><span>地方国企重点地区</span></div>
       <div><strong>{nationalSourceDirectorySummary.verified}</strong><span>已核验入口</span></div>
       <div><strong>{nationalSourceDirectorySummary.needsReview}</strong><span>待人工核验</span></div>
+    </div>
+    <div className="surface coverage-batch-report">
+      <div className="admin-panel-heading"><div><span className="section-kicker">INCREMENTAL SYNC</span><h3>每日增量同步模式</h3><p>秋招 / 春招活跃期每日扫描，其余来源每7日基础巡检；新增与变化不会自动覆盖正式招聘。</p></div><div className="admin-heading-actions"><span className="success-tag">已启用</span><button className="primary-button" disabled={incrementalRunning} onClick={runIncremental}>{incrementalRunning ? "增量扫描中…" : "立即执行增量扫描"} <span>↻</span></button></div></div>
+      <div className="coverage-summary"><div><strong>每日</strong><span>活跃期</span></div><div><strong>7日</strong><span>基础巡检</span></div><div><strong>0</strong><span>自动发布</span></div><div><strong>{incrementalReport?.sourceSummary?.changed ?? 0}</strong><span>本次变化</span></div><div><strong>{incrementalReport?.pipeline?.reviewTasksCreated ?? 0}</strong><span>待审核任务</span></div><div><strong>{incrementalReport?.reminders?.deliveriesSynchronized ?? 0}</strong><span>收藏提醒同步</span></div></div>
+      {incrementalReport && <p className="coverage-batch-note">本次为 {incrementalReport.activePeriod}：到期来源 {incrementalReport.sourceSummary?.due ?? 0} 个，实际检查 {incrementalReport.sourceSummary?.scanned ?? 0} 个，未变化 {incrementalReport.sourceSummary?.unchanged ?? 0} 个，新增/变化 {incrementalReport.sourceSummary?.changed ?? 0} 个；raw {incrementalReport.pipeline?.rawInserted ?? 0} 条、staging {incrementalReport.pipeline?.stagingInserted ?? 0} 条、人工审核任务 {incrementalReport.pipeline?.reviewTasksCreated ?? 0} 条。正式机会自动发布 {incrementalReport.pipeline?.opportunitiesAutoPublished ?? 0} 条。</p>}
     </div>
     {directoryReport?.databaseAfter && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">SOURCE DIRECTORY SYNC</span><h3>全国覆盖底账已同步到生产库</h3><p>这里只登记来源和覆盖范围，不代表已经发现招聘岗位；所有来源仍禁止自动发布。</p></div><span className="success-tag">同步完成</span></div><div className="coverage-summary"><div><strong>{directoryReport.databaseAfter.registered_sources}</strong><span>已登记来源</span></div><div><strong>{directoryReport.databaseAfter.verified_sources}</strong><span>已核验入口</span></div><div><strong>{directoryReport.databaseAfter.review_sources}</strong><span>待人工核验</span></div><div><strong>{directoryReport.databaseAfter.enterprise_sources}</strong><span>企业来源</span></div><div><strong>{directoryReport.databaseAfter.national_civil_service_sources + directoryReport.databaseAfter.provincial_civil_service_sources}</strong><span>国考 / 省考</span></div><div><strong>{directoryReport.databaseAfter.central_soe_sources + directoryReport.databaseAfter.local_soe_sources}</strong><span>央企 / 地方国企</span></div></div></div>}
     <div className="surface coverage-batch-report">

@@ -102,7 +102,11 @@ export class SafeSourceHttpClient {
   }
 
   async get(source: SourceAuditRecord, rawUrl: string, context: { signal?: AbortSignal; userAgent?: string } = {}): Promise<SafeFetchResult> {
-    if (source.discoveryStatus !== "AUTO_ALLOWED" && source.discoveryStatus !== "ATTACHMENT_ONLY") {
+    const incrementalPublicApproval = source.incrementalSyncEnabled === true
+      && source.discoveryStatus === "VERIFIED"
+      && source.requiresLogin !== true
+      && source.hasCaptcha !== true;
+    if (source.discoveryStatus !== "AUTO_ALLOWED" && source.discoveryStatus !== "ATTACHMENT_ONLY" && !incrementalPublicApproval) {
       throw new SourceRequestError("该来源尚未获准自动采集", "SSRF_BLOCKED");
     }
     let target = validateSourceUrl(rawUrl, source.sourceDomain);
