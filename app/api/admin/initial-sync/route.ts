@@ -285,7 +285,7 @@ export async function runBatch1(adminId: string | null) {
           dedupe_key, review_status, reviewer_note, reviewed_by, reviewed_at
         ) VALUES (
           ${stagingId}, ${rawId}, ${sourceId}, ${organizationId}, ${record.organizationName},
-          ${record.title}, 'ENTERPRISE_CAMPUS', ${record.recruitmentSeason}, ${record.recruitmentYear},
+          ${record.title}, ${record.opportunityType}, ${record.recruitmentSeason}, ${record.recruitmentYear},
           ${record.batchName}, ${json(record.targetGraduationYears)}::jsonb, ${json(record.degreeRequirements)}::jsonb,
           ${record.majorRequirementText}, '[]'::jsonb, '[]'::jsonb,
           ${json(record.workLocations)}::jsonb, ${record.publishedAt}, ${record.deadlineAt},
@@ -309,7 +309,7 @@ export async function runBatch1(adminId: string | null) {
           publication_status, calculated_status, manual_status, deadline_type,
           deadline_at, opportunity_relevance_status, data_credibility, is_demo
         ) VALUES (
-          ${opportunityId}, ${record.title}, ${organizationId}, 'ENTERPRISE_CAMPUS', ${record.recruitmentSeason},
+          ${opportunityId}, ${record.title}, ${organizationId}, ${record.opportunityType}, ${record.recruitmentSeason},
           ${record.recruitmentYear}, ${json(record.targetGraduationYears)}::jsonb, ${record.batchName}, ${record.originalContent},
           ${json(record.workLocations)}::jsonb, ${record.organizationName === "百度" ? 147 : null}, ${json(record.degreeRequirements)}::jsonb,
           ${json(record.degreeRequirements)}::jsonb, ${record.majorRequirementText}, ${record.officialAnnouncementUrl},
@@ -370,6 +370,7 @@ export async function runBatch1(adminId: string | null) {
       discovered: batch1Records.length,
       autumn: batch1Records.filter((record) => record.recruitmentSeason === "AUTUMN").length,
       spring: batch1Records.filter((record) => record.recruitmentSeason === "SPRING").length,
+      internship: batch1Records.filter((record) => record.recruitmentSeason === "INTERNSHIP").length,
       rawInserted,
       stagingInserted,
       duplicateFiltered,

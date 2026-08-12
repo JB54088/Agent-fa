@@ -130,6 +130,10 @@ export const organizations = pgTable("organizations", {
   logoUrl: text("logo_url"),
   priority: text("priority").default("P2").notNull(),
   status: text("status").default("active").notNull(),
+  monitoringEnabled: boolean("monitoring_enabled").default(false).notNull(),
+  monitoringSource: text("monitoring_source"),
+  monitoringCategory: text("monitoring_category"),
+  monitoringRegionName: text("monitoring_region_name"),
   ...timestamps,
 }, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType), index("organizations_parent_idx").on(table.parentId), index("organizations_region_idx").on(table.regionId)]);
 

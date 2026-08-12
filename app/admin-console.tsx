@@ -179,8 +179,11 @@ function NationalCoverageDirectory() {
   const [category, setCategory] = useState("全部");
   const [batchRunning, setBatchRunning] = useState(false);
   const [directorySyncRunning, setDirectorySyncRunning] = useState(false);
+  const [monitoringImportRunning, setMonitoringImportRunning] = useState(false);
+  const [monitoringPoolText, setMonitoringPoolText] = useState("");
+  const [monitoringImportReport, setMonitoringImportReport] = useState<{ received: number; unique: number; duplicateRows: number; inserted: number; updated: number; monitoredOrganizations: number } | null>(null);
   const [directoryReport, setDirectoryReport] = useState<{ catalog?: DirectoryCatalog; databaseAfter?: DirectoryDatabaseAfter } | null>(null);
-  const [batchReport, setBatchReport] = useState<{ sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } } | null>(null);
+  const [batchReport, setBatchReport] = useState<{ sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; internship?: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } } | null>(null);
   const categories = [
     { value: "全部", label: "全部" },
     { value: "PROVINCIAL_CIVIL_SERVICE", label: "31省省考" },
@@ -194,7 +197,7 @@ function NationalCoverageDirectory() {
     setBatchRunning(true);
     try {
       const response = await fetch("/api/admin/initial-sync", { method: "POST" });
-      const payload = await response.json() as { ok?: boolean; error?: string; sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } };
+      const payload = await response.json() as { ok?: boolean; error?: string; sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; internship?: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } };
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? "BATCH 1 执行失败");
       setBatchReport({ sourceReport: payload.sourceReport, findings: payload.findings });
     } catch (error) {
@@ -217,6 +220,28 @@ function NationalCoverageDirectory() {
       setDirectorySyncRunning(false);
     }
   }
+  async function importMonitoringPool() {
+    const records = monitoringPoolText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(1).map((line) => {
+      const [category, regionName, industry, priority, name] = line.split("\t").map((item) => item.trim());
+      return { category, regionName, industry, priority, name };
+    }).filter((record) => record.name);
+    if (!records.length) {
+      window.alert("请先粘贴DOCX解析后的监控母表数据");
+      return;
+    }
+    setMonitoringImportRunning(true);
+    try {
+      const response = await fetch("/api/admin/monitoring-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceDocument: "全国秋招集团名单｜2027届监控版.docx", records }) });
+      const payload = await response.json() as { ok?: boolean; error?: string; received?: number; unique?: number; duplicateRows?: number; inserted?: number; updated?: number; monitoredOrganizations?: number };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "监控母表导入失败");
+      setMonitoringImportReport({ received: payload.received ?? 0, unique: payload.unique ?? 0, duplicateRows: payload.duplicateRows ?? 0, inserted: payload.inserted ?? 0, updated: payload.updated ?? 0, monitoredOrganizations: payload.monitoredOrganizations ?? 0 });
+      onNotify(`监控母表已导入：${payload.unique ?? 0} 家组织进入监控池`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "监控母表导入失败");
+    } finally {
+      setMonitoringImportRunning(false);
+    }
+  }
   return <div className="admin-section">
     <div className="admin-panel-heading">
       <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
@@ -231,6 +256,11 @@ function NationalCoverageDirectory() {
       <div><strong>{nationalSourceDirectorySummary.needsReview}</strong><span>待人工核验</span></div>
     </div>
     {directoryReport?.databaseAfter && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">SOURCE DIRECTORY SYNC</span><h3>全国覆盖底账已同步到生产库</h3><p>这里只登记来源和覆盖范围，不代表已经发现招聘岗位；所有来源仍禁止自动发布。</p></div><span className="success-tag">同步完成</span></div><div className="coverage-summary"><div><strong>{directoryReport.databaseAfter.registered_sources}</strong><span>已登记来源</span></div><div><strong>{directoryReport.databaseAfter.verified_sources}</strong><span>已核验入口</span></div><div><strong>{directoryReport.databaseAfter.review_sources}</strong><span>待人工核验</span></div><div><strong>{directoryReport.databaseAfter.enterprise_sources}</strong><span>企业来源</span></div><div><strong>{directoryReport.databaseAfter.national_civil_service_sources + directoryReport.databaseAfter.provincial_civil_service_sources}</strong><span>国考 / 省考</span></div><div><strong>{directoryReport.databaseAfter.central_soe_sources + directoryReport.databaseAfter.local_soe_sources}</strong><span>央企 / 地方国企</span></div></div></div>}
+    <div className="surface coverage-batch-report">
+      <div className="admin-panel-heading"><div><span className="section-kicker">MONITORING MASTER LIST</span><h3>导入DOCX监控母表</h3><p>只建立组织监控池，不创建招聘机会。格式：分类、地区、行业、优先级、单位名称，以Tab分隔。</p></div><span className="review-guard">名单 ≠ 招聘</span></div>
+      <label className="field"><span>DOCX监控母表数据</span><textarea aria-label="DOCX监控母表数据" value={monitoringPoolText} onChange={(event) => setMonitoringPoolText(event.target.value)} placeholder="分类\t地区\t行业\t优先级\t单位名称\n央企\t全国\t能源\tP0\t示例单位" rows={5} /></label>
+      <div className="brand-form-actions"><button className="primary-button" disabled={monitoringImportRunning} onClick={importMonitoringPool}>{monitoringImportRunning ? "导入监控池中…" : "导入DOCX监控母表"} <span>→</span></button>{monitoringImportReport && <span className="success-tag">已登记 {monitoringImportReport.unique} 家 · 新增 {monitoringImportReport.inserted} · 更新 {monitoringImportReport.updated} · 监控池共 {monitoringImportReport.monitoredOrganizations}</span>}</div>
+    </div>
     {batchReport?.findings && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">BATCH 1 REPORT</span><h3>秋招 / 春招 / 大厂 · 已停止在 BATCH 1</h3><p>本次只写入统一采集链路；原始数据仍可在采集审核工作台追溯。</p></div><span className="success-tag">执行完成</span></div><div className="coverage-summary"><div><strong>{batchReport.sourceReport?.attempted ?? 0}</strong><span>尝试数据源</span></div><div><strong>{batchReport.sourceReport?.successful ?? 0}</strong><span>成功访问</span></div><div><strong>{batchReport.findings.discovered}</strong><span>发现线索</span></div><div><strong>{batchReport.findings.rawInserted}</strong><span>写入原始层</span></div><div><strong>{batchReport.findings.stagingInserted}</strong><span>写入暂存层</span></div><div><strong>{batchReport.findings.formalAdded}</strong><span>正式新增</span></div></div><p className="coverage-batch-note">秋招 {batchReport.findings.autumn} 条 · 春招 {batchReport.findings.spring} 条 · 重复过滤 {batchReport.findings.duplicateFiltered} 条 · 待人工审核 {batchReport.findings.awaitingManualReview} 条。后续 BATCH 2 未执行。</p></div>}
     <div className="coverage-guard"><span>i</span><p>已核验入口已直接写入目录；未核验来源仍保持空白。所有来源仍不自动采集，必须继续完成人工确认和访问边界审计。</p></div>
     <div className="admin-filter-bar coverage-filter">{categories.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
