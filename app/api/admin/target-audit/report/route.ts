@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getChatGPTUser } from "../../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../../db";
 import { getInitialSyncProgress, targetAuditRows } from "../../../../../lib/collection/initial-sync";
+import { ensureOfficialUrlLifecycle } from "../../../../../lib/official-url-lifecycle";
 
 async function requireAdmin() {
   const user = await getChatGPTUser();
@@ -21,6 +22,7 @@ export async function GET() {
   try {
     if (!await requireAdmin()) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
+    await ensureOfficialUrlLifecycle(sql);
     const [progress, rows] = await Promise.all([
       getInitialSyncProgress(sql, "target_100"),
       targetAuditRows(sql),

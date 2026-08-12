@@ -2,6 +2,7 @@ import { and, desc, eq, ne, or, isNull } from "drizzle-orm";
 import { neon } from "@neondatabase/serverless";
 import { getDatabaseUrl, getDb, schema } from "../db/index";
 import type { Project } from "../app/data";
+import { ensureOfficialUrlLifecycle } from "./official-url-lifecycle";
 
 let feedColumnsReady: Promise<void> | undefined;
 
@@ -9,6 +10,7 @@ async function ensureFeedColumns() {
   if (!feedColumnsReady) {
     const sql = neon(getDatabaseUrl());
     feedColumnsReady = Promise.all([
+      ensureOfficialUrlLifecycle(sql),
       sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`,
       sql`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS display_type text NOT NULL DEFAULT 'RECRUITMENT_PROJECT'`,
     ]).then(() => undefined);

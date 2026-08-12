@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getChatGPTUser } from "../../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../../db";
 import { initialSyncExport, targetAuditRows } from "../../../../../lib/collection/initial-sync";
+import { ensureOfficialUrlLifecycle } from "../../../../../lib/official-url-lifecycle";
 
 async function requireAdmin() {
   const user = await getChatGPTUser();
@@ -28,9 +29,11 @@ export async function GET(request: Request) {
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const rawKind = new URL(request.url).searchParams.get("kind");
     if (rawKind === "target-100") {
-      const rows = await targetAuditRows(neon(getDatabaseUrl()));
+      const sql = neon(getDatabaseUrl());
+      await ensureOfficialUrlLifecycle(sql);
+      const rows = await targetAuditRows(sql);
       const records = rows as unknown as Array<Record<string, unknown>>;
-      const headers = ["organization_name", "organization_type", "priority", "official_website", "official_recruitment_url", "official_confirmed", "current_recruitment_status", "current_recruitment_title", "current_recruitment_url", "application_url", "last_checked_at", "source_status", "failure_type", "published_opportunity_count", "notes"];
+      const headers = ["organization_name", "organization_type", "priority", "official_website", "candidate_official_url", "registered_official_url", "official_url_status", "official_confirmed", "current_recruitment_status", "current_recruitment_title", "current_recruitment_url", "application_url", "last_checked_at", "source_status", "failure_type", "published_opportunity_count", "notes"];
       const body = [headers.map(csvCell).join(","), ...records.map((record) => headers.map((header) => csvCell(record[header])).join(","))].join("\n");
       return new Response(`\ufeff${body}`, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="first-100-source-audit.csv"' } });
     }

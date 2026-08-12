@@ -222,6 +222,11 @@ export const dataSources = pgTable("data_sources", {
   lastError: text("last_error"),
   adminNote: text("admin_note"),
   recruitmentLinkStatus: text("recruitment_link_status").default("NEEDS_REVIEW").notNull(),
+  officialUrlStatus: text("official_url_status").default("UNREGISTERED").notNull(),
+  officialUrlRegisteredAt: timestamp("official_url_registered_at", { withTimezone: true }),
+  officialUrlRegisteredBy: uuid("official_url_registered_by").references(() => users.id),
+  officialUrlPublishedAt: timestamp("official_url_published_at", { withTimezone: true }),
+  officialUrlPublishedBy: uuid("official_url_published_by").references(() => users.id),
   ...timestamps,
 }, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_region_idx").on(table.regionId), index("data_sources_category_idx").on(table.sourceCategory), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus), index("data_sources_recruitment_link_status_idx").on(table.recruitmentLinkStatus), index("data_sources_next_check_idx").on(table.nextCheckAt)]);
 

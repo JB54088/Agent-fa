@@ -6,6 +6,7 @@ import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { dataSourcesSeed } from "../../../../db/seeds/data-sources";
 import { nationalSourceDirectory } from "../../../../db/seeds/national-source-directory";
 import { organizationsSeed } from "../../../../db/seeds/organizations";
+import { ensureOfficialUrlLifecycle } from "../../../../lib/official-url-lifecycle";
 
 type SqlClient = ReturnType<typeof neon>;
 
@@ -63,7 +64,7 @@ async function countDirectory(sql: SqlClient) {
       (SELECT count(*)::int FROM regions) AS regions,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%') AS registered_sources,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND discovery_status = 'VERIFIED') AS verified_sources,
-      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND discovery_status = 'NEEDS_REVIEW') AS review_sources,
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND status = 'active' AND discovery_status = 'NEEDS_REVIEW') AS review_sources,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'ENTERPRISE') AS enterprise_sources,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'NATIONAL_CIVIL_SERVICE') AS national_civil_service_sources,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'PROVINCIAL_CIVIL_SERVICE') AS provincial_civil_service_sources,
@@ -78,9 +79,11 @@ async function countDirectory(sql: SqlClient) {
   return rows[0] as Record<string, number>;
 }
 
-function unifiedStatus(row: { discovery_status: string; automation_allowed: boolean; status: string; failure_count: number; last_error: string | null }) {
+function unifiedStatus(row: { discovery_status: string; official_url_status: string; automation_allowed: boolean; status: string; failure_count: number; last_error: string | null }) {
   if (row.status === "invalid") return "DISABLED";
   if (row.failure_count > 0 || row.last_error) return "ACCESS_FAILED";
+  if (row.official_url_status === "PUBLISHED" && row.discovery_status === "VERIFIED") return "VERIFIED";
+  if (row.official_url_status !== "PUBLISHED") return "NEEDS_REVIEW";
   if (row.discovery_status === "NEEDS_REVIEW") return "NEEDS_REVIEW";
   if (row.discovery_status === "DISCOVERED") return "DISCOVERED";
   if (row.discovery_status === "MANUAL_ONLY" || !row.automation_allowed) return "MANUAL_ONLY";
@@ -94,6 +97,8 @@ async function listDirectory(sql: SqlClient) {
     SELECT s.id::text AS id, s.name AS source_name, s.source_url, s.list_page_url,
            s.source_domain, s.source_type, s.source_category, s.level AS source_level,
            s.discovery_status, s.automation_allowed, s.requires_manual_review,
+           COALESCE(s.official_url_status, 'UNREGISTERED') AS official_url_status,
+           s.official_url_registered_at, s.official_url_published_at,
            s.crawler_strategy, s.last_checked_at, s.source_last_verified_at,
            s.next_check_at, s.last_successful_collected_at, s.last_error,
            s.failure_count, s.status, s.admin_note, s.recruitment_link_status,
@@ -121,7 +126,10 @@ async function listDirectory(sql: SqlClient) {
     sourceDomain: row.source_domain,
     status: unifiedStatus(row),
     discoveryStatus: row.discovery_status,
-    officialConfirmed: ["VERIFIED", "AUTO_ALLOWED"].includes(row.discovery_status),
+    officialUrlStatus: row.official_url_status ?? "UNREGISTERED",
+    officialUrlRegisteredAt: row.official_url_registered_at ? new Date(row.official_url_registered_at).toISOString() : null,
+    officialUrlPublishedAt: row.official_url_published_at ? new Date(row.official_url_published_at).toISOString() : null,
+    officialConfirmed: row.official_url_status === "PUBLISHED",
     automationAllowed: row.automation_allowed,
     requiresManualReview: row.requires_manual_review,
     crawlStrategy: row.crawler_strategy,
@@ -167,6 +175,7 @@ export async function GET() {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
+    await ensureOfficialUrlLifecycle(sql);
     await ensureFeedColumns(sql);
     const directory = await listDirectory(sql);
     return NextResponse.json({ ok: true, database: await countDirectory(sql), stats: directory.stats, sourceRows: directory.sourceRows, catalog: { enterprises: dataSourcesSeed.length, nationalSources: nationalSourceDirectory.length } });

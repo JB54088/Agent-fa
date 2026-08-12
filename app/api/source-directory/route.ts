@@ -1,7 +1,9 @@
 import { and, eq, isNull, like, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getChatGPTUser } from "../../chatgpt-auth";
-import { getDb, schema } from "../../../db";
+import { neon } from "@neondatabase/serverless";
+import { getDatabaseUrl, getDb, schema } from "../../../db";
+import { ensureOfficialUrlLifecycle } from "../../../lib/official-url-lifecycle";
 
 async function requireAdmin() {
   const user = await getChatGPTUser();
@@ -29,6 +31,8 @@ const categoryLabels = {
 export async function GET() {
   try {
     if (!(await requireAdmin())) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
+    const sql = neon(getDatabaseUrl());
+    await ensureOfficialUrlLifecycle(sql);
     const db = getDb();
     const rows = await db
       .select({
@@ -44,6 +48,9 @@ export async function GET() {
         requiresManualReview: schema.dataSources.requiresManualReview,
         automationAllowed: schema.dataSources.automationAllowed,
         adminNote: schema.dataSources.adminNote,
+        officialUrlStatus: schema.dataSources.officialUrlStatus,
+        officialUrlRegisteredAt: schema.dataSources.officialUrlRegisteredAt,
+        officialUrlPublishedAt: schema.dataSources.officialUrlPublishedAt,
       })
       .from(schema.dataSources)
       .where(like(schema.dataSources.adminNote, sourceDirectoryMarker));
@@ -83,7 +90,7 @@ export async function GET() {
       ...row,
       opportunityCount: opportunityCountBySource.get(row.id) ?? opportunityCountByName.get(normalizeSourceName(row.name)) ?? 0,
       categoryLabel: row.category ? categoryLabels[row.category as keyof typeof categoryLabels] ?? "其他来源" : "其他来源",
-      statusLabel: row.discoveryStatus === "VERIFIED" ? "已核验入口" : "待人工核验",
+      statusLabel: row.officialUrlStatus === "PUBLISHED" ? "已发布官方入口" : row.officialUrlStatus === "REGISTERED" ? "已登记官方URL" : "待登记官方URL",
       note: row.adminNote?.replace(/\s*\[source-directory-sync:v1\]\s*$/, "") ?? "",
       sourceUrl: row.sourceUrl ?? null,
       sourceDomain: row.sourceDomain ?? null,
@@ -95,7 +102,7 @@ export async function GET() {
       source: "database",
       summary: {
         total: sources.length,
-        verified: sources.filter((source) => source.discoveryStatus === "VERIFIED").length,
+        verified: sources.filter((source) => source.officialUrlStatus === "PUBLISHED").length,
         needsReview: sources.filter((source) => source.discoveryStatus === "NEEDS_REVIEW").length,
         enterprise: sources.filter((source) => source.category === "ENTERPRISE").length,
         nationalAndProvincial: sources.filter((source) => ["NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE"].includes(source.category ?? "")).length,

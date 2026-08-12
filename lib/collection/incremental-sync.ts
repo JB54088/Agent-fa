@@ -4,6 +4,7 @@ import { SafeSourceHttpClient, SourceRequestError } from "./http-client.ts";
 import { contentHash } from "./hash.ts";
 import type { SourceAuditRecord } from "./types.ts";
 import { syncFavoriteOpportunityReminders } from "../reminders/store.ts";
+import { ensureOfficialUrlLifecycle } from "../official-url-lifecycle.ts";
 
 type SqlClient = ReturnType<typeof neon<false, false>>;
 
@@ -136,6 +137,7 @@ async function enableEligibleSources(sql: SqlClient) {
         updated_at = now()
     WHERE status = 'active'
       AND discovery_status = 'VERIFIED'
+      AND official_url_status = 'PUBLISHED'
       AND level <> 'D级'
       AND requires_login = false
       AND has_captcha = false
@@ -164,6 +166,7 @@ async function dueSources(sql: SqlClient) {
     WHERE ds.status = 'active'
       AND ds.incremental_sync_enabled = true
       AND ds.discovery_status = 'VERIFIED'
+      AND ds.official_url_status = 'PUBLISHED'
       AND ds.requires_login = false AND ds.has_captcha = false
       AND ds.source_domain IS NOT NULL
       AND COALESCE(ds.list_page_url, ds.source_url) IS NOT NULL
@@ -304,6 +307,7 @@ export async function runIncrementalSync(options: { databaseUrl?: string; trigge
   const now = options.now ?? new Date();
   const month = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", month: "numeric" }).format(now));
   await ensureIncrementalColumns(sql);
+  await ensureOfficialUrlLifecycle(sql);
   const enabled = await enableEligibleSources(sql);
   const sources = await dueSources(sql);
   const client = new SafeSourceHttpClient({ policy: { maxRetries: 0, timeoutMs: 12_000, maxResponseBytes: 2_000_000 } });

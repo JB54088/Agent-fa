@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { getDatabaseUrl } from "../db";
+import { ensureOfficialUrlLifecycle } from "./official-url-lifecycle";
 
 type FeedSummary = {
   verifiedSources: number;
@@ -36,6 +37,7 @@ function opportunityType(category: string | null, organizationType: string | nul
  */
 export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Promise<FeedSummary> {
   const sql = neon(getDatabaseUrl());
+  await ensureOfficialUrlLifecycle(sql);
   await Promise.all([
     sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`,
     sql`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS display_type text NOT NULL DEFAULT 'RECRUITMENT_PROJECT'`,
@@ -51,6 +53,7 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
       JOIN organizations o ON o.id = s.organization_id
       WHERE s.id = ${sourceId}
         AND s.status = 'active'
+        AND s.official_url_status = 'PUBLISHED'
         AND s.discovery_status IN ('VERIFIED', 'AUTO_ALLOWED')
         AND COALESCE(s.source_url, s.list_page_url) IS NOT NULL
     `
@@ -62,6 +65,7 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
       FROM data_sources s
       JOIN organizations o ON o.id = s.organization_id
       WHERE s.status = 'active'
+        AND s.official_url_status = 'PUBLISHED'
         AND s.discovery_status IN ('VERIFIED', 'AUTO_ALLOWED')
         AND COALESCE(s.source_url, s.list_page_url) IS NOT NULL
     `;
