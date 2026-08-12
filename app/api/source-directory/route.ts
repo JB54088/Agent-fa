@@ -1,4 +1,4 @@
-import { like } from "drizzle-orm";
+import { and, count, eq, isNull, like, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "../../../db";
 
@@ -34,8 +34,32 @@ export async function GET() {
       .from(schema.dataSources)
       .where(like(schema.dataSources.adminNote, sourceDirectoryMarker));
 
+    const publishedOpportunityRows = await db
+      .select({
+        sourceId: schema.opportunities.sourceId,
+        opportunityCount: count(),
+      })
+      .from(schema.opportunities)
+      .where(and(
+        eq(schema.opportunities.publicationStatus, "published"),
+        eq(schema.opportunities.isDemo, false),
+        ne(schema.opportunities.opportunityRelevanceStatus, "NOT_AN_OPPORTUNITY"),
+        or(
+          isNull(schema.opportunities.sourceLevel),
+          ne(schema.opportunities.sourceLevel, "D级"),
+          eq(schema.opportunities.dSpecialApproval, true),
+        ),
+      ))
+      .groupBy(schema.opportunities.sourceId);
+    const opportunityCountBySource = new Map(
+      publishedOpportunityRows
+        .filter((row): row is { sourceId: string; opportunityCount: number } => Boolean(row.sourceId))
+        .map((row) => [row.sourceId, Number(row.opportunityCount)]),
+    );
+
     const sources = rows.map((row) => ({
       ...row,
+      opportunityCount: opportunityCountBySource.get(row.id) ?? 0,
       categoryLabel: row.category ? categoryLabels[row.category as keyof typeof categoryLabels] ?? "其他来源" : "其他来源",
       statusLabel: row.discoveryStatus === "VERIFIED" ? "已核验入口" : "待人工核验",
       note: row.adminNote?.replace(/\s*\[source-directory-sync:v1\]\s*$/, "") ?? "",

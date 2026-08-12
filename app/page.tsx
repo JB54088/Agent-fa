@@ -339,7 +339,7 @@ export default function Home() {
           {view === "calendar" && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
           {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
           {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
-          {view === "sources" && <PublicSourceDirectory />}
+          {view === "sources" && <PublicSourceDirectory onOpenRecruitment={(sourceName) => { setSearch(sourceName.replace(/（待复核）/g, "")); setProjectScope("全部"); navigate("projects"); }} />}
           {view === "profile" && <ProfileView profile={profile} onChange={setProfile} onSave={() => notify("求职资料已保存")} />}
           {view === "admin" && <AdminConsole projects={catalog} brand={brand} onBrandChange={setBrand} onOpen={setSelectedProject} onNotify={notify} />}
           {view === "about" && <AboutView brand={brand} />}
@@ -500,9 +500,10 @@ type PublicSourceRecord = {
   requiresManualReview: boolean;
   automationAllowed: boolean;
   note: string;
+  opportunityCount: number;
 };
 
-function PublicSourceDirectory() {
+function PublicSourceDirectory({ onOpenRecruitment }: { onOpenRecruitment: (sourceName: string) => void }) {
   const [sources, setSources] = useState<PublicSourceRecord[]>([]);
   const [summary, setSummary] = useState({ total: 0, verified: 0, needsReview: 0, enterprise: 0, nationalAndProvincial: 0, stateOwned: 0 });
   const [category, setCategory] = useState("全部");
@@ -543,13 +544,13 @@ function PublicSourceDirectory() {
 
   return <>
     <div className="page-heading source-directory-heading"><div><span className="eyebrow"><span className="eyebrow-line" />PUBLIC SOURCE DIRECTORY</span><h1>全国来源目录</h1><p>公开整理重点企业、国考、省考、央企和地方国企的官方信息入口。</p></div><span className="source-directory-status">来源档案公开展示</span></div>
-    <div className="source-directory-guard"><span>i</span><div><strong>请先看清：来源目录不等同于招聘岗位</strong><p>这里展示的是信息来源及核验状态，不代表该来源当前存在招聘项目。招聘岗位仍需进入采集、审核流程后才会出现在“招聘信息”中。</p></div></div>
+    <div className="source-directory-guard"><span>i</span><div><strong>请先看清：来源目录不等同于招聘岗位</strong><p>这里只展示来源及核验状态。已有正式招聘项目的来源会标出数量并可直接查看；没有具体公告的来源不会被伪装成招聘岗位。</p></div></div>
     <div className="source-directory-summary"><div><strong>{summary.total}</strong><span>已登记来源</span></div><div><strong>{summary.verified}</strong><span>已核验入口</span></div><div><strong>{summary.needsReview}</strong><span>待人工核验</span></div><div><strong>{summary.enterprise}</strong><span>重点企业</span></div><div><strong>{summary.nationalAndProvincial}</strong><span>国考 / 省考</span></div><div><strong>{summary.stateOwned}</strong><span>央企 / 地方国企</span></div></div>
     <div className="source-directory-toolbar"><div className="list-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索来源名称、地区或域名" /></div><div className="source-directory-count">显示 <strong>{visible.length}</strong> 条</div></div>
     <div className="source-directory-filters" aria-label="来源分类">{categoryOptions.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
     {state === "loading" && <div className="surface empty-state"><h3>正在读取来源目录</h3><p>只展示生产数据库中的正式来源档案。</p></div>}
     {state === "unavailable" && <div className="surface empty-state"><h3>来源目录暂时不可用</h3><p>数据库读取失败，平台不会用静态样例替代正式来源目录。</p></div>}
-    {state === "ready" && <div className="source-directory-list">{visible.length ? visible.map((source) => <article className="source-directory-card" key={source.id}><div className="source-directory-card-top"><div><span className={`source-level-badge level-${source.level.slice(0, 1)}`}>{source.level}来源</span><strong>{source.name}</strong><small>{source.categoryLabel} · {source.sourceDomain ?? "官方入口待人工核验"}</small></div><span className={`source-directory-state ${source.discoveryStatus === "VERIFIED" ? "verified" : "pending"}`}><i />{source.statusLabel}</span></div><div className="source-directory-card-meta"><span>检查频率：{source.normalFrequency === "EVERY_7_DAYS" ? "每7天" : source.normalFrequency === "DAILY" ? "每日" : "人工检查"}</span><span>自动采集：{source.automationAllowed ? "允许" : "禁止"}</span><span>人工审核：{source.requiresManualReview ? "必须" : "否"}</span>{source.lastVerifiedAt && <span>最近核验：{source.lastVerifiedAt.slice(0, 10)}</span>}</div><p>{source.note || "暂无管理员备注"}</p><div className="source-directory-card-footer"><span>仅作公开来源索引，不代表已有招聘岗位</span>{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer">打开官方入口 ↗</a> : <b>待人工补充官方入口</b>}</div></article>) : <div className="surface empty-state"><h3>没有匹配的来源</h3><p>换个关键词或切换来源分类。</p></div>}</div>}
+    {state === "ready" && <div className="source-directory-list">{visible.length ? visible.map((source) => <article className="source-directory-card" key={source.id}><div className="source-directory-card-top"><div><span className={`source-level-badge level-${source.level.slice(0, 1)}`}>{source.level}来源</span><strong>{source.name}</strong><small>{source.categoryLabel} · {source.sourceDomain ?? "官方入口待人工核验"}</small></div><span className={`source-directory-state ${source.discoveryStatus === "VERIFIED" ? "verified" : "pending"}`}><i />{source.statusLabel}</span></div><div className="source-directory-card-meta"><span>检查频率：{source.normalFrequency === "EVERY_7_DAYS" ? "每7天" : source.normalFrequency === "DAILY" ? "每日" : "人工检查"}</span><span>自动采集：{source.automationAllowed ? "允许" : "禁止"}</span><span>人工审核：{source.requiresManualReview ? "必须" : "否"}</span>{source.lastVerifiedAt && <span>最近核验：{source.lastVerifiedAt.slice(0, 10)}</span>}{source.opportunityCount > 0 && <span className="source-opportunity-count">已发布招聘：{source.opportunityCount} 个</span>}</div><p>{source.note || "暂无管理员备注"}</p><div className="source-directory-card-footer"><span>{source.opportunityCount > 0 ? "已关联正式招聘信息" : "仅作公开来源索引，不代表已有招聘岗位"}</span><div className="source-directory-card-actions">{source.opportunityCount > 0 && <button className="source-recruitment-link" onClick={() => onOpenRecruitment(source.name)}>查看招聘信息 →</button>}{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer">打开官方入口 ↗</a> : <b>待人工补充官方入口</b>}</div></div></article>) : <div className="surface empty-state"><h3>没有匹配的来源</h3><p>换个关键词或切换来源分类。</p></div>}</div>}
   </>;
 }
 
