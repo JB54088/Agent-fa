@@ -82,18 +82,24 @@ export async function POST(request: Request) {
       regionByName.set(regionName, String(region.id));
       regionByName.set(regionName.replace(/省$|市$|自治区$|特别行政区$/, ""), String(region.id));
     }
-    const records = Array.from(unique.values());
-    const queries = await Promise.all(records.map(async (record) => {
-      const id = await stableUuid(`monitoring-organization:${record.name}`);
-      const regionId = record.regionName === "全国" ? null : regionByName.get(record.regionName) ?? null;
-      return sql`
+    const records = await Promise.all(Array.from(unique.values()).map(async (record) => ({
+      id: await stableUuid(`monitoring-organization:${record.name}`),
+      ...record,
+      region_name: record.regionName,
+      region_id: record.regionName === "全国" ? null : regionByName.get(record.regionName) ?? null,
+      source_document: sourceDocument,
+    })));
+    const batchResult = await sql`
+      WITH input AS (
+        SELECT * FROM jsonb_to_recordset(${JSON.stringify(records)}::jsonb)
+        AS x(id uuid, name text, category text, region_name text, industry text, priority text, region_id uuid, source_document text)
+      ), upserted AS (
         INSERT INTO organizations (
           id, name, short_name, organization_type, industry, priority, status,
           region_id, monitoring_enabled, monitoring_source, monitoring_category, monitoring_region_name
-        ) VALUES (
-          ${id}, ${record.name}, ${record.name}, ${record.category}, ${record.industry}, ${record.priority}, 'active',
-          ${regionId}, true, ${sourceDocument}, ${record.category}, ${record.regionName}
         )
+        SELECT id, name, name, category, industry, priority, 'active', region_id, true, source_document, category, region_name
+        FROM input
         ON CONFLICT (name) DO UPDATE SET
           organization_type = EXCLUDED.organization_type,
           industry = EXCLUDED.industry,
@@ -106,10 +112,10 @@ export async function POST(request: Request) {
           monitoring_region_name = EXCLUDED.monitoring_region_name,
           updated_at = now()
         RETURNING (xmax = 0) AS inserted
-      `;
-    }));
-    const results = await sql.transaction(queries, { isolationLevel: "ReadCommitted" });
-    const inserted = results.reduce((sum, result) => sum + (result[0]?.inserted ? 1 : 0), 0);
+      )
+      SELECT count(*)::int AS processed, count(*) FILTER (WHERE inserted)::int AS inserted FROM upserted
+    `;
+    const inserted = Number(batchResult[0]?.inserted ?? 0);
     const categories = Object.fromEntries(Array.from(unique.values()).reduce((map, record) => map.set(record.category, (map.get(record.category) ?? 0) + 1), new Map<string, number>()));
     const regions = Object.fromEntries(Array.from(unique.values()).reduce((map, record) => map.set(record.regionName, (map.get(record.regionName) ?? 0) + 1), new Map<string, number>()));
     const totalRows = await sql`SELECT count(*)::int AS count FROM organizations WHERE monitoring_enabled = true`;
