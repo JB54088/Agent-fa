@@ -488,6 +488,7 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
   const [selectedForVerification, setSelectedForVerification] = useState<AdminSourceRow | null>(null);
   const [verificationChecks, setVerificationChecks] = useState({ officialOwner: false, publicAccess: false, recruitmentEntry: false });
   const [recruitmentLinkStatus, setRecruitmentLinkStatus] = useState("OFFICIAL_ENTRY_ONLY");
+  const [verificationUrl, setVerificationUrl] = useState("");
   const verificationMode = initialFilter === "NEEDS_REVIEW";
 
   async function refresh() {
@@ -507,7 +508,7 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { setFilter(initialFilter ?? "全部"); }, [initialFilter]);
 
-  async function action(sourceId: string, actionName: string, successMessage: string, details?: { recruitmentLinkStatus?: string }) {
+  async function action(sourceId: string, actionName: string, successMessage: string, details?: { recruitmentLinkStatus?: string; sourceUrl?: string }) {
     try {
       const response = await fetch("/api/admin/source-directory/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId, action: actionName, ...details }) });
       const payload = await response.json() as { ok?: boolean; error?: string };
@@ -523,11 +524,32 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
     setSelectedForVerification(source);
     setVerificationChecks({ officialOwner: false, publicAccess: false, recruitmentEntry: false });
     setRecruitmentLinkStatus(source.recruitmentLinkStatus === "NEEDS_REVIEW" ? "OFFICIAL_ENTRY_ONLY" : source.recruitmentLinkStatus);
+    setVerificationUrl(source.sourceUrl ?? "");
+  }
+
+  function validHttpUrl(value: string) {
+    try {
+      const url = new URL(value.trim());
+      return ["http:", "https:"].includes(url.protocol);
+    } catch {
+      return false;
+    }
+  }
+
+  async function saveVerificationUrl() {
+    if (!selectedForVerification || !validHttpUrl(verificationUrl)) {
+      onNotify("请填写以 http:// 或 https:// 开头的官方招聘网站URL");
+      return;
+    }
+    const normalizedUrl = new URL(verificationUrl.trim()).toString();
+    await action(selectedForVerification.id, "set_url", "官方招聘网站URL已保存，请打开后继续核验", { sourceUrl: normalizedUrl });
+    setSelectedForVerification((current) => current ? { ...current, sourceUrl: normalizedUrl, sourceDomain: new URL(normalizedUrl).hostname } : current);
+    setVerificationUrl(normalizedUrl);
   }
 
   async function confirmVerification() {
     if (!selectedForVerification) return;
-    if (!selectedForVerification.sourceUrl) {
+    if (!selectedForVerification.sourceUrl || !validHttpUrl(verificationUrl)) {
       onNotify("该来源没有官方URL，不能确认发布；请先补充官方招聘网站");
       return;
     }
@@ -562,6 +584,7 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
     <div className="admin-panel-heading"><div><span className="section-kicker">SOURCE OPERATIONS</span><h2>{verificationMode ? "待人工核验" : "来源管理"}</h2><p>{verificationMode ? "逐条打开官方页面，确认来源身份、公开可访问性和招聘入口，再由你确认发布官方入口。" : "来源目录、官方入口、核验状态和采集策略统一在后台维护；普通用户不会看到这些审计字段。"}</p></div><div className="admin-heading-actions"><button className="secondary-button" onClick={syncVerified}>同步已核验来源到招聘信息</button><button className="primary-button" onClick={() => onNotify("新增来源请先登记官方URL，再进入人工核验")}>＋ 登记来源</button></div></div>
     <div className="admin-kpis source-kpis"><div><span>已登记来源</span><strong>{stats.total ?? 0}</strong><small>数据库来源档案</small></div><div><span>已核验</span><strong>{stats.verified ?? 0}</strong><small>可进入官方入口</small></div><div className={verificationMode ? "review-kpi" : ""}><span>待人工核验</span><strong>{stats.needsReview ?? 0}</strong><small>{verificationMode ? "当前列表" : "不得直接发布"}</small></div><div><span>访问失败</span><strong>{stats.accessFailed ?? 0}</strong><small>创建复核任务</small></div><div><span>允许自动采集</span><strong>{stats.autoAllowed ?? 0}</strong><small>仍需人工审核</small></div><div><span>人工维护</span><strong>{stats.manualOnly ?? 0}</strong><small>不自动抓取</small></div></div>
     {verificationMode && <div className="source-verification-guide"><strong>核验顺序</strong><span>①打开官方招聘网站</span><span>②确认官方主体</span><span>③确认无需登录即可访问</span><span>④判断当前招聘状态</span><small>完成后点击“确认发布官方入口”；具体招聘项目仍需进入“待审核”后再发布。</small></div>}
+    {verificationMode && selectedForVerification && <div className="verification-url-editor"><label htmlFor="verification-url">官方招聘网站 URL</label><div><input id="verification-url" value={verificationUrl} onChange={(event) => setVerificationUrl(event.target.value)} placeholder="粘贴 https:// 开头的官方招聘网站" /><button className="secondary-button" onClick={saveVerificationUrl}>保存官方URL</button></div><small>如果当前显示“未登记可访问URL”，请先把你搜索到的官网地址粘贴到这里保存。</small></div>}
     {selectedForVerification && <div className="source-verification-panel"><div><span className="section-kicker">MANUAL SOURCE CHECK</span><h3>核验：{selectedForVerification.name}</h3><p>{selectedForVerification.company} · {selectedForVerification.region} · {selectedForVerification.sourceDomain ?? "未登记域名"}</p></div><div className="verification-source-link">{selectedForVerification.sourceUrl ? <><a href={selectedForVerification.sourceUrl} target="_blank" rel="noreferrer">打开官方招聘网站 ↗</a><code>{selectedForVerification.sourceUrl}</code></> : <span>未登记可访问URL</span>}</div><div className="verification-checklist"><label><input type="checkbox" checked={verificationChecks.officialOwner} onChange={(event) => setVerificationChecks((current) => ({ ...current, officialOwner: event.target.checked }))} /> 页面属于该企业、政府机关或招录主管部门</label><label><input type="checkbox" checked={verificationChecks.publicAccess} onChange={(event) => setVerificationChecks((current) => ({ ...current, publicAccess: event.target.checked }))} /> 页面可公开访问，未要求登录、验证码或绕过访问限制</label><label><input type="checkbox" checked={verificationChecks.recruitmentEntry} onChange={(event) => setVerificationChecks((current) => ({ ...current, recruitmentEntry: event.target.checked }))} /> 页面确实是招聘/招录入口，或能追溯到官方公告</label></div><label className="verification-result"><span>核验结果</span><select value={recruitmentLinkStatus} onChange={(event) => setRecruitmentLinkStatus(event.target.value)}><option value="OFFICIAL_ENTRY_ONLY">官方入口，当前未发现招聘</option><option value="HAS_ACTIVE_RECRUITMENT">已发现当前招聘</option><option value="UPCOMING_RECRUITMENT">已发现即将开始的招聘</option><option value="NO_CURRENT_RECRUITMENT">确认当前无招聘</option></select></label><div className="verification-panel-actions"><button className="secondary-button" onClick={() => setSelectedForVerification(null)}>取消</button><button className="primary-button" disabled={!Object.values(verificationChecks).every(Boolean)} onClick={confirmVerification}>确认发布官方入口 <span>✓</span></button></div></div>}
     <div className="admin-filter-bar"><div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索来源、企业、地区或域名" /></div>{statusOptions.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "全部" ? item : label(item)}</button>)}</div>
     {loading ? <div className="surface empty-state"><h3>正在读取数据库来源</h3><p>只显示已登记到生产库的真实来源。</p></div> : <div className="source-card-list">{visible.length ? visible.map((source) => <article className="source-card" key={source.id}><div className="source-card-top"><div><span className={`source-level-badge level-${source.level.slice(0, 1)}`}>{source.level}</span><strong>{source.name}</strong><small>{source.company} · {source.organizationType} · {source.region}</small></div><span className={`source-status ${source.status === "VERIFIED" || source.status === "AUTO_ALLOWED" ? "live" : source.status === "ACCESS_FAILED" ? "paused" : "pending"}`}><i />{label(source.status)}</span></div><div className="source-card-grid"><div><span>来源类型</span><strong>{source.sourceType ?? "官方来源"}</strong></div><div><span>招聘联动</span><strong>{label(source.recruitmentLinkStatus)}</strong></div><div><span>官方入口</span><strong>{source.officialConfirmed ? "已确认" : "待确认"}</strong></div><div><span>采集策略</span><strong>{source.crawlStrategy ?? "人工维护"}</strong></div><div><span>最近检查</span><strong>{source.lastCheckedAt ? formatDate(source.lastCheckedAt) : "未检查"}</strong></div><div><span>最近核验</span><strong>{source.lastVerifiedAt ? formatDate(source.lastVerifiedAt) : "未核验"}</strong></div><div><span>正式招聘</span><strong>{source.opportunityCount} 条</strong></div><div><span>失败次数</span><strong>{source.failureCount}</strong></div></div><div className="source-card-footer"><span>备注：{source.lastError ?? source.note ?? "无"}{source.sourceUrl && <a href={source.sourceUrl} target="_blank" rel="noreferrer">打开官方入口 ↗</a>}</span><div className="source-action-row">{verificationMode && <button className="primary-button" onClick={() => openVerification(source)}>开始核验</button>}{!verificationMode && source.status !== "VERIFIED" && <button className="secondary-button" onClick={() => action(source.id, "verify", "已标记为官方来源，等待同步")}>标记官方</button>}{!verificationMode && source.status === "VERIFIED" && <button className="secondary-button" onClick={() => action(source.id, "unverify", "已取消官方核验，来源回到待复核")}>取消认证</button>}{!verificationMode && source.status === "VERIFIED" && <button className="secondary-button" onClick={() => action(source.id, "auto", "已允许自动巡检，但仍需人工审核")}>允许自动采集</button>}<button className="secondary-button" onClick={() => action(source.id, "manual", "已设为人工维护")}>人工维护</button><button className="primary-button" onClick={() => action(source.id, "scan", "已创建一次公开页面检查任务")}>立即扫描</button>{source.status !== "DISABLED" ? <button className="text-button danger-copy" onClick={() => action(source.id, "disable", "来源已停用")}>停用</button> : <button className="text-button" onClick={() => action(source.id, "enable", "来源已恢复，等待重新核验")}>启用</button>}</div></div></article>) : <div className="surface empty-state"><h3>没有匹配来源</h3><p>可以切换状态，或先从全国覆盖登记来源目录。</p></div>}</div>}

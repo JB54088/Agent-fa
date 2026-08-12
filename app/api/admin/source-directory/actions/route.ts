@@ -20,7 +20,7 @@ async function requireAdmin() {
 export async function POST(request: Request) {
   try {
     if (!(await requireAdmin())) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
-    const body = await request.json() as { sourceId?: string; action?: string; recruitmentLinkStatus?: string };
+    const body = await request.json() as { sourceId?: string; action?: string; recruitmentLinkStatus?: string; sourceUrl?: string };
     if (body.action === "sync_all") {
       const summary = await syncVerifiedSourcesToOpportunities();
       return NextResponse.json({ ok: true, action: body.action, summary });
@@ -30,6 +30,18 @@ export async function POST(request: Request) {
     await sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`;
     const source = await sql`SELECT id::text AS id, discovery_status, status FROM data_sources WHERE id = ${body.sourceId} LIMIT 1`;
     if (!source[0]) return NextResponse.json({ ok: false, error: "source_not_found" }, { status: 404 });
+
+    if (body.action === "set_url") {
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(body.sourceUrl ?? "");
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error("invalid_protocol");
+      } catch {
+        return NextResponse.json({ ok: false, error: "official_source_url_must_be_http_or_https" }, { status: 400 });
+      }
+      await sql`UPDATE data_sources SET source_url = ${parsedUrl.toString()}, source_domain = ${parsedUrl.hostname}, discovery_status = 'NEEDS_REVIEW', requires_manual_review = true, automation_allowed = false, updated_at = now() WHERE id = ${body.sourceId}`;
+      return NextResponse.json({ ok: true, sourceId: body.sourceId, action: body.action, sourceUrl: parsedUrl.toString() });
+    }
 
     switch (body.action) {
       case "verify":
