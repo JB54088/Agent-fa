@@ -26,7 +26,7 @@ import { DEFAULT_REMINDER_SETTINGS, type ReminderSettings } from "../lib/reminde
 // browser fixture is intentionally not used as a production fallback.
 let projects: Project[] = [];
 
-type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "profile" | "admin" | "about";
+type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "sources" | "profile" | "admin" | "about";
 type ToastTone = "success" | "info";
 type Toast = { message: string; tone?: ToastTone } | null;
 type UserProfile = {
@@ -295,6 +295,7 @@ export default function Home() {
 
         <div className="sidebar-section-label side-secondary-label">更多</div>
         <nav className="side-nav" aria-label="更多导航">
+          <button className={`nav-item ${view === "sources" ? "active" : ""}`} onClick={() => navigate("sources")}><span className="nav-icon">◎</span><span>全国来源</span></button>
           <button className={`nav-item ${view === "profile" ? "active" : ""}`} onClick={() => navigate("profile")}><span className="nav-icon">◎</span><span>求职资料</span></button>
           <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span></button>
           <button className={`nav-item ${view === "about" ? "active" : ""}`} onClick={() => navigate("about")}><span className="nav-icon">i</span><span>关于平台</span></button>
@@ -338,6 +339,7 @@ export default function Home() {
           {view === "calendar" && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
           {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
           {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
+          {view === "sources" && <PublicSourceDirectory />}
           {view === "profile" && <ProfileView profile={profile} onChange={setProfile} onSave={() => notify("求职资料已保存")} />}
           {view === "admin" && <AdminConsole projects={catalog} brand={brand} onBrandChange={setBrand} onOpen={setSelectedProject} onNotify={notify} />}
           {view === "about" && <AboutView brand={brand} />}
@@ -371,6 +373,8 @@ function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onTog
       </div>
 
       <div className="notice-strip"><span className="notice-icon">i</span><span>招聘信息来源于公开渠道，平台仅提供整理、筛选和提醒服务，最终信息请以招聘单位官方网站为准。</span><button onClick={() => onNavigate("about")}>了解详情 <span>→</span></button></div>
+
+      <button className="source-directory-promo" onClick={() => onNavigate("sources")}><span className="source-directory-promo-icon">◎</span><span><strong>全国来源目录</strong><small>公开整理重点企业、国考、省考、央企与地方国企官方来源；来源档案不等同于招聘岗位。</small></span><b>查看目录 →</b></button>
 
       {loggedIn ? <div className="weekly-action-board"><div><span className="section-kicker">THIS WEEK&apos;S ACTIONS</span><h2>本周求职清单</h2><p>登录后优先处理与你当前报名进度直接相关的事项。</p></div><div className="weekly-action-stats"><div><strong>{pendingTasks.length}</strong><span>待处理任务</span></div><div><strong>{projects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length}</strong><span>新增匹配</span></div></div><button className="weekly-action-link" onClick={() => onNavigate("my-projects")}>管理我的进度 <span>→</span></button></div> : <div className="guest-value-board"><div><span className="section-kicker">WHY RADAR</span><h2>不是职位堆积，而是下一步行动</h2><p>按专业解释匹配、按时间整理节点、按来源追溯公告，帮你减少筛选和错过。</p></div><div className="guest-value-points"><span>✦ 专业匹配有依据</span><span>◷ 招聘时间更清晰</span><span>↗ 官方来源可追溯</span><span>♡ 收藏与进度管理</span></div><button className="primary-button" onClick={onLogin}>填写专业，查看匹配 <span>→</span></button></div>}
       <div className="match-evidence-strip"><span className="match-evidence-icon">✦</span><div><strong>匹配结果有依据 · {leadExplanation.level}</strong><p>{leadExplanation.evidence}</p></div><small>{leadExplanation.needsManualReview ? "需要人工核实" : "规则已解释"}</small></div>
@@ -479,6 +483,74 @@ function MessagesView({ notifications, onRead }: { notifications: AppNotificatio
   const messages = notifications.map((notification) => ({ id: notification.id, icon: "◷", title: notification.title, text: notification.body, time: notification.createdAt, unread: !notification.readAt, color: "teal" }));
   const hasMessages = messages.length > 0;
   return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />INBOX</span><h1>消息中心</h1><p>和你收藏的校招项目有关的重要变化，会在这里提醒你。</p></div></div>{hasMessages ? <><div className="message-banner"><div className="message-banner-icon">◷</div><div><strong>提醒已开启</strong><p>收藏项目的截止、开始和信息变化会在这里显示。</p></div><span className="plain-tag">站内提醒</span></div><div className="message-list">{messages.map((notification) => <article className={`message-card ${notification.unread ? "unread" : ""}`} key={notification.id}><div className={`message-icon ${notification.color}`}>{notification.icon}</div><div className="message-copy"><div><strong>{notification.title}</strong>{notification.unread && <span className="unread-dot" />}</div><p>{notification.text}</p><small>{notification.time}</small></div>{notification.unread && <button className="message-arrow" onClick={() => onRead(notification.id)} aria-label="标记已读">✓</button>}</article>)}</div></> : <div className="surface empty-state"><div className="empty-state-icon">◌</div><h3>暂无提醒</h3><p>收藏招聘后，我们会在重要报名时间前提醒你。</p></div>}</>;
+}
+
+type PublicSourceRecord = {
+  id: string;
+  name: string;
+  category: string | null;
+  categoryLabel: string;
+  sourceUrl: string | null;
+  sourceDomain: string | null;
+  level: string;
+  discoveryStatus: string;
+  statusLabel: string;
+  normalFrequency: string;
+  lastVerifiedAt: string | null;
+  requiresManualReview: boolean;
+  automationAllowed: boolean;
+  note: string;
+};
+
+function PublicSourceDirectory() {
+  const [sources, setSources] = useState<PublicSourceRecord[]>([]);
+  const [summary, setSummary] = useState({ total: 0, verified: 0, needsReview: 0, enterprise: 0, nationalAndProvincial: 0, stateOwned: 0 });
+  const [category, setCategory] = useState("全部");
+  const [query, setQuery] = useState("");
+  const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
+  const categoryOptions = [
+    { value: "全部", label: "全部" },
+    { value: "ENTERPRISE", label: "重点企业" },
+    { value: "NATIONAL_CIVIL_SERVICE", label: "国考" },
+    { value: "PROVINCIAL_CIVIL_SERVICE", label: "省考" },
+    { value: "CENTRAL_SOE", label: "央企" },
+    { value: "LOCAL_SOE", label: "地方国企" },
+    { value: "ENTERPRISE_DISCOVERY", label: "企业发现" },
+  ];
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/source-directory")
+      .then((response) => response.json() as Promise<{ ok?: boolean; sources?: PublicSourceRecord[]; summary?: typeof summary }>)
+      .then((payload) => {
+        if (!active) return;
+        if (!payload.ok || !Array.isArray(payload.sources)) {
+          setState("unavailable");
+          return;
+        }
+        setSources(payload.sources);
+        if (payload.summary) setSummary(payload.summary);
+        setState("ready");
+      })
+      .catch(() => { if (active) setState("unavailable"); });
+    return () => { active = false; };
+  }, []);
+
+  const visible = sources.filter((source) => {
+    const text = `${source.name} ${source.categoryLabel} ${source.sourceDomain ?? ""} ${source.note}`.toLowerCase();
+    return (category === "全部" || source.category === category) && (!query.trim() || text.includes(query.trim().toLowerCase()));
+  });
+
+  return <>
+    <div className="page-heading source-directory-heading"><div><span className="eyebrow"><span className="eyebrow-line" />PUBLIC SOURCE DIRECTORY</span><h1>全国来源目录</h1><p>公开整理重点企业、国考、省考、央企和地方国企的官方信息入口。</p></div><span className="source-directory-status">来源档案公开展示</span></div>
+    <div className="source-directory-guard"><span>i</span><div><strong>请先看清：来源目录不等同于招聘岗位</strong><p>这里展示的是信息来源及核验状态，不代表该来源当前存在招聘项目。招聘岗位仍需进入采集、审核流程后才会出现在“招聘信息”中。</p></div></div>
+    <div className="source-directory-summary"><div><strong>{summary.total}</strong><span>已登记来源</span></div><div><strong>{summary.verified}</strong><span>已核验入口</span></div><div><strong>{summary.needsReview}</strong><span>待人工核验</span></div><div><strong>{summary.enterprise}</strong><span>重点企业</span></div><div><strong>{summary.nationalAndProvincial}</strong><span>国考 / 省考</span></div><div><strong>{summary.stateOwned}</strong><span>央企 / 地方国企</span></div></div>
+    <div className="source-directory-toolbar"><div className="list-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索来源名称、地区或域名" /></div><div className="source-directory-count">显示 <strong>{visible.length}</strong> 条</div></div>
+    <div className="source-directory-filters" aria-label="来源分类">{categoryOptions.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
+    {state === "loading" && <div className="surface empty-state"><h3>正在读取来源目录</h3><p>只展示生产数据库中的正式来源档案。</p></div>}
+    {state === "unavailable" && <div className="surface empty-state"><h3>来源目录暂时不可用</h3><p>数据库读取失败，平台不会用静态样例替代正式来源目录。</p></div>}
+    {state === "ready" && <div className="source-directory-list">{visible.length ? visible.map((source) => <article className="source-directory-card" key={source.id}><div className="source-directory-card-top"><div><span className={`source-level-badge level-${source.level.slice(0, 1)}`}>{source.level}来源</span><strong>{source.name}</strong><small>{source.categoryLabel} · {source.sourceDomain ?? "官方入口待人工核验"}</small></div><span className={`source-directory-state ${source.discoveryStatus === "VERIFIED" ? "verified" : "pending"}`}><i />{source.statusLabel}</span></div><div className="source-directory-card-meta"><span>检查频率：{source.normalFrequency === "EVERY_7_DAYS" ? "每7天" : source.normalFrequency === "DAILY" ? "每日" : "人工检查"}</span><span>自动采集：{source.automationAllowed ? "允许" : "禁止"}</span><span>人工审核：{source.requiresManualReview ? "必须" : "否"}</span>{source.lastVerifiedAt && <span>最近核验：{source.lastVerifiedAt.slice(0, 10)}</span>}</div><p>{source.note || "暂无管理员备注"}</p><div className="source-directory-card-footer"><span>仅作公开来源索引，不代表已有招聘岗位</span>{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer">打开官方入口 ↗</a> : <b>待人工补充官方入口</b>}</div></article>) : <div className="surface empty-state"><h3>没有匹配的来源</h3><p>换个关键词或切换来源分类。</p></div>}</div>}
+  </>;
 }
 
 function ProfileView({ profile, onChange, onSave }: { profile: UserProfile; onChange: (profile: UserProfile) => void; onSave: () => void }) {
