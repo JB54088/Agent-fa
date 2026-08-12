@@ -6,7 +6,7 @@ import { dataSourcesSeed } from "../db/seeds/data-sources";
 import { organizationsSeed } from "../db/seeds/organizations";
 import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/seeds/national-source-directory";
 
-type AdminTab = "overview" | "targets" | "coverage" | "sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "settings";
+type AdminTab = "overview" | "targets" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -77,6 +77,7 @@ const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "targets", label: "目标单位", icon: "▥" },
   { id: "coverage", label: "全国覆盖", icon: "◎" },
   { id: "sources", label: "来源管理", icon: "◎" },
+  { id: "pending-sources", label: "待人工核验", icon: "!" },
   { id: "collection", label: "招聘采集", icon: "↗" },
   { id: "review", label: "待审核", icon: "✓" },
   { id: "published", label: "正式招聘", icon: "▤" },
@@ -93,6 +94,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
   const [rawItems, setRawItems] = useState(rawSeed);
   const [tasksState, setTasksState] = useState(taskSeed);
   const [selectedRawId, setSelectedRawId] = useState("");
+  const [pendingSourceCount, setPendingSourceCount] = useState<number | null>(null);
   const [bootstrapState, setBootstrapState] = useState<"checking" | "available" | "admin" | "unavailable">("checking");
 
   useEffect(() => {
@@ -111,6 +113,13 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
       .then((response) => response.json() as Promise<{ ok?: boolean; isAdmin?: boolean; canBootstrap?: boolean }>)
       .then((payload) => setBootstrapState(payload.ok && payload.isAdmin ? "admin" : payload.ok && payload.canBootstrap ? "available" : "unavailable"))
       .catch(() => setBootstrapState("unavailable"));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/source-directory")
+      .then((response) => response.json() as Promise<{ ok?: boolean; stats?: { needsReview?: number } }>)
+      .then((payload) => { if (payload.ok) setPendingSourceCount(payload.stats?.needsReview ?? 0); })
+      .catch(() => setPendingSourceCount(0));
   }, []);
 
   async function bootstrapCurrentAccount() {
@@ -176,13 +185,14 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
       <div className="admin-heading-actions"><span className="safe-collection-badge">⌁ 仅访问公开内容</span><button className="primary-button" onClick={() => setTab("review")}>进入审核队列 <span>→</span></button></div>
     </div>
     <div className="admin-tabs" role="tablist" aria-label="管理员功能">
-      {tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
+      {tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "pending-sources" && pendingSourceCount !== null && pendingSourceCount > 0 && <b>{pendingSourceCount}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
     </div>
 
-    {tab === "overview" && <AdminOverview projects={catalogProjects} pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} />}
+    {tab === "overview" && <AdminOverview projects={catalogProjects} pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} onReviewSources={() => setTab("pending-sources")} />}
     {tab === "targets" && <TargetOrganizationDirectory onNotify={onNotify} />}
     {tab === "coverage" && <NationalCoverageDirectory onNotify={onNotify} />}
     {tab === "sources" && <SourceManagement onNotify={onNotify} />}
+    {tab === "pending-sources" && <SourceManagement onNotify={onNotify} initialFilter="NEEDS_REVIEW" />}
     {tab === "collection" && <CollectionCenter onNotify={onNotify} />}
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
     {tab === "published" && <PublishedCenter projects={catalogProjects} onOpen={onOpen} />}
@@ -407,7 +417,7 @@ function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: 
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SYSTEM CONFIGURATION</span><h2>站点品牌配置</h2><p>名称、Logo、首页标题和宣传文案通过配置管理，保存后同步到前台。</p></div><span className="safe-collection-badge">默认值可随时恢复</span></div><div className="brand-settings"><div className="surface brand-settings-card"><span className="section-kicker">BRAND SETTINGS</span><h3>产品对外信息</h3><p>当前版本先保存为本地草稿，正式环境由 system_configs 表持久化。</p><div className="brand-form-grid"><label className="field"><span>产品名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label className="field"><span>Logo文字</span><input value={draft.logoText} onChange={(event) => setDraft({ ...draft, logoText: event.target.value })} maxLength={3} /></label><label className="field"><span>当前服务届别</span><input value={draft.edition} onChange={(event) => setDraft({ ...draft, edition: event.target.value })} /></label><label className="field"><span>首页主标题</span><input value={draft.homeTitle} onChange={(event) => setDraft({ ...draft, homeTitle: event.target.value })} /></label><label className="field"><span>首页副标题 / 宣传文案</span><textarea value={draft.homeSubtitle} onChange={(event) => setDraft({ ...draft, homeSubtitle: event.target.value })} /></label><label className="field"><span>平台免责声明</span><textarea value={draft.disclaimer} onChange={(event) => setDraft({ ...draft, disclaimer: event.target.value })} /></label></div><div className="brand-form-actions"><button className="secondary-button" onClick={() => setDraft(siteConfig)}>恢复默认</button><button className="primary-button" onClick={() => onSave(draft)}>保存配置 <span>✓</span></button></div></div><div className="brand-preview"><span>LIVE PREVIEW</span><div className="preview-logo">{draft.logoText}</div><h3>{draft.homeTitle}</h3><p>{draft.homeSubtitle}</p><div className="config-row"><span>站点名称</span><strong>{draft.name}</strong></div><div className="config-row"><span>当前版本</span><strong>{draft.edition}</strong></div><div className="config-row"><span>数据策略</span><strong>真实数据 · 官方来源 + 人工核验</strong></div></div></div></div>;
 }
 
-function AdminOverview({ projects, pendingReview, openTasks, onTab, onOpen }: { projects: Project[]; pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void }) {
+function AdminOverview({ projects, pendingReview, openTasks, onTab, onOpen, onReviewSources }: { projects: Project[]; pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void; onReviewSources: () => void }) {
   const [sourceStats, setSourceStats] = useState<AdminSourceStats>({});
   useEffect(() => {
     fetch("/api/admin/source-directory").then((response) => response.json() as Promise<{ ok?: boolean; stats?: AdminSourceStats }>).then((payload) => { if (payload.ok) setSourceStats(payload.stats ?? {}); }).catch(() => undefined);
@@ -426,13 +436,14 @@ function AdminOverview({ projects, pendingReview, openTasks, onTab, onOpen }: { 
     <div className="admin-kpis">
       <div><span>已发布招聘</span><strong>{projects.length}</strong><small>全部经过管理员确认</small></div>
       <div><span>已核验来源</span><strong>{sourceStats.verified ?? 0}</strong><small>可同步官方入口</small></div>
-      <div><span>待人工核验</span><strong>{String(sourceStats.needsReview ?? pendingReview).padStart(2, "0")}</strong><small className="warning">不得直接发布</small></div>
+      <button className="admin-kpi-card review-kpi" onClick={onReviewSources} aria-label="查看待人工核验来源"><span>待人工核验</span><strong>{String(sourceStats.needsReview ?? pendingReview).padStart(2, "0")}</strong><small className="warning">点击查看并处理</small></button>
       <div><span>当前有招聘</span><strong>{sourceStats.activeRecruitment ?? 0}</strong><small>{sourceSummary}</small></div>
     </div>
+    <button className="admin-review-callout" onClick={onReviewSources}><span className="review-callout-icon">!</span><span className="review-callout-copy"><strong>待人工核验队列</strong><small>{sourceStats.needsReview === undefined ? "正在读取来源状态…" : `${sourceStats.needsReview} 条来源尚未完成人工确认，暂不允许直接发布`}</small></span><b>进入处理 <span>→</span></b></button>
     <div className="admin-process-banner"><div className="process-icon">⌁</div><div><strong>校招数据处理链路</strong><p>数据源 → 公开采集 → 原始数据 → 人工审核 → 正式招聘信息</p></div><span>不会自动覆盖已发布信息</span></div>
     <div className="admin-grid">
       <div className="surface admin-table"><div className="surface-heading"><div><span className="section-kicker">PROJECT MANAGEMENT</span><h3>最近更新的招聘项目</h3></div><button className="more-button" onClick={() => onTab("published")}>查看正式招聘 <span>→</span></button></div><div className="table-head"><span>项目</span><span>状态</span><span>来源</span><span>最近核验</span><span>操作</span></div>{projects.slice(0, 7).map((project) => <button className="table-row" key={project.id} onClick={() => onOpen(project)}><span className="table-project"><i className={`company-mark micro ${project.logoTone}`}>{project.shortName.slice(0, 1)}</i><span><strong>{project.title.replace("2027届", "")}</strong><small>{project.company} · {project.batch}</small></span></span><span className={`status-text ${project.status}`}>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="source-cell">{project.sourceLevel}<small>{project.sourceName}</small></span><span className="verify-cell">{formatDate(project.verifiedAt)}</span><span className="row-more">•••</span></button>)}</div>
-      <div className="admin-side"><div className="surface source-health"><div className="surface-heading"><div><span className="section-kicker">SOURCE HEALTH</span><h3>来源健康度</h3></div><span className="health-score">{healthScore}%</span></div>{sourceCounts.map(({ level, count }) => <div className="health-line" key={level}><span>{level} · 来源登记</span><b>{count}</b><i><em style={{ width: totalSources ? `${Math.round((count / totalSources) * 100)}%` : "0%" }} /></i></div>)}</div><div className="surface admin-shortcuts"><span className="section-kicker">QUICK ACTIONS</span><h3>下一步</h3><button onClick={() => onTab("review")}><span>✓</span>处理新发现 <b>→</b></button><button onClick={() => onTab("sources")}><span>◎</span>管理来源状态 <b>→</b></button><button onClick={() => onTab("imports")}><span>▤</span>导入招聘Excel <b>→</b></button><button onClick={() => onTab("tasks")}><span>⚑</span>查看任务中心 <b>{openTasks}</b></button></div></div>
+      <div className="admin-side"><div className="surface source-health"><div className="surface-heading"><div><span className="section-kicker">SOURCE HEALTH</span><h3>来源健康度</h3></div><span className="health-score">{healthScore}%</span></div>{sourceCounts.map(({ level, count }) => <div className="health-line" key={level}><span>{level} · 来源登记</span><b>{count}</b><i><em style={{ width: totalSources ? `${Math.round((count / totalSources) * 100)}%` : "0%" }} /></i></div>)}</div><div className="surface admin-shortcuts"><span className="section-kicker">QUICK ACTIONS</span><h3>下一步</h3><button onClick={() => onTab("pending-sources")}><span>!</span>处理待人工核验 <b>{sourceStats.needsReview ?? 0}</b></button><button onClick={() => onTab("review")}><span>✓</span>处理新发现 <b>→</b></button><button onClick={() => onTab("sources")}><span>◎</span>管理来源状态 <b>→</b></button><button onClick={() => onTab("imports")}><span>▤</span>导入招聘Excel <b>→</b></button><button onClick={() => onTab("tasks")}><span>⚑</span>查看任务中心 <b>{openTasks}</b></button></div></div>
     </div>
   </>;
 }
@@ -468,10 +479,10 @@ type AdminSourceRow = {
 
 type AdminSourceStats = Record<string, number>;
 
-function SourceManagement({ onNotify }: { onNotify: (message: string) => void }) {
+function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: string) => void; initialFilter?: string }) {
   const [rows, setRows] = useState<AdminSourceRow[]>([]);
   const [stats, setStats] = useState<AdminSourceStats>({});
-  const [filter, setFilter] = useState("全部");
+  const [filter, setFilter] = useState(initialFilter ?? "全部");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -490,6 +501,7 @@ function SourceManagement({ onNotify }: { onNotify: (message: string) => void })
     }
   }
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => { setFilter(initialFilter ?? "全部"); }, [initialFilter]);
 
   async function action(sourceId: string, actionName: string, successMessage: string) {
     try {
