@@ -134,8 +134,36 @@ export const organizations = pgTable("organizations", {
   monitoringSource: text("monitoring_source"),
   monitoringCategory: text("monitoring_category"),
   monitoringRegionName: text("monitoring_region_name"),
+  initialSyncStatus: text("initial_sync_status").default("NOT_CHECKED").notNull(),
+  initialSyncLastCheckedAt: timestamp("initial_sync_last_checked_at", { withTimezone: true }),
+  initialSyncNextCheckAt: timestamp("initial_sync_next_check_at", { withTimezone: true }),
+  initialSyncOfficialUrl: text("initial_sync_official_url"),
+  initialSyncRecruitmentUrl: text("initial_sync_recruitment_url"),
+  initialSyncFailureType: text("initial_sync_failure_type"),
+  initialSyncRetryCount: integer("initial_sync_retry_count").default(0).notNull(),
+  initialSyncLastResult: jsonb("initial_sync_last_result"),
+  initialSyncBatch: text("initial_sync_batch"),
+  initialSyncCompletedAt: timestamp("initial_sync_completed_at", { withTimezone: true }),
   ...timestamps,
 }, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType), index("organizations_parent_idx").on(table.parentId), index("organizations_region_idx").on(table.regionId)]);
+
+export const organizationInitialSyncChecks = pgTable("organization_initial_sync_checks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  batchName: text("batch_name").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  status: text("status").notNull(),
+  officialUrl: text("official_url"),
+  recruitmentUrl: text("recruitment_url"),
+  failureType: text("failure_type"),
+  retryCount: integer("retry_count").default(0).notNull(),
+  discoveredCount: integer("discovered_count").default(0).notNull(),
+  formalAdded: integer("formal_added").default(0).notNull(),
+  errorMessage: text("error_message"),
+  details: jsonb("details"),
+  ...timestamps,
+}, (table) => [index("organization_initial_sync_checks_org_idx").on(table.organizationId, table.finishedAt), index("organization_initial_sync_checks_status_idx").on(table.status)]);
 
 export const dataSources = pgTable("data_sources", {
   id: uuid("id").defaultRandom().primaryKey(),

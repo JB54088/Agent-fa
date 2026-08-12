@@ -10,6 +10,18 @@ type AdminTab = "overview" | "targets" | "coverage" | "sources" | "review" | "im
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
+type InitialSyncProgress = {
+  total: number;
+  completed: number;
+  currentRecruitment: number;
+  officialSourceFound: number;
+  noCurrentRecruitment: number;
+  upcoming: number;
+  accessFailed: number;
+  sourceNotFound: number;
+  needsReview: number;
+  notChecked: number;
+};
 
 type SourceRecord = {
   id: string;
@@ -178,6 +190,8 @@ function NationalCoverageDirectory() {
   type DirectoryCatalog = { enterpriseOrganizations: number; enterpriseSources: number; nationalSources: number; regions: number };
   const [category, setCategory] = useState("全部");
   const [batchRunning, setBatchRunning] = useState(false);
+  const [initialSyncProgress, setInitialSyncProgress] = useState<InitialSyncProgress | null>(null);
+  const [initialSyncReport, setInitialSyncReport] = useState<{ batch: string; processed: number; summary?: { rawInserted: number; stagingInserted: number; formalAdded: number; duplicate: number; updated: number; failed: number } } | null>(null);
   const [directorySyncRunning, setDirectorySyncRunning] = useState(false);
   const [monitoringImportRunning, setMonitoringImportRunning] = useState(false);
   const [incrementalRunning, setIncrementalRunning] = useState(false);
@@ -195,16 +209,34 @@ function NationalCoverageDirectory() {
     { value: "ENTERPRISE_DISCOVERY", label: "企业发现" },
   ];
   const visible = nationalSourceDirectory.filter((source) => category === "全部" || source.category === category);
+  async function refreshInitialSyncProgress() {
+    const response = await fetch("/api/admin/initial-sync/progress");
+    const payload = await response.json() as { ok?: boolean; error?: string; progress?: InitialSyncProgress };
+    if (!response.ok || !payload.ok || !payload.progress) throw new Error(payload.error ?? "INITIAL_SYNC进度读取失败");
+    setInitialSyncProgress(payload.progress);
+    return payload.progress;
+  }
+  useEffect(() => {
+    void refreshInitialSyncProgress().catch(() => undefined);
+  }, []);
   async function runBatch1() {
     setBatchRunning(true);
     try {
-      const response = await fetch("/api/admin/initial-sync", { method: "POST" });
-      const payload = await response.json() as { ok?: boolean; error?: string; sourceReport?: { attempted: number; successful: number; failed: number }; findings?: { discovered: number; autumn: number; spring: number; internship?: number; rawInserted: number; stagingInserted: number; duplicateFiltered: number; formalAdded: number; awaitingManualReview: number } };
-      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "BATCH 1 执行失败");
-      setBatchReport({ sourceReport: payload.sourceReport, findings: payload.findings });
+      let latest: InitialSyncProgress | null = initialSyncProgress;
+      let lastPayload: { batch: string; processed: number; summary?: { rawInserted: number; stagingInserted: number; formalAdded: number; duplicate: number; updated: number; failed: number } } | null = null;
+      for (let index = 0; index < 20; index += 1) {
+        const response = await fetch("/api/admin/initial-sync/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchSize: 50 }) });
+        const payload = await response.json() as { ok?: boolean; error?: string; batch?: string; processed?: number; summary?: { rawInserted: number; stagingInserted: number; formalAdded: number; duplicate: number; updated: number; failed: number }; after?: InitialSyncProgress };
+        if (!response.ok || !payload.ok || !payload.after) throw new Error(payload.error ?? "INITIAL_SYNC批次执行失败");
+        latest = payload.after;
+        lastPayload = { batch: payload.batch ?? `BATCH_${index + 2}`, processed: payload.processed ?? 0, summary: payload.summary };
+        setInitialSyncProgress(latest);
+        if (latest.notChecked === 0 || payload.processed === 0) break;
+      }
+      if (lastPayload) setInitialSyncReport(lastPayload);
+      onNotify(latest?.notChecked === 0 ? "INITIAL_SYNC已完成：701家监控组织均已标记状态" : `INITIAL_SYNC已继续执行，剩余 ${latest?.notChecked ?? "未知"} 家`);
     } catch (error) {
-      setBatchReport(null);
-      window.alert(error instanceof Error ? error.message : "BATCH 1 执行失败");
+      window.alert(error instanceof Error ? error.message : "INITIAL_SYNC执行失败");
     } finally {
       setBatchRunning(false);
     }
@@ -261,8 +293,9 @@ function NationalCoverageDirectory() {
   return <div className="admin-section">
     <div className="admin-panel-heading">
       <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
-      <div className="admin-heading-actions"><span className="review-guard">BATCH 2 暂停</span><button className="secondary-button" disabled={directorySyncRunning} onClick={syncDirectory}>{directorySyncRunning ? "同步目录中…" : "同步全国来源目录"}</button><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "BATCH 1 执行中…" : "执行 BATCH 1"} <span>→</span></button></div>
+      <div className="admin-heading-actions"><span className="review-guard">INITIAL_SYNC</span><button className="secondary-button" disabled={directorySyncRunning} onClick={syncDirectory}>{directorySyncRunning ? "同步目录中…" : "同步全国来源目录"}</button><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "INITIAL_SYNC执行中…" : "继续执行全国 INITIAL_SYNC"} <span>→</span></button></div>
     </div>
+    {initialSyncProgress && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">INITIAL SYNC STATUS</span><h3>701家组织首次检查进度</h3><p>每批50家，按P0→P1→P2→P3处理；没有确认官方URL的组织标记为 SOURCE_NOT_FOUND，不伪造网址。</p></div><span className={initialSyncProgress.notChecked === 0 ? "success-tag" : "review-guard"}>{initialSyncProgress.notChecked === 0 ? "已完成" : `剩余 ${initialSyncProgress.notChecked}`}</span></div><div className="coverage-summary"><div><strong>{initialSyncProgress.total}</strong><span>监控组织</span></div><div><strong>{initialSyncProgress.completed}</strong><span>已完成检查</span></div><div><strong>{initialSyncProgress.currentRecruitment}</strong><span>当前招聘</span></div><div><strong>{initialSyncProgress.upcoming}</strong><span>即将开始</span></div><div><strong>{initialSyncProgress.accessFailed}</strong><span>访问失败</span></div><div><strong>{initialSyncProgress.sourceNotFound}</strong><span>未找到官方来源</span></div></div><p className="coverage-batch-note">官方入口 {initialSyncProgress.officialSourceFound} · 当前无招聘 {initialSyncProgress.noCurrentRecruitment} · 待复核 {initialSyncProgress.needsReview} · 未检查 {initialSyncProgress.notChecked}</p></div>}
     <div className="coverage-summary">
       <div><strong>{nationalSourceDirectorySummary.total}</strong><span>全国来源档案</span></div>
       <div><strong>{nationalSourceDirectorySummary.provincialCivilService}</strong><span>省考独立档案</span></div>
@@ -282,7 +315,7 @@ function NationalCoverageDirectory() {
       <label className="field"><span>DOCX监控母表数据</span><textarea aria-label="DOCX监控母表数据" value={monitoringPoolText} onChange={(event) => setMonitoringPoolText(event.target.value)} placeholder="分类\t地区\t行业\t优先级\t单位名称\n央企\t全国\t能源\tP0\t示例单位" rows={5} /></label>
       <div className="brand-form-actions"><button className="primary-button" disabled={monitoringImportRunning} onClick={importMonitoringPool}>{monitoringImportRunning ? "导入监控池中…" : "导入DOCX监控母表"} <span>→</span></button>{monitoringImportReport && <span className="success-tag">已登记 {monitoringImportReport.unique} 家 · 新增 {monitoringImportReport.inserted} · 更新 {monitoringImportReport.updated} · 监控池共 {monitoringImportReport.monitoredOrganizations}</span>}</div>
     </div>
-    {batchReport?.findings && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">BATCH 1 REPORT</span><h3>秋招 / 春招 / 大厂 · 已停止在 BATCH 1</h3><p>本次只写入统一采集链路；原始数据仍可在采集审核工作台追溯。</p></div><span className="success-tag">执行完成</span></div><div className="coverage-summary"><div><strong>{batchReport.sourceReport?.attempted ?? 0}</strong><span>尝试数据源</span></div><div><strong>{batchReport.sourceReport?.successful ?? 0}</strong><span>成功访问</span></div><div><strong>{batchReport.findings.discovered}</strong><span>发现线索</span></div><div><strong>{batchReport.findings.rawInserted}</strong><span>写入原始层</span></div><div><strong>{batchReport.findings.stagingInserted}</strong><span>写入暂存层</span></div><div><strong>{batchReport.findings.formalAdded}</strong><span>正式新增</span></div></div><p className="coverage-batch-note">秋招 {batchReport.findings.autumn} 条 · 春招 {batchReport.findings.spring} 条 · 重复过滤 {batchReport.findings.duplicateFiltered} 条 · 待人工审核 {batchReport.findings.awaitingManualReview} 条。后续 BATCH 2 未执行。</p></div>}
+    {initialSyncReport && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">LATEST INITIAL_SYNC BATCH</span><h3>{initialSyncReport.batch} 已执行</h3><p>本批实际检查 {initialSyncReport.processed} 家；结果已写入组织状态和统一招聘数据链路。</p></div><span className="success-tag">真实执行</span></div><p className="coverage-batch-note">raw {initialSyncReport.summary?.rawInserted ?? 0} · staging {initialSyncReport.summary?.stagingInserted ?? 0} · 正式新增 {initialSyncReport.summary?.formalAdded ?? 0} · 重复 {initialSyncReport.summary?.duplicate ?? 0} · 更新 {initialSyncReport.summary?.updated ?? 0} · 访问失败 {initialSyncReport.summary?.failed ?? 0}</p><div className="brand-form-actions"><a className="secondary-button" href="/api/admin/initial-sync/export?kind=failed">下载 failed-sources.csv</a><a className="secondary-button" href="/api/admin/initial-sync/export?kind=no-current">下载 no-current-recruitment.csv</a><a className="secondary-button" href="/api/admin/initial-sync/export?kind=current">下载 current-recruitments.csv</a></div></div>}
     <div className="coverage-guard"><span>i</span><p>已核验入口已直接写入目录；未核验来源仍保持空白。所有来源仍不自动采集，必须继续完成人工确认和访问边界审计。</p></div>
     <div className="admin-filter-bar coverage-filter">{categories.map((item) => <button key={item.value} className={category === item.value ? "active" : ""} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
     <div className="coverage-list">{visible.map((source) => { const verified = source.discoveryStatus === "VERIFIED"; return <article className="coverage-card" key={source.id}><div className="coverage-card-heading"><div><span className="source-level-badge level-A">A级目录</span><strong>{source.name}</strong><small>{source.regionName ?? "全国"} · {source.requiredOfficialRoles.join("、")}</small></div><span className={`source-status ${verified ? "verified" : "pending"}`}><i />{verified ? "已核验入口" : "待核验"}</span></div><div className="coverage-card-grid"><div><span>目录分类</span><strong>{categories.find((item) => item.value === source.category)?.label ?? source.category}</strong></div><div><span>普通巡检</span><strong>{source.normalFrequency === "EVERY_7_DAYS" ? "每7天" : "每日"}</strong></div><div><span>活跃巡检</span><strong>每日</strong></div><div><span>官方URL</span>{source.sourceUrl ? <a className="mono-text coverage-url" href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceDomain}</a> : <strong className="mono-text">待人工核验</strong>}</div></div><div className="coverage-card-footer"><span>{source.notes}{source.lastVerifiedAt ? ` 核验日期：${source.lastVerifiedAt}` : ""}</span><b>不自动采集</b></div></article>; })}</div>
