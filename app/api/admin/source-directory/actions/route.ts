@@ -20,7 +20,7 @@ async function requireAdmin() {
 export async function POST(request: Request) {
   try {
     if (!(await requireAdmin())) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
-    const body = await request.json() as { sourceId?: string; action?: string };
+    const body = await request.json() as { sourceId?: string; action?: string; recruitmentLinkStatus?: string };
     if (body.action === "sync_all") {
       const summary = await syncVerifiedSourcesToOpportunities();
       return NextResponse.json({ ok: true, action: body.action, summary });
@@ -33,7 +33,10 @@ export async function POST(request: Request) {
 
     switch (body.action) {
       case "verify":
-        await sql`UPDATE data_sources SET discovery_status = 'VERIFIED', status = 'active', automation_allowed = false, requires_manual_review = true, source_last_verified_at = now(), recruitment_link_status = 'NEEDS_REVIEW', updated_at = now() WHERE id = ${body.sourceId}`;
+        {
+          const linkStatus = ["OFFICIAL_ENTRY_ONLY", "HAS_ACTIVE_RECRUITMENT", "UPCOMING_RECRUITMENT", "NO_CURRENT_RECRUITMENT"].includes(body.recruitmentLinkStatus ?? "") ? body.recruitmentLinkStatus : "OFFICIAL_ENTRY_ONLY";
+          await sql`UPDATE data_sources SET discovery_status = 'VERIFIED', status = 'active', automation_allowed = false, requires_manual_review = true, source_last_verified_at = now(), recruitment_link_status = ${linkStatus}, updated_at = now() WHERE id = ${body.sourceId}`;
+        }
         break;
       case "unverify":
         await sql`UPDATE data_sources SET discovery_status = 'NEEDS_REVIEW', automation_allowed = false, incremental_sync_enabled = false, recruitment_link_status = 'NEEDS_REVIEW', updated_at = now() WHERE id = ${body.sourceId}`;
