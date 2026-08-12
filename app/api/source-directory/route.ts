@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, like, ne, or } from "drizzle-orm";
+import { and, eq, isNull, like, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "../../../db";
 
@@ -37,9 +37,10 @@ export async function GET() {
     const publishedOpportunityRows = await db
       .select({
         sourceId: schema.opportunities.sourceId,
-        opportunityCount: count(),
+        sourceName: schema.dataSources.name,
       })
       .from(schema.opportunities)
+      .leftJoin(schema.dataSources, eq(schema.opportunities.sourceId, schema.dataSources.id))
       .where(and(
         eq(schema.opportunities.publicationStatus, "published"),
         eq(schema.opportunities.isDemo, false),
@@ -49,17 +50,24 @@ export async function GET() {
           ne(schema.opportunities.sourceLevel, "D级"),
           eq(schema.opportunities.dSpecialApproval, true),
         ),
-      ))
-      .groupBy(schema.opportunities.sourceId);
-    const opportunityCountBySource = new Map(
-      publishedOpportunityRows
-        .filter((row): row is { sourceId: string; opportunityCount: number } => Boolean(row.sourceId))
-        .map((row) => [row.sourceId, Number(row.opportunityCount)]),
-    );
+      ));
+    const normalizeSourceName = (value: string) => value
+      .replace(/（待复核）|（待核验）|集团|有限责任公司|有限公司|官方|招聘|校园|官网|来源|档案/g, "")
+      .replace(/[\s()（）·、及和与_-]/g, "")
+      .toLowerCase();
+    const opportunityCountBySource = new Map<string, number>();
+    const opportunityCountByName = new Map<string, number>();
+    for (const opportunity of publishedOpportunityRows) {
+      if (opportunity.sourceId) opportunityCountBySource.set(opportunity.sourceId, (opportunityCountBySource.get(opportunity.sourceId) ?? 0) + 1);
+      if (opportunity.sourceName) {
+        const key = normalizeSourceName(opportunity.sourceName);
+        opportunityCountByName.set(key, (opportunityCountByName.get(key) ?? 0) + 1);
+      }
+    }
 
     const sources = rows.map((row) => ({
       ...row,
-      opportunityCount: opportunityCountBySource.get(row.id) ?? 0,
+      opportunityCount: opportunityCountBySource.get(row.id) ?? opportunityCountByName.get(normalizeSourceName(row.name)) ?? 0,
       categoryLabel: row.category ? categoryLabels[row.category as keyof typeof categoryLabels] ?? "其他来源" : "其他来源",
       statusLabel: row.discoveryStatus === "VERIFIED" ? "已核验入口" : "待人工核验",
       note: row.adminNote?.replace(/\s*\[source-directory-sync:v1\]\s*$/, "") ?? "",
