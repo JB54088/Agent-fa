@@ -16,6 +16,17 @@ export async function ensureOfficialUrlLifecycle(sql: SqlClient) {
       ADD COLUMN IF NOT EXISTS official_url_published_by uuid REFERENCES users(id)
   `;
   await sql`CREATE INDEX IF NOT EXISTS data_sources_official_url_status_idx ON data_sources (official_url_status)`;
+  // The duplicate cleanup must never remove a previously published official
+  // entry. Restore those entries first so the subsequent deduplication step
+  // sees them as protected history.
+  await sql`
+    UPDATE opportunities
+    SET publication_status = 'published', updated_at = now()
+    WHERE display_type = 'OFFICIAL_RECRUITMENT_ENTRY'
+      AND publication_status = 'withdrawn'
+      AND is_demo = false
+      AND opportunity_relevance_status = 'PUBLIC_NOTICE'
+  `;
   // Preserve sources previously confirmed through the old single-step UI before
   // ranking duplicates, so a confirmed record always wins its duplicate group.
   await sql`
@@ -53,15 +64,6 @@ export async function ensureOfficialUrlLifecycle(sql: SqlClient) {
       AND NOT EXISTS (
         SELECT 1 FROM opportunities o
         WHERE o.source_id = d.id AND o.publication_status = 'published'
-      )
-  `;
-  await sql`
-    UPDATE opportunities
-    SET publication_status = 'withdrawn', updated_at = now()
-    WHERE display_type = 'OFFICIAL_RECRUITMENT_ENTRY'
-      AND publication_status = 'published'
-      AND source_id IN (
-        SELECT id FROM data_sources WHERE COALESCE(official_url_status, 'UNREGISTERED') <> 'PUBLISHED'
       )
   `;
 }
