@@ -9,6 +9,13 @@ import { organizationsSeed } from "../../../../db/seeds/organizations";
 
 type SqlClient = ReturnType<typeof neon>;
 
+async function ensureFeedColumns(sql: SqlClient) {
+  await Promise.all([
+    sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`,
+    sql`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS display_type text NOT NULL DEFAULT 'RECRUITMENT_PROJECT'`,
+  ]);
+}
+
 async function digestHex(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -61,9 +68,98 @@ async function countDirectory(sql: SqlClient) {
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'NATIONAL_CIVIL_SERVICE') AS national_civil_service_sources,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'PROVINCIAL_CIVIL_SERVICE') AS provincial_civil_service_sources,
       (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'CENTRAL_SOE') AS central_soe_sources,
-      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'LOCAL_SOE') AS local_soe_sources
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND source_category = 'LOCAL_SOE') AS local_soe_sources,
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND recruitment_link_status = 'HAS_ACTIVE_RECRUITMENT') AS active_recruitment_sources,
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND recruitment_link_status = 'OFFICIAL_ENTRY_ONLY') AS official_entry_only_sources,
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND recruitment_link_status = 'UPCOMING_RECRUITMENT') AS upcoming_recruitment_sources,
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND status = 'invalid') AS disabled_sources,
+      (SELECT count(*)::int FROM data_sources WHERE admin_note LIKE '%source-directory-sync%' AND failure_count > 0) AS access_failed_sources
   `;
   return rows[0] as Record<string, number>;
+}
+
+function unifiedStatus(row: { discovery_status: string; automation_allowed: boolean; status: string; failure_count: number; last_error: string | null }) {
+  if (row.status === "invalid") return "DISABLED";
+  if (row.failure_count > 0 || row.last_error) return "ACCESS_FAILED";
+  if (row.discovery_status === "NEEDS_REVIEW") return "NEEDS_REVIEW";
+  if (row.discovery_status === "DISCOVERED") return "DISCOVERED";
+  if (row.discovery_status === "MANUAL_ONLY" || !row.automation_allowed) return "MANUAL_ONLY";
+  if (row.discovery_status === "AUTO_ALLOWED" || row.automation_allowed) return "AUTO_ALLOWED";
+  if (row.discovery_status === "VERIFIED") return "VERIFIED";
+  return "ACTIVE";
+}
+
+async function listDirectory(sql: SqlClient) {
+  const rows = await sql`
+    SELECT s.id::text AS id, s.name AS source_name, s.source_url, s.list_page_url,
+           s.source_domain, s.source_type, s.source_category, s.level AS source_level,
+           s.discovery_status, s.automation_allowed, s.requires_manual_review,
+           s.crawler_strategy, s.last_checked_at, s.source_last_verified_at,
+           s.next_check_at, s.last_successful_collected_at, s.last_error,
+           s.failure_count, s.status, s.admin_note, s.recruitment_link_status,
+           o.name AS organization_name, o.organization_type, o.priority,
+           COALESCE(r.name, '全国') AS region_name,
+           (SELECT count(*)::int FROM opportunities p
+              WHERE p.source_id = s.id AND p.publication_status = 'published'
+                AND p.is_demo = false AND p.opportunity_relevance_status <> 'NOT_AN_OPPORTUNITY') AS opportunity_count
+    FROM data_sources s
+    LEFT JOIN organizations o ON o.id = s.organization_id
+    LEFT JOIN regions r ON r.id = s.region_id
+    WHERE s.admin_note LIKE '%source-directory-sync%'
+    ORDER BY COALESCE(o.priority, 'P9'), o.name, s.name
+  `;
+  const sourceRows = rows.map((row) => ({
+    id: row.id,
+    name: row.source_name,
+    company: row.organization_name ?? "未匹配企业",
+    organizationType: row.organization_type ?? "官方来源",
+    region: row.region_name,
+    category: row.source_category,
+    sourceType: row.source_type,
+    level: row.source_level,
+    sourceUrl: row.source_url ?? row.list_page_url ?? null,
+    sourceDomain: row.source_domain,
+    status: unifiedStatus(row),
+    discoveryStatus: row.discovery_status,
+    officialConfirmed: ["VERIFIED", "AUTO_ALLOWED"].includes(row.discovery_status),
+    automationAllowed: row.automation_allowed,
+    requiresManualReview: row.requires_manual_review,
+    crawlStrategy: row.crawler_strategy,
+    lastCheckedAt: row.last_checked_at ? new Date(row.last_checked_at).toISOString() : null,
+    lastVerifiedAt: row.source_last_verified_at ? new Date(row.source_last_verified_at).toISOString() : null,
+    nextCheckAt: row.next_check_at ? new Date(row.next_check_at).toISOString() : null,
+    lastSuccessfulCollectedAt: row.last_successful_collected_at ? new Date(row.last_successful_collected_at).toISOString() : null,
+    failureCount: Number(row.failure_count ?? 0),
+    lastError: row.last_error,
+    recruitmentLinkStatus: row.recruitment_link_status ?? "NEEDS_REVIEW",
+    opportunityCount: Number(row.opportunity_count ?? 0),
+    priority: row.priority ?? "P2",
+    note: row.admin_note?.replace(/\s*\[source-directory-sync:v1\]/g, "").replace(/\s*\[target-100-audit:v1\]/g, "").trim() ?? "",
+  }));
+  const stats = {
+    total: sourceRows.length,
+    verified: sourceRows.filter((row) => row.status === "VERIFIED" || row.officialConfirmed).length,
+    needsReview: sourceRows.filter((row) => row.status === "NEEDS_REVIEW").length,
+    accessFailed: sourceRows.filter((row) => row.status === "ACCESS_FAILED").length,
+    autoAllowed: sourceRows.filter((row) => row.status === "AUTO_ALLOWED").length,
+    manualOnly: sourceRows.filter((row) => row.status === "MANUAL_ONLY").length,
+    discovered: sourceRows.filter((row) => row.status === "DISCOVERED").length,
+    active: sourceRows.filter((row) => row.status === "ACTIVE").length,
+    disabled: sourceRows.filter((row) => row.status === "DISABLED").length,
+    enterprise: sourceRows.filter((row) => row.category === "ENTERPRISE").length,
+    centralSoe: sourceRows.filter((row) => row.category === "CENTRAL_SOE").length,
+    localSoe: sourceRows.filter((row) => row.category === "LOCAL_SOE").length,
+    nationalAndProvincial: sourceRows.filter((row) => ["NATIONAL_CIVIL_SERVICE", "PROVINCIAL_CIVIL_SERVICE"].includes(row.category ?? "")).length,
+    publicInstitution: sourceRows.filter((row) => row.category === "GOVERNMENT").length,
+    militaryCivilian: sourceRows.filter((row) => row.category === "OTHER_OFFICIAL").length,
+    activeRecruitment: sourceRows.filter((row) => row.recruitmentLinkStatus === "HAS_ACTIVE_RECRUITMENT").length,
+    officialEntryOnly: sourceRows.filter((row) => row.recruitmentLinkStatus === "OFFICIAL_ENTRY_ONLY").length,
+    upcomingRecruitment: sourceRows.filter((row) => row.recruitmentLinkStatus === "UPCOMING_RECRUITMENT").length,
+    noCurrentRecruitment: sourceRows.filter((row) => row.recruitmentLinkStatus === "NO_CURRENT_RECRUITMENT").length,
+    todayAdded: sourceRows.filter((row) => row.lastCheckedAt?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
+    todayUpdated: sourceRows.filter((row) => row.lastVerifiedAt?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
+  };
+  return { sourceRows, stats };
 }
 
 export async function GET() {
@@ -71,7 +167,9 @@ export async function GET() {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
-    return NextResponse.json({ ok: true, database: await countDirectory(sql), catalog: { enterprises: dataSourcesSeed.length, nationalSources: nationalSourceDirectory.length } });
+    await ensureFeedColumns(sql);
+    const directory = await listDirectory(sql);
+    return NextResponse.json({ ok: true, database: await countDirectory(sql), stats: directory.stats, sourceRows: directory.sourceRows, catalog: { enterprises: dataSourcesSeed.length, nationalSources: nationalSourceDirectory.length } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "全国来源目录检查失败";
     return NextResponse.json({ ok: false, error: message }, { status: 503 });
@@ -83,6 +181,7 @@ export async function POST() {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
+    await ensureFeedColumns(sql);
     const queries: Array<ReturnType<SqlClient>> = [];
     const regionIds = new Map<string, string>();
     const organizationIds = new Map<string, string>();

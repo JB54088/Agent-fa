@@ -26,7 +26,7 @@ export const siteConfig: BrandConfig = {
 
 export type ProjectStatus = "recruiting" | "upcoming" | "ending" | "closed";
 export type MatchLevel = "明确匹配" | "专业大类匹配" | "不限专业" | "可能匹配" | "暂无匹配依据";
-export type OpportunityType = "ENTERPRISE_CAMPUS" | "CENTRAL_SOE" | "LOCAL_SOE" | "NATIONAL_CIVIL_SERVICE" | "PROVINCIAL_CIVIL_SERVICE" | "SELECTED_GRADUATE" | "PUBLIC_INSTITUTION" | "MILITARY_CIVILIAN" | "OTHER";
+export type OpportunityType = "ENTERPRISE_CAMPUS" | "CENTRAL_SOE" | "LOCAL_SOE" | "NATIONAL_CIVIL_SERVICE" | "PROVINCIAL_CIVIL_SERVICE" | "SELECTED_GRADUATE" | "PUBLIC_INSTITUTION" | "MILITARY_CIVILIAN" | "BANK_CAMPUS" | "OTHER";
 export type DeadlineType = "FIXED_DATE" | "UNTIL_FILLED" | "NOT_ANNOUNCED" | "LONG_TERM" | "ESTIMATED" | "OTHER";
 export type ApplicationStatus =
   | "暂未处理"
@@ -62,6 +62,8 @@ export type Project = {
   recruitmentSeason?: string;
   deadlineType?: DeadlineType;
   opportunityRelevanceStatus?: "CURRENT_OPEN" | "UPCOMING" | "RECENT_CLOSED" | "HISTORICAL" | "PUBLIC_NOTICE" | "RESULT_NOTICE" | "NOT_AN_OPPORTUNITY";
+  displayType?: "RECRUITMENT_PROJECT" | "OFFICIAL_RECRUITMENT_ENTRY";
+  sourceLinkStatus?: string;
   status: ProjectStatus;
   sourceName: string;
   sourceLevel: "A级" | "B级" | "C级" | "D级";

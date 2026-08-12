@@ -1,6 +1,20 @@
 import { and, desc, eq, ne, or, isNull } from "drizzle-orm";
-import { getDb, schema } from "../db/index";
+import { neon } from "@neondatabase/serverless";
+import { getDatabaseUrl, getDb, schema } from "../db/index";
 import type { Project } from "../app/data";
+
+let feedColumnsReady: Promise<void> | undefined;
+
+async function ensureFeedColumns() {
+  if (!feedColumnsReady) {
+    const sql = neon(getDatabaseUrl());
+    feedColumnsReady = Promise.all([
+      sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`,
+      sql`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS display_type text NOT NULL DEFAULT 'RECRUITMENT_PROJECT'`,
+    ]).then(() => undefined);
+  }
+  await feedColumnsReady;
+}
 
 function dateValue(value: Date | string | null | undefined): string {
   if (!value) return "";
@@ -17,6 +31,7 @@ function statusFor(row: { calculatedStatus: string; deadlineAt: Date | string | 
 
 /** Reads only published, non-demo opportunities from the canonical database. */
 export async function listPublishedProjects(): Promise<Project[]> {
+  await ensureFeedColumns();
   const db = getDb();
   const rows = await db.select({
     id: schema.opportunities.id,
@@ -45,8 +60,10 @@ export async function listPublishedProjects(): Promise<Project[]> {
     verificationStatus: schema.opportunities.verificationStatus,
     lastVerifiedAt: schema.opportunities.lastVerifiedAt,
     calculatedStatus: schema.opportunities.calculatedStatus,
-      opportunityRelevanceStatus: schema.opportunities.opportunityRelevanceStatus,
-      dSpecialApproval: schema.opportunities.dSpecialApproval,
+    opportunityRelevanceStatus: schema.opportunities.opportunityRelevanceStatus,
+    displayType: schema.opportunities.displayType,
+    sourceLinkStatus: schema.dataSources.recruitmentLinkStatus,
+    dSpecialApproval: schema.opportunities.dSpecialApproval,
   }).from(schema.opportunities)
     .leftJoin(schema.organizations, eq(schema.opportunities.organizationId, schema.organizations.id))
     .leftJoin(schema.dataSources, eq(schema.opportunities.sourceId, schema.dataSources.id))
@@ -58,7 +75,7 @@ export async function listPublishedProjects(): Promise<Project[]> {
     ))
     .orderBy(desc(schema.opportunities.updatedAt));
 
-  return rows.map((row) => {
+  const projects = rows.map((row) => {
     const announcementUrl = row.announcementUrl ?? row.applicationUrl ?? "";
     const applicationUrl = row.applicationUrl ?? row.announcementUrl ?? "";
     const majorText = row.originalMajors ?? "以官方岗位详情为准";
@@ -89,6 +106,8 @@ export async function listPublishedProjects(): Promise<Project[]> {
       opportunityType: row.opportunityType,
       deadlineType: row.deadlineType,
       opportunityRelevanceStatus: row.opportunityRelevanceStatus,
+      displayType: row.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "OFFICIAL_RECRUITMENT_ENTRY" : "RECRUITMENT_PROJECT",
+      sourceLinkStatus: row.sourceLinkStatus ?? undefined,
       status: statusFor(row),
       sourceName: row.sourceName ?? "官方来源",
       sourceLevel,
@@ -101,5 +120,15 @@ export async function listPublishedProjects(): Promise<Project[]> {
       link: applicationUrl || announcementUrl,
       recordStatus: "真实数据" as const,
     } satisfies Project;
+  });
+
+  const statusOrder: Record<Project["status"], number> = { ending: 0, recruiting: 1, upcoming: 2, closed: 3 };
+  return projects.sort((left, right) => {
+    const leftOfficial = left.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? 1 : 0;
+    const rightOfficial = right.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? 1 : 0;
+    if (leftOfficial !== rightOfficial) return leftOfficial - rightOfficial;
+    const statusDelta = statusOrder[left.status] - statusOrder[right.status];
+    if (statusDelta !== 0) return statusDelta;
+    return right.verifiedAt.localeCompare(left.verifiedAt);
   });
 }

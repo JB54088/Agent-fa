@@ -1,6 +1,19 @@
 import { and, eq, isNull, like, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { getChatGPTUser } from "../../chatgpt-auth";
 import { getDb, schema } from "../../../db";
+
+async function requireAdmin() {
+  const user = await getChatGPTUser();
+  if (!user) return false;
+  const db = getDb();
+  const rows = await db.select({ id: schema.users.id })
+    .from(schema.users)
+    .innerJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
+    .where(eq(schema.users.email, user.email))
+    .limit(1);
+  return Boolean(rows[0]);
+}
 
 const sourceDirectoryMarker = "%source-directory-sync:v1%";
 
@@ -15,6 +28,7 @@ const categoryLabels = {
 
 export async function GET() {
   try {
+    if (!(await requireAdmin())) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const db = getDb();
     const rows = await db
       .select({

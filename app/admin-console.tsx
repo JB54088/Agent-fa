@@ -6,7 +6,7 @@ import { dataSourcesSeed } from "../db/seeds/data-sources";
 import { organizationsSeed } from "../db/seeds/organizations";
 import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/seeds/national-source-directory";
 
-type AdminTab = "overview" | "targets" | "coverage" | "sources" | "review" | "imports" | "verifications" | "tasks" | "settings";
+type AdminTab = "overview" | "targets" | "coverage" | "sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -76,8 +76,11 @@ const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "overview", label: "运营总览", icon: "⌂" },
   { id: "targets", label: "目标单位", icon: "▥" },
   { id: "coverage", label: "全国覆盖", icon: "◎" },
-  { id: "sources", label: "数据源管理", icon: "◎" },
-  { id: "review", label: "采集审核", icon: "✓" },
+  { id: "sources", label: "来源管理", icon: "◎" },
+  { id: "collection", label: "招聘采集", icon: "↗" },
+  { id: "review", label: "待审核", icon: "✓" },
+  { id: "published", label: "正式招聘", icon: "▤" },
+  { id: "failures", label: "失败来源", icon: "!" },
   { id: "imports", label: "Excel导入", icon: "▤" },
   { id: "verifications", label: "信息复核", icon: "◷" },
   { id: "tasks", label: "任务中心", icon: "⚑" },
@@ -164,10 +167,13 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
     onNotify("Excel模板已下载，CSV可直接用Excel打开");
   }
 
+  if (bootstrapState === "checking") return <div className="admin-section"><div className="surface empty-state"><h3>正在核验管理员权限</h3><p>来源核验、采集策略、失败日志和审核操作只对管理员开放。</p></div></div>;
+  if (bootstrapState !== "admin") return <div className="admin-section"><div className="surface empty-state"><h3>运营后台仅限管理员访问</h3><p>{bootstrapState === "available" ? "当前数据库尚未设置管理员，可以将当前已登录账号设置为首位管理员。" : "请使用管理员账号重新登录，普通用户不会看到来源审计和采集状态。"}</p>{bootstrapState === "available" && <button className="primary-button" onClick={bootstrapCurrentAccount}>设置当前账号为管理员 <span>→</span></button>}</div></div>;
+
   return <>
     <div className="page-heading admin-heading">
       <div><span className="eyebrow"><span className="eyebrow-line" />ADMIN CONSOLE · OPERATIONS</span><h1>招聘数据运营</h1><p>公开来源先进入原始采集，再由管理员审核后发布。</p></div>
-      <div className="admin-heading-actions"><span className="safe-collection-badge">⌁ 仅访问公开内容</span>{bootstrapState === "available" && <button className="secondary-button" onClick={bootstrapCurrentAccount}>设置当前账号为管理员</button>}<button className="primary-button" onClick={() => setTab("review")}>进入审核队列 <span>→</span></button></div>
+      <div className="admin-heading-actions"><span className="safe-collection-badge">⌁ 仅访问公开内容</span><button className="primary-button" onClick={() => setTab("review")}>进入审核队列 <span>→</span></button></div>
     </div>
     <div className="admin-tabs" role="tablist" aria-label="管理员功能">
       {tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
@@ -175,9 +181,12 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
 
     {tab === "overview" && <AdminOverview projects={catalogProjects} pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} />}
     {tab === "targets" && <TargetOrganizationDirectory onNotify={onNotify} />}
-    {tab === "coverage" && <NationalCoverageDirectory />}
-    {tab === "sources" && <SourceManagement sources={sources} onToggle={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: source.status === "已暂停" ? "待检查" : "已暂停" } : source)); onNotify("数据源状态已更新"); }} onCheck={(id) => { setSources((current) => current.map((source) => source.id === id ? { ...source, status: "运行中", lastChecked: "刚刚", lastSuccess: "刚刚" } : source)); onNotify("已创建一次公开页面检查任务"); }} />}
+    {tab === "coverage" && <NationalCoverageDirectory onNotify={onNotify} />}
+    {tab === "sources" && <SourceManagement onNotify={onNotify} />}
+    {tab === "collection" && <CollectionCenter onNotify={onNotify} />}
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
+    {tab === "published" && <PublishedCenter projects={catalogProjects} onOpen={onOpen} />}
+    {tab === "failures" && <FailedSourceCenter onTab={setTab} />}
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} />}
     {tab === "verifications" && <VerificationPanel projects={catalogProjects} onNotify={onNotify} onOpen={onOpen} />}
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
@@ -185,7 +194,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
   </>;
 }
 
-function NationalCoverageDirectory() {
+function NationalCoverageDirectory({ onNotify }: { onNotify: (message: string) => void }) {
   type DirectoryDatabaseAfter = { organizations: number; regions: number; registered_sources: number; verified_sources: number; review_sources: number; enterprise_sources: number; national_civil_service_sources: number; provincial_civil_service_sources: number; central_soe_sources: number; local_soe_sources: number };
   type DirectoryCatalog = { enterpriseOrganizations: number; enterpriseSources: number; nationalSources: number; regions: number };
   const [category, setCategory] = useState("全部");
@@ -399,29 +408,153 @@ function BrandSettings({ brand, onSave }: { brand: BrandConfig; onSave: (brand: 
 }
 
 function AdminOverview({ projects, pendingReview, openTasks, onTab, onOpen }: { projects: Project[]; pendingReview: number; openTasks: number; onTab: (tab: AdminTab) => void; onOpen: (project: Project) => void }) {
-  const sourceCounts = ["A级", "B级", "C级", "D级"].map((level) => ({ level, count: sourceSeed.filter((source) => source.level === level).length }));
-  const healthySources = sourceSeed.filter((source) => source.status === "运行中").length;
-  const healthScore = sourceSeed.length ? Math.round((healthySources / sourceSeed.length) * 100) : 0;
-  const sourceSummary = sourceSeed.length ? `${sourceSeed.length}个来源 · ${healthySources}个可访问` : "暂无来源数据";
+  const [sourceStats, setSourceStats] = useState<AdminSourceStats>({});
+  useEffect(() => {
+    fetch("/api/admin/source-directory").then((response) => response.json() as Promise<{ ok?: boolean; stats?: AdminSourceStats }>).then((payload) => { if (payload.ok) setSourceStats(payload.stats ?? {}); }).catch(() => undefined);
+  }, []);
+  const totalSources = sourceStats.total ?? 0;
+  const healthySources = (sourceStats.verified ?? 0) + (sourceStats.autoAllowed ?? 0) + (sourceStats.active ?? 0);
+  const healthScore = totalSources ? Math.round((healthySources / totalSources) * 100) : 0;
+  const sourceCounts = [
+    { level: "重点企业", count: sourceStats.enterprise ?? 0 },
+    { level: "央企", count: sourceStats.centralSoe ?? 0 },
+    { level: "地方国企", count: sourceStats.localSoe ?? 0 },
+    { level: "国考 / 省考", count: sourceStats.nationalAndProvincial ?? 0 },
+  ];
+  const sourceSummary = totalSources ? `${totalSources}个来源 · ${sourceStats.verified ?? 0}个已核验` : "暂无来源数据";
   return <>
     <div className="admin-kpis">
       <div><span>已发布招聘</span><strong>{projects.length}</strong><small>全部经过管理员确认</small></div>
-      <div><span>待审核采集</span><strong>{String(pendingReview).padStart(2, "0")}</strong><small className="warning">需要人工判断</small></div>
-      <div><span>待处理任务</span><strong>{String(openTasks).padStart(2, "0")}</strong><small>来源变化与复核提醒</small></div>
-      <div><span>来源健康度</span><strong>{healthScore}%</strong><small>{sourceSummary}</small></div>
+      <div><span>已核验来源</span><strong>{sourceStats.verified ?? 0}</strong><small>可同步官方入口</small></div>
+      <div><span>待人工核验</span><strong>{String(sourceStats.needsReview ?? pendingReview).padStart(2, "0")}</strong><small className="warning">不得直接发布</small></div>
+      <div><span>当前有招聘</span><strong>{sourceStats.activeRecruitment ?? 0}</strong><small>{sourceSummary}</small></div>
     </div>
     <div className="admin-process-banner"><div className="process-icon">⌁</div><div><strong>校招数据处理链路</strong><p>数据源 → 公开采集 → 原始数据 → 人工审核 → 正式招聘信息</p></div><span>不会自动覆盖已发布信息</span></div>
     <div className="admin-grid">
-      <div className="surface admin-table"><div className="surface-heading"><div><span className="section-kicker">PROJECT MANAGEMENT</span><h3>最近更新的招聘项目</h3></div><button className="more-button" onClick={() => onTab("verifications")}>查看复核 <span>→</span></button></div><div className="table-head"><span>项目</span><span>状态</span><span>来源</span><span>最近核验</span><span>操作</span></div>{projects.slice(0, 7).map((project) => <button className="table-row" key={project.id} onClick={() => onOpen(project)}><span className="table-project"><i className={`company-mark micro ${project.logoTone}`}>{project.shortName.slice(0, 1)}</i><span><strong>{project.title.replace("2027届", "")}</strong><small>{project.company} · {project.batch}</small></span></span><span className={`status-text ${project.status}`}>{statusLabel[project.status]}</span><span className="source-cell">{project.sourceLevel}<small>{project.sourceName}</small></span><span className="verify-cell">{formatDate(project.verifiedAt)}</span><span className="row-more">•••</span></button>)}</div>
-      <div className="admin-side"><div className="surface source-health"><div className="surface-heading"><div><span className="section-kicker">SOURCE HEALTH</span><h3>来源健康度</h3></div><span className="health-score">{healthScore}%</span></div>{sourceCounts.map(({ level, count }) => <div className="health-line" key={level}><span>{level} · 来源登记</span><b>{count}</b><i><em style={{ width: sourceSeed.length ? `${Math.round((count / sourceSeed.length) * 100)}%` : "0%" }} /></i></div>)}</div><div className="surface admin-shortcuts"><span className="section-kicker">QUICK ACTIONS</span><h3>下一步</h3><button onClick={() => onTab("review")}><span>✓</span>处理新发现 <b>→</b></button><button onClick={() => onTab("imports")}><span>▤</span>导入招聘Excel <b>→</b></button><button onClick={() => onTab("tasks")}><span>⚑</span>查看任务中心 <b>→</b></button></div></div>
+      <div className="surface admin-table"><div className="surface-heading"><div><span className="section-kicker">PROJECT MANAGEMENT</span><h3>最近更新的招聘项目</h3></div><button className="more-button" onClick={() => onTab("published")}>查看正式招聘 <span>→</span></button></div><div className="table-head"><span>项目</span><span>状态</span><span>来源</span><span>最近核验</span><span>操作</span></div>{projects.slice(0, 7).map((project) => <button className="table-row" key={project.id} onClick={() => onOpen(project)}><span className="table-project"><i className={`company-mark micro ${project.logoTone}`}>{project.shortName.slice(0, 1)}</i><span><strong>{project.title.replace("2027届", "")}</strong><small>{project.company} · {project.batch}</small></span></span><span className={`status-text ${project.status}`}>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="source-cell">{project.sourceLevel}<small>{project.sourceName}</small></span><span className="verify-cell">{formatDate(project.verifiedAt)}</span><span className="row-more">•••</span></button>)}</div>
+      <div className="admin-side"><div className="surface source-health"><div className="surface-heading"><div><span className="section-kicker">SOURCE HEALTH</span><h3>来源健康度</h3></div><span className="health-score">{healthScore}%</span></div>{sourceCounts.map(({ level, count }) => <div className="health-line" key={level}><span>{level} · 来源登记</span><b>{count}</b><i><em style={{ width: totalSources ? `${Math.round((count / totalSources) * 100)}%` : "0%" }} /></i></div>)}</div><div className="surface admin-shortcuts"><span className="section-kicker">QUICK ACTIONS</span><h3>下一步</h3><button onClick={() => onTab("review")}><span>✓</span>处理新发现 <b>→</b></button><button onClick={() => onTab("sources")}><span>◎</span>管理来源状态 <b>→</b></button><button onClick={() => onTab("imports")}><span>▤</span>导入招聘Excel <b>→</b></button><button onClick={() => onTab("tasks")}><span>⚑</span>查看任务中心 <b>{openTasks}</b></button></div></div>
     </div>
   </>;
 }
 
-function SourceManagement({ sources, onToggle, onCheck }: { sources: SourceRecord[]; onToggle: (id: string) => void; onCheck: (id: string) => void }) {
+type AdminSourceRow = {
+  id: string;
+  name: string;
+  company: string;
+  organizationType: string;
+  region: string;
+  category: string | null;
+  sourceType: string | null;
+  level: string;
+  sourceUrl: string | null;
+  sourceDomain: string | null;
+  status: string;
+  discoveryStatus: string;
+  officialConfirmed: boolean;
+  automationAllowed: boolean;
+  requiresManualReview: boolean;
+  crawlStrategy: string | null;
+  lastCheckedAt: string | null;
+  lastVerifiedAt: string | null;
+  nextCheckAt: string | null;
+  lastSuccessfulCollectedAt: string | null;
+  failureCount: number;
+  lastError: string | null;
+  recruitmentLinkStatus: string;
+  opportunityCount: number;
+  priority: string;
+  note: string;
+};
+
+type AdminSourceStats = Record<string, number>;
+
+function SourceManagement({ onNotify }: { onNotify: (message: string) => void }) {
+  const [rows, setRows] = useState<AdminSourceRow[]>([]);
+  const [stats, setStats] = useState<AdminSourceStats>({});
   const [filter, setFilter] = useState("全部");
-  const filtered = sources.filter((source) => filter === "全部" || source.level === filter || source.status === filter);
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SOURCE REGISTRY</span><h2>数据源管理</h2><p>维护公开招聘来源、检查频率和内容指纹。</p></div><button className="primary-button" onClick={() => window.alert("数据源新建表单将在接入真实数据库后保存")}>＋ 新增数据源</button></div><div className="admin-filter-bar"><div className="admin-search"><span>⌕</span><input placeholder="搜索数据源或企业" /></div>{["全部", "A级", "B级", "C级", "D级", "待检查"].map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div><div className="source-card-list">{filtered.map((source) => <article className="source-card" key={source.id}><div className="source-card-top"><div><span className={`source-level-badge level-${source.level.slice(0, 1)}`}>{source.level}</span><strong>{source.name}</strong><small>{source.company} · {source.type}</small></div><span className={`source-status ${source.status === "运行中" ? "live" : source.status === "待检查" ? "pending" : "paused"}`}><i />{source.status}</span></div><div className="source-card-grid"><div><span>采集方式</span><strong>{source.method}</strong></div><div><span>检查频率</span><strong>{source.frequency}</strong></div><div><span>最后检查</span><strong>{source.lastChecked}</strong></div><div><span>最后成功采集</span><strong>{source.lastSuccess}</strong></div><div><span>页面指纹</span><strong className="mono-text">{source.fingerprint}</strong></div><div><span>人工审核</span><strong>{source.review ? "是" : "否"}</strong></div></div><div className="source-card-footer"><span>备注：{source.note}</span><div><button className="secondary-button" onClick={() => onToggle(source.id)}>{source.status === "已暂停" ? "恢复来源" : "暂停来源"}</button><button className="primary-button" onClick={() => onCheck(source.id)}>立即检查</button></div></div></article>)}</div></div>;
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/source-directory");
+      const payload = await response.json() as { ok?: boolean; sourceRows?: AdminSourceRow[]; stats?: AdminSourceStats; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "来源管理读取失败");
+      setRows(Array.isArray(payload.sourceRows) ? payload.sourceRows : []);
+      setStats(payload.stats ?? {});
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "来源管理读取失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { void refresh(); }, []);
+
+  async function action(sourceId: string, actionName: string, successMessage: string) {
+    try {
+      const response = await fetch("/api/admin/source-directory/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId, action: actionName }) });
+      const payload = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "来源操作失败");
+      onNotify(successMessage);
+      await refresh();
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "来源操作失败");
+    }
+  }
+
+  async function syncVerified() {
+    try {
+      const response = await fetch("/api/admin/source-directory/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sync_all" }) });
+      const payload = await response.json() as { ok?: boolean; error?: string; summary?: { verifiedSources: number; activeRecruitment: number; officialEntryOnly: number; entriesCreated: number; entriesUpdated: number } };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "已核验来源同步失败");
+      const summary = payload.summary;
+      onNotify(`已核验来源同步完成：${summary?.entriesCreated ?? 0} 条官方入口新增，${summary?.entriesUpdated ?? 0} 条更新`);
+      await refresh();
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "已核验来源同步失败");
+    }
+  }
+
+  const visible = rows.filter((row) => {
+    const textMatch = !query.trim() || `${row.name} ${row.company} ${row.region} ${row.sourceDomain ?? ""}`.toLowerCase().includes(query.trim().toLowerCase());
+    return textMatch && (filter === "全部" || row.status === filter || row.level === filter || row.recruitmentLinkStatus === filter);
+  });
+  const statusOptions = ["全部", "VERIFIED", "NEEDS_REVIEW", "ACCESS_FAILED", "AUTO_ALLOWED", "MANUAL_ONLY", "DISABLED", "HAS_ACTIVE_RECRUITMENT", "OFFICIAL_ENTRY_ONLY"];
+  const label = (status: string) => ({ VERIFIED: "已核验", NEEDS_REVIEW: "待人工核验", ACCESS_FAILED: "访问失败", AUTO_ALLOWED: "允许自动采集", MANUAL_ONLY: "人工维护", DISABLED: "已停用", DISCOVERED: "已发现", ACTIVE: "有效", HAS_ACTIVE_RECRUITMENT: "当前有招聘", OFFICIAL_ENTRY_ONLY: "仅官方入口", UPCOMING_RECRUITMENT: "即将开始" } as Record<string, string>)[status] ?? status;
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">SOURCE OPERATIONS</span><h2>来源管理</h2><p>来源目录、官方入口、核验状态和采集策略统一在后台维护；普通用户不会看到这些审计字段。</p></div><div className="admin-heading-actions"><button className="secondary-button" onClick={syncVerified}>同步已核验来源到招聘信息</button><button className="primary-button" onClick={() => onNotify("新增来源请先登记官方URL，再进入人工核验")}>＋ 登记来源</button></div></div><div className="admin-kpis source-kpis"><div><span>已登记来源</span><strong>{stats.total ?? 0}</strong><small>数据库来源档案</small></div><div><span>已核验</span><strong>{stats.verified ?? 0}</strong><small>可进入官方入口</small></div><div><span>待人工核验</span><strong>{stats.needsReview ?? 0}</strong><small>不得直接发布</small></div><div><span>访问失败</span><strong>{stats.accessFailed ?? 0}</strong><small>创建复核任务</small></div><div><span>允许自动采集</span><strong>{stats.autoAllowed ?? 0}</strong><small>仍需人工审核</small></div><div><span>人工维护</span><strong>{stats.manualOnly ?? 0}</strong><small>不自动抓取</small></div></div><div className="admin-filter-bar"><div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索来源、企业、地区或域名" /></div>{statusOptions.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "全部" ? item : label(item)}</button>)}</div>{loading ? <div className="surface empty-state"><h3>正在读取数据库来源</h3><p>只显示已登记到生产库的真实来源。</p></div> : <div className="source-card-list">{visible.length ? visible.map((source) => <article className="source-card" key={source.id}><div className="source-card-top"><div><span className={`source-level-badge level-${source.level.slice(0, 1)}`}>{source.level}</span><strong>{source.name}</strong><small>{source.company} · {source.organizationType} · {source.region}</small></div><span className={`source-status ${source.status === "VERIFIED" || source.status === "AUTO_ALLOWED" ? "live" : source.status === "ACCESS_FAILED" ? "paused" : "pending"}`}><i />{label(source.status)}</span></div><div className="source-card-grid"><div><span>来源类型</span><strong>{source.sourceType ?? "官方来源"}</strong></div><div><span>招聘联动</span><strong>{label(source.recruitmentLinkStatus)}</strong></div><div><span>官方入口</span><strong>{source.officialConfirmed ? "已确认" : "待确认"}</strong></div><div><span>采集策略</span><strong>{source.crawlStrategy ?? "人工维护"}</strong></div><div><span>最近检查</span><strong>{source.lastCheckedAt ? formatDate(source.lastCheckedAt) : "未检查"}</strong></div><div><span>最近核验</span><strong>{source.lastVerifiedAt ? formatDate(source.lastVerifiedAt) : "未核验"}</strong></div><div><span>正式招聘</span><strong>{source.opportunityCount} 条</strong></div><div><span>失败次数</span><strong>{source.failureCount}</strong></div></div><div className="source-card-footer"><span>备注：{source.lastError ?? source.note ?? "无"}{source.sourceUrl && <a href={source.sourceUrl} target="_blank" rel="noreferrer">打开官方入口 ↗</a>}</span><div className="source-action-row">{source.status !== "VERIFIED" && <button className="secondary-button" onClick={() => action(source.id, "verify", "已标记为官方来源，等待同步")}>标记官方</button>}{source.status === "VERIFIED" && <button className="secondary-button" onClick={() => action(source.id, "unverify", "已取消官方核验，来源回到待复核")}>取消认证</button>}{source.status === "VERIFIED" && <button className="secondary-button" onClick={() => action(source.id, "auto", "已允许自动巡检，但仍需人工审核")}>允许自动采集</button>}<button className="secondary-button" onClick={() => action(source.id, "manual", "已设为人工维护")}>人工维护</button><button className="primary-button" onClick={() => action(source.id, "scan", "已创建一次公开页面检查任务")}>立即扫描</button>{source.status !== "DISABLED" ? <button className="text-button danger-copy" onClick={() => action(source.id, "disable", "来源已停用")}>停用</button> : <button className="text-button" onClick={() => action(source.id, "enable", "来源已恢复，等待重新核验")}>启用</button>}</div></div></article>) : <div className="surface empty-state"><h3>没有匹配来源</h3><p>可以切换状态，或先从全国覆盖登记来源目录。</p></div>}</div>}</div>;
+}
+
+function CollectionCenter({ onNotify }: { onNotify: (message: string) => void }) {
+  const [running, setRunning] = useState(false);
+  const [report, setReport] = useState<{ sourceSummary?: { due: number; scanned: number; unchanged: number; changed: number; blocked: number; failed: number }; pipeline?: { rawInserted: number; stagingInserted: number; reviewTasksCreated: number; opportunitiesAutoPublished: number } } | null>(null);
+  async function run() {
+    setRunning(true);
+    try {
+      const response = await fetch("/api/admin/incremental-sync", { method: "POST" });
+      const payload = await response.json() as { ok?: boolean; error?: string; sourceSummary?: typeof report extends { sourceSummary?: infer T } ? T : never; pipeline?: typeof report extends { pipeline?: infer T } ? T : never };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "公开来源扫描失败");
+      setReport({ sourceSummary: payload.sourceSummary, pipeline: payload.pipeline });
+      onNotify("公开来源扫描完成：新增和变化已进入人工审核");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "公开来源扫描失败");
+    } finally {
+      setRunning(false);
+    }
+  }
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">COLLECTION PIPELINE</span><h2>招聘采集</h2><p>只访问公开内容；自动发现先写入 raw → staging → review，不直接覆盖正式招聘。</p></div><button className="primary-button" disabled={running} onClick={run}>{running ? "公开扫描中…" : "运行增量扫描"} <span>↻</span></button></div><div className="coverage-summary"><div><strong>{report?.sourceSummary?.due ?? 0}</strong><span>到期来源</span></div><div><strong>{report?.sourceSummary?.scanned ?? 0}</strong><span>已检查</span></div><div><strong>{report?.sourceSummary?.changed ?? 0}</strong><span>页面变化</span></div><div><strong>{report?.pipeline?.rawInserted ?? 0}</strong><span>原始新增</span></div><div><strong>{report?.pipeline?.stagingInserted ?? 0}</strong><span>暂存新增</span></div><div><strong>{report?.pipeline?.reviewTasksCreated ?? 0}</strong><span>待人工审核</span></div></div><div className="surface process-note"><strong>安全边界</strong><p>不会绕过登录、验证码、反爬或访问限制；被阻断的来源会记录失败状态并进入失败来源/任务中心。</p></div></div>;
+}
+
+function PublishedCenter({ projects, onOpen }: { projects: Project[]; onOpen: (project: Project) => void }) {
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">PUBLISHED OPPORTUNITIES</span><h2>正式招聘</h2><p>这里显示前台实际可见的正式库记录，官方入口记录会排在具体招聘项目之后。</p></div><span className="safe-collection-badge">{projects.length} 条前台可见</span></div>{projects.length ? <div className="surface verification-table"><div className="verification-row verification-head"><span>招聘信息</span><span>展示类型</span><span>来源</span><span>状态</span><span>核验</span><span>操作</span></div>{projects.map((project) => <div className="verification-row" key={project.id}><span><strong>{project.title}</strong><small>{project.company} · {project.batch}</small></span><span>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方招聘入口" : "具体招聘项目"}</span><span>{project.sourceName} · {project.sourceLevel}</span><span>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官网公告为准" : statusLabel[project.status]}</span><span>{formatDate(project.verifiedAt)}</span><span><button className="text-button" onClick={() => onOpen(project)}>查看</button></span></div>)}</div> : <div className="surface empty-state"><h3>暂无正式招聘</h3><p>审核通过的招聘信息或已核验官方入口会出现在这里。</p></div>}</div>;
+}
+
+function FailedSourceCenter({ onTab }: { onTab: (tab: AdminTab) => void }) {
+  const [rows, setRows] = useState<AdminSourceRow[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/source-directory").then((response) => response.json() as Promise<{ ok?: boolean; sourceRows?: AdminSourceRow[] }>).then((payload) => setRows((payload.sourceRows ?? []).filter((row) => row.status === "ACCESS_FAILED"))).catch(() => undefined);
+  }, []);
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">FAILED SOURCES</span><h2>失败来源</h2><p>访问失败不删除来源、不覆盖招聘信息，等待管理员重新打开官方页面核验。</p></div><button className="secondary-button" onClick={() => onTab("sources")}>回到来源管理 <span>→</span></button></div>{rows.length ? <div className="task-list">{rows.map((row) => <article className="task-card" key={row.id}><div className="task-priority priority-high">!</div><div className="task-main"><div className="task-title-line"><span>{row.company}</span><strong>{row.name}</strong></div><p>{row.lastError ?? "来源访问失败，待人工打开确认"}</p><small>{row.sourceDomain ?? "暂无域名"} · 失败 {row.failureCount} 次</small></div><div className="task-actions"><span className="task-status status-open">ACCESS_FAILED</span></div></article>)}</div> : <div className="surface empty-state"><h3>暂无失败来源</h3><p>被上游拒绝、无法访问或解析失败的来源会在这里集中显示。</p></div>}</div>;
 }
 
 function ReviewWorkbench({ items, selectedId, onSelect, onAction }: { items: RawItem[]; selectedId: string; onSelect: (id: string) => void; onAction: (id: string, status: RawStatus, message: string) => void }) {

@@ -221,8 +221,9 @@ export const dataSources = pgTable("data_sources", {
   nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
   lastError: text("last_error"),
   adminNote: text("admin_note"),
+  recruitmentLinkStatus: text("recruitment_link_status").default("NEEDS_REVIEW").notNull(),
   ...timestamps,
-}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_region_idx").on(table.regionId), index("data_sources_category_idx").on(table.sourceCategory), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus), index("data_sources_next_check_idx").on(table.nextCheckAt)]);
+}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_region_idx").on(table.regionId), index("data_sources_category_idx").on(table.sourceCategory), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus), index("data_sources_recruitment_link_status_idx").on(table.recruitmentLinkStatus), index("data_sources_next_check_idx").on(table.nextCheckAt)]);
 
 export const sourceDiscoveries = pgTable("source_discoveries", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -245,6 +246,7 @@ export const sourceDiscoveries = pgTable("source_discoveries", {
 export const opportunities = pgTable("opportunities", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),
+  displayType: text("display_type").default("RECRUITMENT_PROJECT").notNull(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   opportunityType: opportunityTypeEnum("opportunity_type").notNull(),
   recruitmentSeason: text("recruitment_season"),
@@ -281,7 +283,7 @@ export const opportunities = pgTable("opportunities", {
   dataCredibility: text("data_credibility").default("待评估").notNull(),
   isDemo: boolean("is_demo").default(false).notNull(),
   ...timestamps,
-}, (table) => [index("opportunities_type_status_idx").on(table.opportunityType, table.calculatedStatus), index("opportunities_org_idx").on(table.organizationId), index("opportunities_year_idx").on(table.recruitmentYear), index("opportunities_source_idx").on(table.sourceId)]);
+}, (table) => [index("opportunities_type_status_idx").on(table.opportunityType, table.calculatedStatus), index("opportunities_display_type_idx").on(table.displayType), index("opportunities_org_idx").on(table.organizationId), index("opportunities_year_idx").on(table.recruitmentYear), index("opportunities_source_idx").on(table.sourceId)]);
 
 export const opportunityEvents = pgTable("opportunity_events", {
   id: uuid("id").defaultRandom().primaryKey(),
