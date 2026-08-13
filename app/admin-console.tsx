@@ -551,6 +551,7 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
   const [verificationChecks, setVerificationChecks] = useState({ officialOwner: false, publicAccess: false, recruitmentEntry: false });
   const [recruitmentLinkStatus, setRecruitmentLinkStatus] = useState("OFFICIAL_ENTRY_ONLY");
   const [verificationUrl, setVerificationUrl] = useState("");
+  const [candidateSyncRunning, setCandidateSyncRunning] = useState(false);
   const verificationMode = initialFilter === "NEEDS_REVIEW";
 
   async function refresh() {
@@ -636,6 +637,22 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
     }
   }
 
+  async function addCandidateUrls() {
+    setCandidateSyncRunning(true);
+    try {
+      const response = await fetch("/api/admin/source-directory", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "add_candidate_urls" }) });
+      const payload = await response.json() as { ok?: boolean; error?: string; summary?: { added: number; protected: number; conflicts: number; missing: number; pendingAfter: number } };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "候选官网补充失败");
+      const summary = payload.summary;
+      onNotify(`已补充 ${summary?.added ?? 0} 条候选官网到待人工核验；${summary?.missing ?? 0} 条暂未匹配，当前待核验 ${summary?.pendingAfter ?? 0} 条`);
+      await refresh();
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "候选官网补充失败");
+    } finally {
+      setCandidateSyncRunning(false);
+    }
+  }
+
   const visible = rows.filter((row) => {
     const textMatch = !query.trim() || `${row.name} ${row.company} ${row.region} ${row.sourceDomain ?? ""}`.toLowerCase().includes(query.trim().toLowerCase());
     return textMatch && (filter === "全部" || row.status === filter || row.level === filter || row.recruitmentLinkStatus === filter);
@@ -643,7 +660,7 @@ function SourceManagement({ onNotify, initialFilter }: { onNotify: (message: str
   const statusOptions = ["全部", "VERIFIED", "NEEDS_REVIEW", "ACCESS_FAILED", "AUTO_ALLOWED", "MANUAL_ONLY", "DISABLED", "HAS_ACTIVE_RECRUITMENT", "OFFICIAL_ENTRY_ONLY"];
   const label = (status: string) => ({ VERIFIED: "已核验", NEEDS_REVIEW: "待人工核验", ACCESS_FAILED: "访问失败", AUTO_ALLOWED: "允许自动采集", MANUAL_ONLY: "人工维护", DISABLED: "已停用", DISCOVERED: "已发现", ACTIVE: "有效", HAS_ACTIVE_RECRUITMENT: "当前有招聘", OFFICIAL_ENTRY_ONLY: "仅官方入口", UPCOMING_RECRUITMENT: "即将开始" } as Record<string, string>)[status] ?? status;
   return <div className="admin-section">
-    <div className="admin-panel-heading"><div><span className="section-kicker">SOURCE OPERATIONS</span><h2>{verificationMode ? "待人工核验" : "来源管理"}</h2><p>{verificationMode ? "逐条打开官方页面，确认来源身份、公开可访问性和招聘入口，再由你确认发布官方入口。" : "来源目录、官方入口、核验状态和采集策略统一在后台维护；普通用户不会看到这些审计字段。"}</p></div><div className="admin-heading-actions"><button className="secondary-button" onClick={syncVerified}>同步已核验来源到招聘信息</button><button className="primary-button" onClick={() => onNotify("新增来源请先登记官方URL，再进入人工核验")}>＋ 登记来源</button></div></div>
+    <div className="admin-panel-heading"><div><span className="section-kicker">SOURCE OPERATIONS</span><h2>{verificationMode ? "待人工核验" : "来源管理"}</h2><p>{verificationMode ? "逐条打开官方页面，确认来源身份、公开可访问性和招聘入口，再由你确认发布官方入口。" : "来源目录、官方入口、核验状态和采集策略统一在后台维护；普通用户不会看到这些审计字段。"}</p></div><div className="admin-heading-actions"><button className="secondary-button" disabled={candidateSyncRunning} onClick={addCandidateUrls}>{candidateSyncRunning ? "补充中…" : "补充候选官网到待审核"}</button><button className="secondary-button" onClick={syncVerified}>同步已核验来源到招聘信息</button><button className="primary-button" onClick={() => onNotify("新增来源请先登记官方URL，再进入人工核验")}>＋ 登记来源</button></div></div>
     <div className="admin-kpis source-kpis"><div><span>已登记来源</span><strong>{stats.total ?? 0}</strong><small>数据库来源档案</small></div><div><span>已核验</span><strong>{stats.verified ?? 0}</strong><small>可进入官方入口</small></div><div className={verificationMode ? "review-kpi" : ""}><span>待人工核验</span><strong>{stats.needsReview ?? 0}</strong><small>{verificationMode ? "当前列表" : "不得直接发布"}</small></div><div><span>访问失败</span><strong>{stats.accessFailed ?? 0}</strong><small>创建复核任务</small></div><div><span>允许自动采集</span><strong>{stats.autoAllowed ?? 0}</strong><small>仍需人工审核</small></div><div><span>人工维护</span><strong>{stats.manualOnly ?? 0}</strong><small>不自动抓取</small></div></div>
     {verificationMode && <div className="source-verification-guide"><strong>核验顺序</strong><span>①打开官方招聘网站</span><span>②确认官方主体</span><span>③确认无需登录即可访问</span><span>④判断当前招聘状态</span><small>完成后点击“确认发布官方入口”；具体招聘项目仍需进入“待审核”后再发布。</small></div>}
     {verificationMode && selectedForVerification && <div className="verification-url-editor"><label htmlFor="verification-url">官方招聘网站 URL</label><div><input id="verification-url" value={verificationUrl} onChange={(event) => setVerificationUrl(event.target.value)} placeholder="粘贴 https:// 开头的官方招聘网站" /><button className="secondary-button" onClick={saveVerificationUrl}>{selectedForVerification.officialUrlStatus === "REGISTERED" ? "已登记官方URL ✓" : "登记为官方URL"}</button></div><small>{selectedForVerification.officialUrlStatus === "REGISTERED" ? "官方URL已登记；完成下方三项人工核验后即可发布官方入口。" : "当前URL仅可访问，尚未登记为该企业官方URL，不能发布。"}</small></div>}

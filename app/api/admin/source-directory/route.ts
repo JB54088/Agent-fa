@@ -6,6 +6,7 @@ import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { dataSourcesSeed } from "../../../../db/seeds/data-sources";
 import { nationalSourceDirectory } from "../../../../db/seeds/national-source-directory";
 import { organizationsSeed } from "../../../../db/seeds/organizations";
+import { enterpriseOfficialUrlCandidates, nationalSourceOfficialUrlCandidates } from "../../../../db/seeds/official-url-candidates";
 import { ensureOfficialUrlLifecycle } from "../../../../lib/official-url-lifecycle";
 
 type SqlClient = ReturnType<typeof neon>;
@@ -185,12 +186,105 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
+    const body = await request.json().catch(() => ({})) as { mode?: string };
     await ensureFeedColumns(sql);
+
+    if (body.mode === "add_candidate_urls") {
+      await ensureOfficialUrlLifecycle(sql);
+      await sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`;
+      const rows = await sql`
+        SELECT s.id::text AS id, s.name AS source_name, s.organization_id::text AS organization_id,
+               s.source_url, s.list_page_url, s.official_url_status, s.status,
+               s.source_category, r.code AS region_code, o.name AS organization_name
+        FROM data_sources s
+        LEFT JOIN organizations o ON o.id = s.organization_id
+        LEFT JOIN regions r ON r.id = s.region_id
+        WHERE s.admin_note LIKE '%source-directory-sync%'
+        ORDER BY o.name, s.name
+      `;
+      const updates: Array<ReturnType<SqlClient>> = [];
+      const added: string[] = [];
+      const protectedSources: string[] = [];
+      const conflicts: string[] = [];
+      const missing: string[] = [];
+      const seenCandidates = new Set<string>();
+
+      for (const row of rows) {
+        let candidate = row.organization_name ? enterpriseOfficialUrlCandidates[row.organization_name] : undefined;
+        if (!candidate && row.source_category === "LOCAL_SOE" && row.region_code) {
+          candidate = nationalSourceOfficialUrlCandidates[`local-soe-${String(row.region_code).toLowerCase()}`];
+        }
+        if (!candidate) {
+          missing.push(row.organization_name ? `${row.organization_name} · ${row.source_name}` : row.source_name);
+          continue;
+        }
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(candidate);
+          if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error("invalid_protocol");
+        } catch {
+          missing.push(`${row.organization_name ?? "未匹配企业"} · ${row.source_name}`);
+          continue;
+        }
+        const normalizedUrl = parsedUrl.toString();
+        const normalizedCandidate = normalizedUrl.toLowerCase().replace(/\/+$/, "");
+        if (seenCandidates.has(`${row.organization_id}:${normalizedCandidate}`)) {
+          conflicts.push(`${row.organization_name ?? "未匹配企业"} · ${row.source_name}`);
+          continue;
+        }
+        seenCandidates.add(`${row.organization_id}:${normalizedCandidate}`);
+        if (row.status !== "active" || row.official_url_status === "REGISTERED" || row.official_url_status === "PUBLISHED") {
+          protectedSources.push(`${row.organization_name ?? "未匹配企业"} · ${row.source_name}`);
+          continue;
+        }
+        const conflict = await sql`
+          SELECT id::text AS id
+          FROM data_sources
+          WHERE id <> ${row.id}
+            AND organization_id = ${row.organization_id}
+            AND status = 'active'
+            AND lower(regexp_replace(COALESCE(source_url, list_page_url), '/+$', '')) = ${normalizedCandidate}
+          LIMIT 1
+        `;
+        if (conflict[0]) {
+          conflicts.push(`${row.organization_name ?? "未匹配企业"} · ${row.source_name}`);
+          continue;
+        }
+        updates.push(sql`
+          UPDATE data_sources SET
+            source_url = ${normalizedUrl}, source_domain = ${parsedUrl.hostname},
+            official_url_status = COALESCE(official_url_status, 'UNREGISTERED'),
+            discovery_status = 'NEEDS_REVIEW', recruitment_link_status = 'NEEDS_REVIEW',
+            requires_manual_review = true, automation_allowed = false, incremental_sync_enabled = false,
+            admin_note = concat(coalesce(admin_note, ''), ' [candidate-url-added:', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), ']'),
+            updated_at = now()
+          WHERE id = ${row.id}
+        `);
+        added.push(`${row.organization_name ?? "未匹配企业"} · ${row.source_name}`);
+      }
+      if (updates.length) await sql.transaction(updates, { isolationLevel: "ReadCommitted" });
+      const databaseAfter = await countDirectory(sql);
+      return NextResponse.json({
+        ok: true,
+        mode: body.mode,
+        summary: {
+          totalDirectorySources: rows.length,
+          added: added.length,
+          protected: protectedSources.length,
+          conflicts: conflicts.length,
+          missing: missing.length,
+          pendingAfter: databaseAfter.review_sources,
+        },
+        details: { added, protected: protectedSources, conflicts, missing },
+        safety: { officialUrlStatusChanged: false, publishedOpportunitiesChanged: false, automationAllowed: false, requiresManualReview: true },
+      });
+    }
+
     const queries: Array<ReturnType<SqlClient>> = [];
     const regionIds = new Map<string, string>();
     const organizationIds = new Map<string, string>();
