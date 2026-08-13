@@ -448,17 +448,52 @@ function ProjectCard({ project, compact = false, onOpen, onToggleFavorite, isFav
   </article>;
 }
 
+function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function calendarDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function CalendarView({ onOpen }: { onOpen: (project: Project) => void }) {
-  const calendarEvents: Record<number, { label: string; type: "start" | "end"; project: Project }[]> = {};
+  const today = new Date();
+  const todayKey = calendarDateKey(today);
+  const [monthCursor, setMonthCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const year = monthCursor.getFullYear();
+  const month = monthCursor.getMonth();
+  const firstDayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+  const days = Array.from({ length: 42 }, (_, index) => new Date(year, month, index - firstDayOffset + 1));
+  const calendarEvents: Record<string, { type: "start" | "end"; project: Project }[]> = {};
+
   projects.forEach((project) => {
-    const date = project.status === "upcoming" ? Number(project.startAt.slice(-2)) : Number(project.deadline.slice(-2));
-    if (!calendarEvents[date]) calendarEvents[date] = [];
-    calendarEvents[date].push({ label: project.status === "upcoming" ? "开始报名" : "报名截止", type: project.status === "upcoming" ? "start" : "end", project });
+    const addEvent = (date: string, type: "start" | "end") => {
+      if (!isCalendarDate(date)) return;
+      const key = date;
+      if (!calendarEvents[key]) calendarEvents[key] = [];
+      calendarEvents[key].push({ type, project });
+    };
+    addEvent(project.startAt, "start");
+    addEvent(project.deadline, "end");
   });
-  const days = Array.from({ length: 42 }, (_, index) => index - 5);
+
+  const upcoming = projects
+    .filter((project) => project.status !== "closed")
+    .map((project) => {
+      const hasDeadline = isCalendarDate(project.deadline);
+      const date = hasDeadline ? project.deadline : isCalendarDate(project.startAt) ? project.startAt : "";
+      return { project, date, type: hasDeadline ? "end" as const : "start" as const };
+    })
+    .filter((item) => item.date)
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(0, 4);
+
   return <>
-    <div className="page-heading calendar-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR TIMELINE</span><h1>招聘日历</h1><p>把开始报名、报名截止和你的跟进节点放在同一张日历里。</p></div><div className="calendar-month"><button aria-label="上个月">‹</button><strong>2026年 8月</strong><button aria-label="下个月">›</button></div></div>
-    <div className="calendar-layout"><div className="surface calendar-surface"><div className="calendar-weekdays">{["一", "二", "三", "四", "五", "六", "日"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{days.map((day, index) => { const inMonth = day > 0 && day <= 31; const events = inMonth ? calendarEvents[day] ?? [] : []; return <div className={`calendar-day ${!inMonth ? "muted-day" : ""} ${day === 6 ? "today-day" : ""}`} key={`${day}-${index}`}><span className="day-number">{inMonth ? day : day <= 0 ? 27 + day : day - 31}</span>{day === 6 && <span className="today-label">今天</span>}<div className="day-events">{events.slice(0, 2).map((event) => <button key={`${event.project.id}-${event.type}`} className={`calendar-event ${event.type}`} onClick={() => onOpen(event.project)}><b>{event.type === "end" ? "截止" : "开始"}</b><span>{event.project.shortName}</span></button>)}</div></div>; })}</div></div><aside className="calendar-aside"><div className="surface upcoming-panel"><div className="surface-heading"><div><span className="section-kicker">UP NEXT</span><h3>接下来</h3></div><span className="date-count">4 件</span></div>{projects.filter((project) => project.status !== "closed").slice(0, 4).map((project) => <button className="upcoming-row" key={project.id} onClick={() => onOpen(project)}><span className={`date-bullet ${project.status === "ending" ? "hot" : ""}`}><b>{formatDate(project.deadline).split("月")[1].replace("日", "")}</b><small>8月</small></span><span><strong>{project.status === "upcoming" ? "开始报名" : "报名截止"}</strong><small>{project.shortName}</small></span><i>›</i></button>)}</div><div className="surface legend-panel"><h4>日历说明</h4><div><span className="legend-dot start" />开始报名</div><div><span className="legend-dot end" />报名截止</div><div><span className="legend-dot mine" />我的跟进</div></div></aside></div>
+    <div className="page-heading calendar-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR TIMELINE</span><h1>招聘日历</h1><p>把明确的开始报名和报名截止时间放在同一张日历里，未公布日期的项目不会被虚构安排。</p></div><div className="calendar-month"><button aria-label="上个月" onClick={() => setMonthCursor(new Date(year, month - 1, 1))}>‹</button><strong>{year}年 {month + 1}月</strong><button aria-label="下个月" onClick={() => setMonthCursor(new Date(year, month + 1, 1))}>›</button></div></div>
+    <div className="calendar-layout"><div className="surface calendar-surface"><div className="calendar-weekdays">{["一", "二", "三", "四", "五", "六", "日"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{days.map((day) => { const key = calendarDateKey(day); const inMonth = day.getMonth() === month; const events = inMonth ? calendarEvents[key] ?? [] : []; return <div className={`calendar-day ${!inMonth ? "muted-day" : ""} ${key === todayKey ? "today-day" : ""}`} key={key}><span className="day-number">{day.getDate()}</span>{key === todayKey && <span className="today-label">今天</span>}<div className="day-events">{events.slice(0, 2).map((event) => <button key={`${event.project.id}-${event.type}-${key}`} className={`calendar-event ${event.type}`} onClick={() => onOpen(event.project)}><b>{event.type === "end" ? "截止" : "开始"}</b><span>{event.project.shortName}</span></button>)}</div></div>; })}</div></div><aside className="calendar-aside"><div className="surface upcoming-panel"><div className="surface-heading"><div><span className="section-kicker">UP NEXT</span><h3>接下来</h3></div><span className="date-count">{upcoming.length} 件</span></div>{upcoming.map(({ project, date, type }) => { const dateValue = new Date(`${date}T00:00:00`); return <button className="upcoming-row" key={project.id} onClick={() => onOpen(project)}><span className={`date-bullet ${type === "end" ? "hot" : ""}`}><b>{dateValue.getDate()}</b><small>{dateValue.getMonth() + 1}月</small></span><span><strong>{type === "end" ? "报名截止" : "开始报名"}</strong><small>{project.shortName}</small></span><i>›</i></button>; })}</div><div className="surface legend-panel"><h4>日历说明</h4><div><span className="legend-dot start" />开始报名</div><div><span className="legend-dot end" />报名截止</div><div><span className="legend-dot mine" />我的跟进</div></div></aside></div>
   </>;
 }
 
