@@ -7,6 +7,7 @@ import { dataSourcesSeed } from "../../../../db/seeds/data-sources";
 import { nationalSourceDirectory } from "../../../../db/seeds/national-source-directory";
 import { organizationsSeed } from "../../../../db/seeds/organizations";
 import { enterpriseOfficialUrlCandidates, nationalSourceOfficialUrlCandidates } from "../../../../db/seeds/official-url-candidates";
+import { additionalOfficialSourcesSeed } from "../../../../db/seeds/additional-official-sources";
 import { ensureOfficialUrlLifecycle } from "../../../../lib/official-url-lifecycle";
 
 type SqlClient = ReturnType<typeof neon>;
@@ -308,7 +309,7 @@ export async function POST(request: Request) {
       `);
     }
 
-    for (const organization of organizationsSeed) {
+    for (const organization of [...organizationsSeed, ...additionalOfficialSourcesSeed]) {
       const existing = await sql`SELECT id::text AS id FROM organizations WHERE name = ${organization.name} LIMIT 1`;
       const id = existing[0]?.id ?? await stableUuid(`source-directory:organization:${organization.name}`);
       organizationIds.set(organization.name, id);
@@ -356,6 +357,43 @@ export async function POST(request: Request) {
       `);
     }
 
+    for (const source of additionalOfficialSourcesSeed) {
+      const organizationId = organizationIds.get(source.organizationName) as string;
+      const existing = await sql`
+        SELECT id::text AS id
+        FROM data_sources
+        WHERE organization_id = ${organizationId}
+          AND (source_url = ${source.sourceUrl} OR name = ${source.sourceName})
+        LIMIT 1
+      `;
+      const id = existing[0]?.id ?? await stableUuid(`source-directory:additional-official-source:${source.organizationName}`);
+      const note = `${source.notes} [${sourceDirectoryMarker}] [additional-official-candidate:v1]`;
+      queries.push(sql`
+        INSERT INTO data_sources (
+          id, name, organization_id, level, source_category, source_type,
+          collection_method, source_url, source_domain, crawler_strategy,
+          discovery_status, automation_allowed, requires_manual_review,
+          check_frequency, normal_frequency, active_frequency, status, admin_note
+        ) VALUES (
+          ${id}, ${source.sourceName}, ${organizationId}, 'A级', ${source.sourceCategory}, ${source.sourceType},
+          '人工录入', ${source.sourceUrl}, ${source.sourceDomain}, 'MANUAL_SOURCE_AUDIT',
+          'NEEDS_REVIEW', false, true, 'MANUAL_SOURCE_AUDIT', 'EVERY_7_DAYS', 'DAILY', 'active', ${note}
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name, organization_id = EXCLUDED.organization_id,
+          source_category = EXCLUDED.source_category, source_type = EXCLUDED.source_type,
+          source_url = EXCLUDED.source_url, source_domain = EXCLUDED.source_domain,
+          discovery_status = CASE
+            WHEN data_sources.official_url_status IN ('REGISTERED', 'PUBLISHED') THEN data_sources.discovery_status
+            ELSE 'NEEDS_REVIEW'
+          END,
+          automation_allowed = false, requires_manual_review = true,
+          check_frequency = EXCLUDED.check_frequency, normal_frequency = EXCLUDED.normal_frequency,
+          active_frequency = EXCLUDED.active_frequency, admin_note = EXCLUDED.admin_note,
+          updated_at = now()
+      `);
+    }
+
     for (const source of nationalSourceDirectory) {
       const owner = organizationForNationalSource(source);
       const existingOrg = await sql`SELECT id::text AS id FROM organizations WHERE name = ${owner.name} LIMIT 1`;
@@ -398,7 +436,7 @@ export async function POST(request: Request) {
       ok: true,
       mode: "source_directory_register",
       executedAt: new Date().toISOString(),
-      catalog: { enterpriseOrganizations: organizationsSeed.length, enterpriseSources: dataSourcesSeed.length, nationalSources: nationalSourceDirectory.length, regions: regionSeeds.length },
+      catalog: { enterpriseOrganizations: organizationsSeed.length + additionalOfficialSourcesSeed.length, enterpriseSources: dataSourcesSeed.length + additionalOfficialSourcesSeed.length, nationalSources: nationalSourceDirectory.length, regions: regionSeeds.length },
       databaseAfter: await countDirectory(sql),
       safety: { automationAllowed: false, requiresManualReview: true, publishedOpportunitiesChanged: false },
     });

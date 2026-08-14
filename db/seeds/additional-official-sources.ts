@@ -1,0 +1,208 @@
+/**
+ * Additional official recruitment entry points outside the original 100-unit
+ * target list. These are source-directory candidates only: they are inserted
+ * with an unregistered official URL and remain in manual review until an
+ * operator opens the page and completes the existing verification flow.
+ */
+export type AdditionalOfficialSourceSeed = {
+  organizationName: string;
+  shortName: string;
+  organizationType: string;
+  industry: string;
+  priority: "P0" | "P1" | "P2";
+  sourceName: string;
+  sourceType: "招聘官网" | "企业官网";
+  sourceCategory: "CENTRAL_SOE" | "ENTERPRISE";
+  sourceUrl: string;
+  sourceDomain: string;
+  notes: string;
+};
+
+export const additionalOfficialSourcesSeed: AdditionalOfficialSourceSeed[] = [
+  {
+    organizationName: "中国国家铁路集团有限公司",
+    shortName: "中国铁路",
+    organizationType: "央企",
+    industry: "铁路运输",
+    priority: "P0",
+    sourceName: "中国铁路人才招聘网（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://rczp.china-railway.com.cn/",
+    sourceDomain: "rczp.china-railway.com.cn",
+    notes: "公开页面说明该站为中国国家铁路集团及所属企业发布高校毕业生招聘公告的官方招聘网站；仍需人工核对当前批次和访问边界。",
+  },
+  {
+    organizationName: "中国中煤能源集团有限公司",
+    shortName: "中国中煤",
+    organizationType: "央企",
+    industry: "煤炭与能源",
+    priority: "P1",
+    sourceName: "中国中煤校园招聘入口（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://zhaopin.chinacoal.com/",
+    sourceDomain: "zhaopin.chinacoal.com",
+    notes: "中国中煤官网2026届校园招聘公告给出该网申入口；招聘季状态和报名开放情况由管理员人工确认。",
+  },
+  {
+    organizationName: "中国节能环保集团有限公司",
+    shortName: "中国节能",
+    organizationType: "央企",
+    industry: "节能环保",
+    priority: "P1",
+    sourceName: "中国节能官网招聘公告（待人工核验）",
+    sourceType: "企业官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://www.cecep.cn/cecep/zyly/rczp/jngs/2026/2/I1477346602589880320.html",
+    sourceDomain: "www.cecep.cn",
+    notes: "中国节能官网公开发布2026届校园招聘公告；当前招聘批次和报名入口由管理员人工确认。",
+  },
+  {
+    organizationName: "中国旅游集团有限公司",
+    shortName: "中国旅游集团",
+    organizationType: "央企",
+    industry: "旅游与综合服务",
+    priority: "P1",
+    sourceName: "中国旅游集团校园招聘入口（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://ctg.zhaopin.com/school/index.html",
+    sourceDomain: "ctg.zhaopin.com",
+    notes: "中国旅游集团官方招聘页面提供2026届校园招聘入口；仍需人工确认当前是否开放和岗位批次。",
+  },
+  {
+    organizationName: "中国通用技术（集团）控股有限责任公司",
+    shortName: "通用技术集团",
+    organizationType: "央企",
+    industry: "先进制造与医疗健康",
+    priority: "P1",
+    sourceName: "通用技术集团官网招聘信息（待人工核验）",
+    sourceType: "企业官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://www.gt.cn/",
+    sourceDomain: "www.gt.cn",
+    notes: "集团官网设有‘加入我们—招聘信息/招聘动态’栏目；2026届校园招聘线索待管理员人工查看官网入口。",
+  },
+  {
+    organizationName: "中国机械工业集团有限公司",
+    shortName: "国机集团",
+    organizationType: "央企",
+    industry: "装备制造",
+    priority: "P1",
+    sourceName: "国机人才校园招聘门户（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://zhaopin.sinomach.com.cn/SU64b60d25bef57c7e363ff1a3/mc/index",
+    sourceDomain: "zhaopin.sinomach.com.cn",
+    notes: "国机人才门户展示2026届校园招聘及专项计划；需人工确认官网归属、当前招聘批次和访问边界。",
+  },
+  {
+    organizationName: "中国邮政集团有限公司",
+    shortName: "中国邮政",
+    organizationType: "央企",
+    industry: "邮政与物流",
+    priority: "P1",
+    sourceName: "中国邮政官网招聘信息（待人工核验）",
+    sourceType: "企业官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://www.chinapost.com.cn/html1/category/211229/6225-1.htm",
+    sourceDomain: "www.chinapost.com.cn",
+    notes: "中国邮政集团官网招聘信息栏目；与中国邮政储蓄银行区分，秋招/春招具体入口需人工确认。",
+  },
+  {
+    organizationName: "OPPO",
+    shortName: "OPPO",
+    organizationType: "互联网与科技",
+    industry: "消费电子",
+    priority: "P1",
+    sourceName: "OPPO校园招聘（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "ENTERPRISE",
+    sourceUrl: "https://careers.oppo.com/university/oppo/campus/",
+    sourceDomain: "careers.oppo.com",
+    notes: "OPPO官方校园招聘页面展示2027届毕业生和实习招聘入口；需人工确认当前岗位和报名状态。",
+  },
+  {
+    organizationName: "大疆创新",
+    shortName: "大疆",
+    organizationType: "互联网与科技",
+    industry: "无人机与智能硬件",
+    priority: "P1",
+    sourceName: "大疆创新校园招聘（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "ENTERPRISE",
+    sourceUrl: "https://careers.dji.com/zh-CN/campus?source=RM-Banner",
+    sourceDomain: "careers.dji.com",
+    notes: "大疆官方校园招聘页面展示2027届‘拓疆者’校招信息；需人工确认当前开放岗位。",
+  },
+  {
+    organizationName: "维沃移动通信有限公司",
+    shortName: "vivo",
+    organizationType: "互联网与科技",
+    industry: "消费电子",
+    priority: "P1",
+    sourceName: "vivo官方招聘（待人工核验）",
+    sourceType: "企业官网",
+    sourceCategory: "ENTERPRISE",
+    sourceUrl: "https://career.vivo.com/",
+    sourceDomain: "career.vivo.com",
+    notes: "vivo官方招聘门户；校招入口和当前职位状态需人工打开确认。",
+  },
+  {
+    organizationName: "SHEIN",
+    shortName: "SHEIN",
+    organizationType: "互联网与科技",
+    industry: "跨境电商",
+    priority: "P1",
+    sourceName: "SHEIN学生与毕业生招聘（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "ENTERPRISE",
+    sourceUrl: "https://careers.shein.cn/Students-%26-Graduates",
+    sourceDomain: "careers.shein.cn",
+    notes: "SHEIN中国官方职业页面的学生与毕业生入口；需人工确认秋招、春招或实习项目。",
+  },
+  {
+    organizationName: "中国民生银行股份有限公司",
+    shortName: "民生银行",
+    organizationType: "银行与金融",
+    industry: "银行",
+    priority: "P1",
+    sourceName: "民生银行官方招聘门户（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "ENTERPRISE",
+    sourceUrl: "https://career.cmbc.com.cn/index.html",
+    sourceDomain: "career.cmbc.com.cn",
+    notes: "民生银行官方招聘门户包含校园、社会和实习招聘；需人工确认当前招聘批次。",
+  },
+  {
+    organizationName: "中国太平保险集团有限责任公司",
+    shortName: "中国太平",
+    organizationType: "央企",
+    industry: "保险金融",
+    priority: "P1",
+    sourceName: "中国太平招聘入口（待人工核验）",
+    sourceType: "招聘官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://cntp.zhiye.com/",
+    sourceDomain: "cntp.zhiye.com",
+    notes: "公开招聘公告指向中国太平招聘入口，并有2026春招线索；需人工确认当前批次和官方归属。",
+  },
+  {
+    organizationName: "中国人民保险集团股份有限公司",
+    shortName: "中国人保",
+    organizationType: "央企",
+    industry: "保险金融",
+    priority: "P1",
+    sourceName: "中国人保官网人才招聘（待人工核验）",
+    sourceType: "企业官网",
+    sourceCategory: "CENTRAL_SOE",
+    sourceUrl: "https://www.picc.com.cn/?isfromportal=1",
+    sourceDomain: "www.picc.com.cn",
+    notes: "中国人保集团官网含人才招聘入口；具体校招页面需管理员人工打开官网确认。",
+  },
+];
+
+if (additionalOfficialSourcesSeed.length !== 14) {
+  throw new Error(`Expected 14 additional official source seeds, received ${additionalOfficialSourcesSeed.length}`);
+}
