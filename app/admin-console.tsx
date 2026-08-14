@@ -210,6 +210,7 @@ function NationalCoverageDirectory({ onNotify }: { onNotify: (message: string) =
   const [initialSyncProgress, setInitialSyncProgress] = useState<InitialSyncProgress | null>(null);
   const [initialSyncReport, setInitialSyncReport] = useState<{ batch: string; processed: number; summary?: { rawInserted: number; stagingInserted: number; formalAdded: number; duplicate: number; updated: number; failed: number } } | null>(null);
   const [directorySyncRunning, setDirectorySyncRunning] = useState(false);
+  const [additionalSourceSyncRunning, setAdditionalSourceSyncRunning] = useState(false);
   const [monitoringImportRunning, setMonitoringImportRunning] = useState(false);
   const [incrementalRunning, setIncrementalRunning] = useState(false);
   const [incrementalReport, setIncrementalReport] = useState<{ activePeriod: string; sourceSummary?: { due: number; scanned: number; unchanged: number; changed: number; blocked: number; failed: number }; pipeline?: { rawInserted: number; stagingInserted: number; reviewTasksCreated: number; opportunitiesAutoPublished: number }; reminders?: { favoritesScanned: number; deliveriesSynchronized: number } } | null>(null);
@@ -271,6 +272,20 @@ function NationalCoverageDirectory({ onNotify }: { onNotify: (message: string) =
       setDirectorySyncRunning(false);
     }
   }
+  async function addConfirmedCandidates() {
+    setAdditionalSourceSyncRunning(true);
+    try {
+      const response = await fetch("/api/admin/source-directory", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "add_additional_official_sources" }) });
+      const payload = await response.json() as { ok?: boolean; error?: string; summary?: { candidateSources?: number; insertedSources?: number }; catalog?: DirectoryCatalog; databaseAfter?: DirectoryDatabaseAfter };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "已确认候选入口同步失败");
+      setDirectoryReport({ catalog: payload.catalog, databaseAfter: payload.databaseAfter });
+      onNotify(`已录入${payload.summary?.insertedSources ?? 0}条新增候选入口，全部进入待人工核验`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "已确认候选入口同步失败");
+    } finally {
+      setAdditionalSourceSyncRunning(false);
+    }
+  }
   async function importMonitoringPool() {
     const records = monitoringPoolText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(1).map((line) => {
       const [category, regionName, industry, priority, name] = line.split("\t").map((item) => item.trim());
@@ -310,7 +325,7 @@ function NationalCoverageDirectory({ onNotify }: { onNotify: (message: string) =
   return <div className="admin-section">
     <div className="admin-panel-heading">
       <div><span className="section-kicker">NATIONWIDE COVERAGE</span><h2>全国数据源目录</h2><p>全国来源档案已加入目录；官方网址和访问边界逐条核验后，才会进入生产采集。</p></div>
-      <div className="admin-heading-actions"><span className="review-guard">INITIAL_SYNC</span><button className="secondary-button" disabled={directorySyncRunning} onClick={syncDirectory}>{directorySyncRunning ? "同步目录中…" : "同步全国来源目录"}</button><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "INITIAL_SYNC执行中…" : "继续执行全国 INITIAL_SYNC"} <span>→</span></button></div>
+      <div className="admin-heading-actions"><span className="review-guard">INITIAL_SYNC</span><button className="secondary-button" disabled={directorySyncRunning} onClick={syncDirectory}>{directorySyncRunning ? "同步目录中…" : "同步全国来源目录"}</button><button className="secondary-button" disabled={additionalSourceSyncRunning} onClick={addConfirmedCandidates}>{additionalSourceSyncRunning ? "录入候选中…" : "录入已确认候选入口"}</button><button className="primary-button" disabled={batchRunning} onClick={runBatch1}>{batchRunning ? "INITIAL_SYNC执行中…" : "继续执行全国 INITIAL_SYNC"} <span>→</span></button></div>
     </div>
     {initialSyncProgress && <div className="surface coverage-batch-report"><div className="admin-panel-heading"><div><span className="section-kicker">INITIAL SYNC STATUS</span><h3>701家组织首次检查进度</h3><p>每批50家，按P0→P1→P2→P3处理；没有确认官方URL的组织标记为 SOURCE_NOT_FOUND，不伪造网址。</p></div><span className={initialSyncProgress.notChecked === 0 ? "success-tag" : "review-guard"}>{initialSyncProgress.notChecked === 0 ? "已完成" : `剩余 ${initialSyncProgress.notChecked}`}</span></div><div className="coverage-summary"><div><strong>{initialSyncProgress.total}</strong><span>监控组织</span></div><div><strong>{initialSyncProgress.completed}</strong><span>已完成检查</span></div><div><strong>{initialSyncProgress.currentRecruitment}</strong><span>当前招聘</span></div><div><strong>{initialSyncProgress.upcoming}</strong><span>即将开始</span></div><div><strong>{initialSyncProgress.accessFailed}</strong><span>访问失败</span></div><div><strong>{initialSyncProgress.sourceNotFound}</strong><span>未找到官方来源</span></div></div><p className="coverage-batch-note">官方入口 {initialSyncProgress.officialSourceFound} · 当前无招聘 {initialSyncProgress.noCurrentRecruitment} · 待复核 {initialSyncProgress.needsReview} · 未检查 {initialSyncProgress.notChecked}</p></div>}
     <div className="coverage-summary">

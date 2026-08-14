@@ -195,6 +195,74 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({})) as { mode?: string };
     await ensureFeedColumns(sql);
 
+    if (body.mode === "add_additional_official_sources") {
+      await ensureOfficialUrlLifecycle(sql);
+      const organizationIds = new Map<string, string>();
+      const queries: Array<ReturnType<SqlClient>> = [];
+      let insertedSources = 0;
+
+      for (const source of additionalOfficialSourcesSeed) {
+        const existing = await sql`SELECT id::text AS id FROM organizations WHERE name = ${source.organizationName} LIMIT 1`;
+        const id = existing[0]?.id ?? await stableUuid(`source-directory:organization:${source.organizationName}`);
+        organizationIds.set(source.organizationName, id);
+        queries.push(sql`
+          INSERT INTO organizations (id, name, short_name, organization_type, industry, priority, status)
+          VALUES (${id}, ${source.organizationName}, ${source.shortName}, ${source.organizationType}, ${source.industry}, ${source.priority}, 'active')
+          ON CONFLICT (name) DO UPDATE SET short_name = EXCLUDED.short_name,
+            organization_type = EXCLUDED.organization_type, industry = EXCLUDED.industry,
+            priority = EXCLUDED.priority, updated_at = now()
+        `);
+      }
+
+      for (const source of additionalOfficialSourcesSeed) {
+        const organizationId = organizationIds.get(source.organizationName) as string;
+        const existing = await sql`
+          SELECT id::text AS id
+          FROM data_sources
+          WHERE organization_id = ${organizationId}
+            AND (source_url = ${source.sourceUrl} OR name = ${source.sourceName})
+          LIMIT 1
+        `;
+        const id = existing[0]?.id ?? await stableUuid(`source-directory:additional-official-source:${source.organizationName}`);
+        if (!existing[0]) insertedSources += 1;
+        const note = `${source.notes} [source-directory-sync:v1] [additional-official-candidate:v1]`;
+        queries.push(sql`
+          INSERT INTO data_sources (
+            id, name, organization_id, level, source_category, source_type,
+            collection_method, source_url, source_domain, crawler_strategy,
+            discovery_status, automation_allowed, requires_manual_review,
+            check_frequency, normal_frequency, active_frequency, status, admin_note
+          ) VALUES (
+            ${id}, ${source.sourceName}, ${organizationId}, 'A级', ${source.sourceCategory}, ${source.sourceType},
+            '人工录入', ${source.sourceUrl}, ${source.sourceDomain}, 'MANUAL_SOURCE_AUDIT',
+            'NEEDS_REVIEW', false, true, 'MANUAL', 'EVERY_7_DAYS', 'DAILY', 'active', ${note}
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name, organization_id = EXCLUDED.organization_id,
+            source_category = EXCLUDED.source_category, source_type = EXCLUDED.source_type,
+            source_url = EXCLUDED.source_url, source_domain = EXCLUDED.source_domain,
+            discovery_status = CASE
+              WHEN data_sources.official_url_status IN ('REGISTERED', 'PUBLISHED') THEN data_sources.discovery_status
+              ELSE 'NEEDS_REVIEW'
+            END,
+            automation_allowed = false, requires_manual_review = true,
+            check_frequency = EXCLUDED.check_frequency, normal_frequency = EXCLUDED.normal_frequency,
+            active_frequency = EXCLUDED.active_frequency, admin_note = EXCLUDED.admin_note,
+            updated_at = now()
+        `);
+      }
+
+      await sql.transaction(queries, { isolationLevel: "ReadCommitted" });
+      return NextResponse.json({
+        ok: true,
+        mode: body.mode,
+        summary: { candidateSources: additionalOfficialSourcesSeed.length, insertedSources },
+        catalog: { enterpriseOrganizations: organizationsSeed.length + additionalOfficialSourcesSeed.length, enterpriseSources: dataSourcesSeed.length + additionalOfficialSourcesSeed.length, nationalSources: nationalSourceDirectory.length, regions: 0 },
+        databaseAfter: await countDirectory(sql),
+        safety: { automationAllowed: false, requiresManualReview: true, publishedOpportunitiesChanged: false },
+      });
+    }
+
     if (body.mode === "add_candidate_urls") {
       await ensureOfficialUrlLifecycle(sql);
       await sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`;
@@ -353,43 +421,6 @@ export async function POST(request: Request) {
           requires_manual_review = true, check_frequency = EXCLUDED.check_frequency,
           normal_frequency = EXCLUDED.normal_frequency, active_frequency = EXCLUDED.active_frequency,
           admin_note = EXCLUDED.admin_note, source_last_verified_at = EXCLUDED.source_last_verified_at,
-          updated_at = now()
-      `);
-    }
-
-    for (const source of additionalOfficialSourcesSeed) {
-      const organizationId = organizationIds.get(source.organizationName) as string;
-      const existing = await sql`
-        SELECT id::text AS id
-        FROM data_sources
-        WHERE organization_id = ${organizationId}
-          AND (source_url = ${source.sourceUrl} OR name = ${source.sourceName})
-        LIMIT 1
-      `;
-      const id = existing[0]?.id ?? await stableUuid(`source-directory:additional-official-source:${source.organizationName}`);
-      const note = `${source.notes} [${sourceDirectoryMarker}] [additional-official-candidate:v1]`;
-      queries.push(sql`
-        INSERT INTO data_sources (
-          id, name, organization_id, level, source_category, source_type,
-          collection_method, source_url, source_domain, crawler_strategy,
-          discovery_status, automation_allowed, requires_manual_review,
-          check_frequency, normal_frequency, active_frequency, status, admin_note
-        ) VALUES (
-          ${id}, ${source.sourceName}, ${organizationId}, 'A级', ${source.sourceCategory}, ${source.sourceType},
-          '人工录入', ${source.sourceUrl}, ${source.sourceDomain}, 'MANUAL_SOURCE_AUDIT',
-          'NEEDS_REVIEW', false, true, 'MANUAL_SOURCE_AUDIT', 'EVERY_7_DAYS', 'DAILY', 'active', ${note}
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name, organization_id = EXCLUDED.organization_id,
-          source_category = EXCLUDED.source_category, source_type = EXCLUDED.source_type,
-          source_url = EXCLUDED.source_url, source_domain = EXCLUDED.source_domain,
-          discovery_status = CASE
-            WHEN data_sources.official_url_status IN ('REGISTERED', 'PUBLISHED') THEN data_sources.discovery_status
-            ELSE 'NEEDS_REVIEW'
-          END,
-          automation_allowed = false, requires_manual_review = true,
-          check_frequency = EXCLUDED.check_frequency, normal_frequency = EXCLUDED.normal_frequency,
-          active_frequency = EXCLUDED.active_frequency, admin_note = EXCLUDED.admin_note,
           updated_at = now()
       `);
     }
