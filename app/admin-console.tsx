@@ -475,8 +475,16 @@ function TargetOrganizationDirectory({ onNotify }: { onNotify: (message: string)
       });
       const payload = await response.json() as { ok?: boolean; error?: string; summary?: { entriesCreated?: number; entriesUpdated?: number } };
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? "官方入口发布失败");
-      await refreshAuditReport();
-      onNotify(`已确认发布${row.organization_name}官方招聘入口：新增 ${payload.summary?.entriesCreated ?? 0} 条`);
+      // 只更新当前目标单位行，不重新读取整张100家列表，保留筛选和滚动位置。
+      setAuditRows((currentRows) => currentRows.map((item) => item.organization_name === row.organization_name ? {
+        ...item,
+        official_url_status: "PUBLISHED",
+        official_confirmed: true,
+        manual_review_confirmed: true,
+        source_status: "VERIFIED",
+        official_recruitment_url: item.official_recruitment_url ?? item.registered_official_url,
+      } : item));
+      onNotify(`已确认发布${row.organization_name}官方招聘入口：新增 ${payload.summary?.entriesCreated ?? 0} 条；当前页面未刷新`);
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "官方入口发布失败");
     }
