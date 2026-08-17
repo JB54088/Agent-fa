@@ -11,6 +11,22 @@ const defaultBudget: DiscoveryBudget = {
   timeoutMs: 30_000,
 };
 
+async function collectLinks(page: any, timeoutMs: number) {
+  await page.waitForLoadState("load", { timeout: timeoutMs }).catch(() => undefined);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await page.locator("a").evaluateAll((elements: Array<Element>) => elements.map((element) => ({
+        text: element.textContent ?? "",
+        href: (element as HTMLAnchorElement).href ?? element.getAttribute("href") ?? "",
+      })));
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await page.waitForTimeout(500);
+    }
+  }
+  return [];
+}
+
 function isPrivateHost(hostname: string) {
   const host = hostname.toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("172.16.");
@@ -83,10 +99,7 @@ export async function exploreWithPlaywright(
       const page = await context.newPage();
       try {
         await page.goto(seed.url, { waitUntil: "domcontentloaded", timeout: budget.timeoutMs });
-        const links = await page.locator("a").evaluateAll((elements: Array<Element>) => elements.map((element) => ({
-          text: element.textContent ?? "",
-          href: (element as HTMLAnchorElement).href ?? element.getAttribute("href") ?? "",
-        })));
+        const links = await collectLinks(page, budget.timeoutMs);
         candidates.push(...extractDiscoveryCandidates(seed, page.url(), links, Math.max(0, budget.maxNewCandidatesPerDay - candidates.length)));
       } catch (error) {
         failures.push({ seed, error: error instanceof Error ? error.message : String(error) });
@@ -119,10 +132,7 @@ export async function searchWithPlaywright(
       const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(query.query)}`;
       try {
         await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: budget.timeoutMs });
-        const links = await page.locator("li.b_algo h2 a, main a").evaluateAll((elements: Array<Element>) => elements.map((element) => ({
-          text: element.textContent ?? "",
-          href: (element as HTMLAnchorElement).href ?? element.getAttribute("href") ?? "",
-        })));
+        const links = await collectLinks(page, budget.timeoutMs);
         const seen = new Set<string>();
         for (const link of links) {
           const text = link.text.replace(/\s+/g, " ").trim();
