@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785974400000,
+      "tag": "0000_initial_school_radar",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786420581000,
+      "tag": "0001_ingestion_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786420581001,
+      "tag": "0002_collection_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786420581002,
+      "tag": "0003_major_directory_formalization",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786420581003,
+      "tag": "0004_deadline_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786420581004,
+      "tag": "0005_national_source_directory",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786420581005,
+      "tag": "0006_canonical_collection_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786425584000,
+      "tag": "0007_opportunity_positions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786430400000,
+      "tag": "0008_national_opportunity_model",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "metadata": {
+    "title": "Playwright Source Pool 增量发现记录",
+    "collectedAt": "2026-08-17",
+    "source": "中国石油天然气集团有限公司官网职业/招聘栏目",
+    "note": "这些记录是新增来源，不覆盖原有核验目录；同一机构允许存在多个官方来源 URL。"
+  },
+  "verified": [
+    {
+      "category": "CENTRAL_SOE",
+      "sourceType": "official_recruitment_page",
+      "name": "中国石油天然气集团有限公司",
+      "region": "全国",
+      "website": "https://www.cnpc.com.cn/cnpc/jrwm/jrwm_index.shtml",
+      "listedUrl": "https://www.cnpc.com.cn/cnpc/jrwm/jrwm_index.shtml",
+      "finalUrl": "https://www.cnpc.com.cn/cnpc/jrwm/jrwm_index.shtml",
+      "pageTitle": "招聘平台",
+      "verifiedAt": "2026-08-17",
+      "sourceUrl": "https://www.cnpc.com.cn/cnpc/index.shtml",
+      "status": "verified_accessible",
+      "error": null
+    },
+    {
+      "category": "CENTRAL_SOE",
+      "sourceType": "official_recruitment_page",
+      "name": "中国石油天然气集团有限公司",
+      "region": "全国",
+      "website": "https://www.cnpc.com.cn/cnpc/shenhuizhaopin/zhaoping_list.shtml",
+      "listedUrl": "https://www.cnpc.com.cn/cnpc/shenhuizhaopin/zhaoping_list.shtml",
+      "finalUrl": "https://www.cnpc.com.cn/cnpc/shenhuizhaopin/zhaoping_list.shtml",
+      "pageTitle": "社会招聘",
+      "verifiedAt": "2026-08-17",
+      "sourceUrl": "https://www.cnpc.com.cn/cnpc/jrwm/jrwm_index.shtml",
+      "status": "verified_accessible",
+      "error": null
+    },
+    {
+      "category": "CENTRAL_SOE",
+      "sourceType": "official_recruitment_page",
+      "name": "中国石油天然气集团有限公司",
+      "region": "全国",
+      "website": "https://rcyj.cnpc.com.cn/",
+      "listedUrl": "https://rcyj.cnpc.com.cn/",
+      "finalUrl": "https://rcyj.cnpc.com.cn/html/jobml.html",
+      "pageTitle": "高层次科技创新人才引进",
+      "verifiedAt": "2026-08-17",
+      "sourceUrl": "https://www.cnpc.com.cn/cnpc/jrwm/jrwm_index.shtml",
+      "status": "verified_accessible",
+      "error": null
+    }
+  ]
+}

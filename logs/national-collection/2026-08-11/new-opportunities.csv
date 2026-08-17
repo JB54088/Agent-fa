@@ -1,0 +1,3 @@
+source_item_id,organization,title,season,batch,graduation_years,official_announcement_url,official_application_url,deadline_type,deadline,source_level,verification_status,publication_status,duplicate_status,major_mapping,region_mapping
+raw-20260811-pdd-campus,拼多多集团,拼多多集团2027届校园招聘,AUTUMN,正式批,2027,https://careers.pddglobalhr.com/campus/,https://careers.pddglobalhr.com/campus/,NOT_ANNOUNCED,,A级,AUTO_APPROVED,PUBLISHED,UNIQUE,MANUAL_BY_JOB_DETAIL,全国
+raw-20260811-pdd-intern,拼多多集团,拼多多集团实习生招聘,,,不限,https://careers.pddglobalhr.com/campus/,https://careers.pddglobalhr.com/campus/,LONG_TERM,,A级,AUTO_APPROVED,PUBLISHED,UNIQUE,MANUAL_BY_JOB_DETAIL,全国

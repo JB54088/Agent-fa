@@ -1,0 +1,11 @@
+source_item_id,region,title,review_status,reason,required_action
+raw-20260811-beijing-gwy,北京,北京市公务员招考栏目当前页面,NEEDS_MORE_INFORMATION,当前页面为2026补录和公示，未确认2027开放报名,继续按日历检查2027公告
+raw-20260811-tianjin-gwy,天津,天津市政务网招考录用栏目当前页面,NEEDS_MORE_INFORMATION,当前页面为2026公告和拟录用公示，未确认2027开放报名,继续检查年度招录栏目
+raw-20260811-jilin-gwy,吉林,吉林省人力资源和社会保障厅公务员相关入口,NEEDS_MORE_INFORMATION,未在本次页面内容确认2027省考公告,人工进入公务员考试专题复核
+raw-20260811-heilongjiang-gwy,黑龙江,黑龙江省公务员考试官方来源,NEEDS_MORE_INFORMATION,发生官方页面重定向且未解析到公告,人工浏览器复核重定向页面
+raw-20260811-shanghai-gwy,上海,上海公务员考试报名系统,NEEDS_MORE_INFORMATION,仅确认报名系统重定向，未确认当前开放批次,人工核对报名系统状态
+raw-20260811-jiangsu-gwy,江苏,江苏人力资源和社会保障厅公务员考试栏目,NEEDS_MORE_INFORMATION,未在正文确认2027年度报名公告,继续人工复核
+raw-20260811-hubei-gwy,湖北,湖北省人事考试网招录聘类考试栏目,NEEDS_MORE_INFORMATION,当前显示2026省考或事业单位项目，未确认2027省考,不要作为当前报名项目发布
+raw-20260811-hunan-gwy,湖南,2026年湖南人事考试网公务员考试栏目,NEEDS_MORE_INFORMATION,当前为2026年度栏目和成绩查询,等待2027专题出现
+raw-20260811-guangdong-gwy,广东,广东组织工作公务员招录相关入口,NEEDS_MORE_INFORMATION,未确认当前2027报名公告,人工核对公务员招录栏目
+raw-20260811-tibet-gwy,西藏,西藏自治区2026年高校毕业生公开考录公务员公告,NEEDS_MORE_INFORMATION,公告报名和笔试均已结束,仅作为历史来源不发布

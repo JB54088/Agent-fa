@@ -1,0 +1,3 @@
+source_item_id,organization,title,frontend_static_dataset,database_table,database_write_status,publication_status,verification_status,notes
+raw-20260811-pdd-campus,拼多多集团,拼多多集团2027届校园招聘,yes,opportunities,NOT_EXECUTED,PUBLISHED,VERIFIED,数据库连接未配置；已写入当前前台真实数据集
+raw-20260811-pdd-intern,拼多多集团,拼多多集团实习生招聘,yes,opportunities,NOT_EXECUTED,PUBLISHED,VERIFIED,数据库连接未配置；已写入当前前台真实数据集

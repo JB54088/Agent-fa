@@ -1,0 +1,11 @@
+{
+  "discovery": {
+    "max_new_candidates_per_day": 200,
+    "max_verifications_per_day": 100,
+    "max_browser_pages": 100,
+    "timeout_ms": 30000,
+    "default_verification_interval_days": 30,
+    "request_interval_seconds": 10,
+    "playwright_module": "playwright"
+  }
+}

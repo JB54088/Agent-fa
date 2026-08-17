@@ -1,0 +1,54 @@
+{
+  "name": "school-recruitment-radar",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
+    "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
+    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/collection.test.mjs tests/major-directory.test.mjs tests/reminders.test.mjs tests/national-directory.test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:import-current-batch": "node --experimental-strip-types scripts/import-current-batch.ts",
+    "source-pool:inspect": "node --experimental-strip-types scripts/inspect-source-pool.ts",
+    "source-pool:migrate": "node --experimental-strip-types scripts/migrate-source-pool.ts",
+    "source-pool:import": "node --experimental-strip-types scripts/import-source-pool.ts",
+    "source-pool:seed-queries": "node --experimental-strip-types scripts/seed-discovery-queries.ts",
+    "source-pool:export": "node --experimental-strip-types scripts/export-source-pool.ts",
+    "source-pool:query": "node --experimental-strip-types scripts/query-source-pool.ts",
+    "source-discovery:daily": "node --experimental-strip-types scripts/run-source-discovery-daily.ts",
+    "db:seed": "node --experimental-strip-types db/seed.ts",
+    "sources:export": "node --experimental-strip-types scripts/generate-source-docs.mjs",
+    "validate:major-directory": "node scripts/validate-major-directory.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}

@@ -1,0 +1,27 @@
+category,region,source_url,failure_type,observed_message,action
+PROVINCIAL_CIVIL_SERVICE,河北,https://www.hebpta.com.cn/,EMPTY,页面无可解析正文,人工复核
+NATIONAL_CIVIL_SERVICE,全国,https://www.scs.gov.cn/,TIMEOUT,官方入口请求超时,停止重试并转人工
+CENTRAL_SOE,全国,https://wap.sasac.gov.cn/n2588045/n27271785/n27271792/c14159097/content.html,TIMEOUT,官方央企名录请求超时,不自动采集
+CENTRAL_SOE,全国,https://job.mohrss.gov.cn/qyzp/index.jhtml,TIMEOUT,中央企业招聘公开页请求超时,不自动采集
+BIGTECH,全国,https://wxmaker.haier.net/client/campus/index,TIMEOUT,海尔官方校园招聘页请求超时,保留待复核
+BIGTECH,全国,https://campus.webank.com/,REDIRECT_LOOP,官方页面出现重定向循环,保留待复核
+PROVINCIAL_CIVIL_SERVICE,山西,https://rst.shanxi.gov.cn/,TIMEOUT,请求超时,保留人工来源
+PROVINCIAL_CIVIL_SERVICE,内蒙古,https://www.impta.com.cn/,BAD_GATEWAY,返回502 Bad Gateway,保留人工来源
+PROVINCIAL_CIVIL_SERVICE,辽宁,https://www.lnrsks.com/,TIMEOUT,请求超时,保留人工来源
+PROVINCIAL_CIVIL_SERVICE,浙江,https://gwy.zjks.gov.cn/,EMPTY,访问结果无正文,人工复核
+PROVINCIAL_CIVIL_SERVICE,安徽,https://www.apta.gov.cn/,EMPTY,访问结果无正文,人工复核
+PROVINCIAL_CIVIL_SERVICE,福建,http://gwykl.fujian.gov.cn,UNSAFE_HTTP,官方目录为HTTP且安全策略拒绝,不降级绕过
+PROVINCIAL_CIVIL_SERVICE,江西,http://www.jxpta.com/,UNSAFE_HTTP,官方目录为HTTP且安全策略拒绝,不降级绕过
+PROVINCIAL_CIVIL_SERVICE,山东,https://gwy.sdrsks.org.cn/skbm2026.html,UNSAFE_OPEN,访问工具判定链接不安全,人工复核
+PROVINCIAL_CIVIL_SERVICE,河南,https://www.hnrsks.com/,TIMEOUT,请求超时,保留人工来源
+PROVINCIAL_CIVIL_SERVICE,广西,https://www.gxpta.com.cn/,EMPTY,访问结果无正文,人工复核
+PROVINCIAL_CIVIL_SERVICE,海南,https://ea.hainan.gov.cn/ywdt/gwyks/,EMPTY,访问结果无正文,人工复核
+PROVINCIAL_CIVIL_SERVICE,重庆,https://rlsbj.cq.gov.cn/ztzl/zqs2020ndkslygwyzl/,EMPTY,访问结果无正文,人工复核
+PROVINCIAL_CIVIL_SERVICE,四川,https://www.scpta.com.cn/front/Special/Info/85887d50aadf43f491088f4a9106c647,ERROR,访问工具返回内部错误,人工复核
+PROVINCIAL_CIVIL_SERVICE,贵州,https://www.gzrsks.com.cn/,TIMEOUT,请求超时,保留人工来源
+PROVINCIAL_CIVIL_SERVICE,云南,https://ylxf.1237125.cn/TopicWeb/ynskslygwy/index.html,TIMEOUT,请求超时,保留人工来源
+PROVINCIAL_CIVIL_SERVICE,陕西,https://www.sxrsks.cn/,EMPTY,访问结果无正文,人工复核
+PROVINCIAL_CIVIL_SERVICE,甘肃,https://www.gszg.gov.cn/,ERROR,访问工具返回内部错误,人工复核
+PROVINCIAL_CIVIL_SERVICE,青海,https://www.qhpta.com/,ERROR,访问工具返回内部错误,人工复核
+PROVINCIAL_CIVIL_SERVICE,宁夏,https://www.nxpta.com/,ERROR,访问工具返回内部错误,人工复核
+PROVINCIAL_CIVIL_SERVICE,新疆,https://www.xjrsks.com.cn/,ERROR,访问工具返回内部错误,人工复核
