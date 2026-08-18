@@ -127,11 +127,12 @@ CRON_TZ=Asia/Shanghai
 仓库已提供 `.github/workflows/source-pool-daily.yml`，默认每天北京时间 07:00 运行，也可以在 Actions 页面手动触发。每次运行会依次：
 
 1. 安装 Node.js、Playwright 和 Chromium；
-2. 幂等应用 Source Pool 迁移；
-3. 将 Git 中已核验来源增量导入 PostgreSQL；
-4. 执行 Playwright 官网内部链接探索和搜索结果入队；
-5. 导出 `exports/source_pool.csv`、`exports/source_pool.json`、`exports/source_pool.xlsx`；
-6. 将当日 `reports/discovery/YYYY-MM-DD.md` 与导出文件自动提交回 `main`。
+2. 幂等应用项目基础数据库迁移；
+3. 幂等应用 Source Pool 迁移；
+4. 将 Git 中已核验来源增量导入 PostgreSQL；
+5. 执行 Playwright 官网内部链接探索和搜索结果入队；
+6. 导出 `exports/source_pool.csv`、`exports/source_pool.json`、`exports/source_pool.xlsx`；
+7. 将当日 `reports/discovery/YYYY-MM-DD.md` 与导出文件自动提交回 `main`。
 
 启用前请在仓库 `Settings → Secrets and variables → Actions` 中添加：
 

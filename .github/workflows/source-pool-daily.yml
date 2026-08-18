@@ -45,6 +45,9 @@ jobs:
       - name: Install Chromium
         run: npx --no-install playwright install --with-deps chromium
 
+      - name: Apply base database migrations
+        run: npm run db:migrate
+
       - name: Apply Source Pool migration
         run: npm run source-pool:migrate
 
