@@ -64,6 +64,34 @@
       "when": 1786430400000,
       "tag": "0008_national_opportunity_model",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786430400001,
+      "tag": "0009_incremental_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786430400002,
+      "tag": "0010_initial_sync_monitoring",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786430400003,
+      "tag": "0011_source_recruitment_feed",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786430400004,
+      "tag": "0012_official_url_lifecycle",
+      "breakpoints": true
     }
   ]
 }
