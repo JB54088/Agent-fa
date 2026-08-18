@@ -1,6 +1,10 @@
 -- Organization-level INITIAL_SYNC state. A status means the monitoring object
 -- has been processed; it does not imply a recruitment opportunity exists.
 ALTER TABLE organizations
+  ADD COLUMN IF NOT EXISTS monitoring_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS monitoring_source text,
+  ADD COLUMN IF NOT EXISTS monitoring_category text,
+  ADD COLUMN IF NOT EXISTS monitoring_region_name text,
   ADD COLUMN IF NOT EXISTS initial_sync_status text NOT NULL DEFAULT 'NOT_CHECKED',
   ADD COLUMN IF NOT EXISTS initial_sync_last_checked_at timestamptz,
   ADD COLUMN IF NOT EXISTS initial_sync_next_check_at timestamptz,
