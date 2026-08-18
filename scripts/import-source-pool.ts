@@ -155,7 +155,7 @@ async function main() {
           active_frequency, pool_category, pool_source_type, pool_official_status, pool_website_name,
           pool_url, pool_normalized_url, pool_source_fingerprint, pool_first_discovered_at,
           pool_last_verified_at, pool_discovery_method, pool_discovered_from_url, pool_status, pool_notes,
-          last_verified_at, official_url_status
+          source_last_verified_at, official_url_status
         ) VALUES (
           ${sourceId}, ${`${record.name}｜${record.pageTitle || record.poolSourceType}`}, ${organizationId}, 'A级', ${record.sourceCategory}, ${record.sourceTypeLabel}, 'HTML页面',
           ${website}, ${website ? sourceDomain(website) : null}, ${website}, 'PLAYWRIGHT_SOURCE_DISCOVERY', 'VERIFIED',
