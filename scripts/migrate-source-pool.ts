@@ -13,7 +13,10 @@ async function main() {
   if (!databaseUrl) throw new Error("DATABASE_URL is required. Use --dry-run to validate the source-pool migration.");
   const sql = neon(databaseUrl);
   const statements = migration.split(/;\s*(?=\n|$)/).map((statement) => statement.trim()).filter(Boolean);
-  await sql.transaction(statements.map((statement) => sql.unsafe(statement)) as any, { isolationLevel: "ReadCommitted" });
+  await sql.transaction(
+    (transaction) => statements.map((statement) => transaction.query(statement)),
+    { isolationLevel: "ReadCommitted" },
+  );
   console.log(JSON.stringify({ migrationPath, appliedStatements: statements.length, dataPreserved: true }, null, 2));
 }
 
