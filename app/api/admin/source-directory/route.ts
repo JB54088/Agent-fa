@@ -9,6 +9,7 @@ import { organizationsSeed } from "../../../../db/seeds/organizations";
 import { enterpriseOfficialUrlCandidates, nationalSourceOfficialUrlCandidates } from "../../../../db/seeds/official-url-candidates";
 import { additionalOfficialSourcesSeed } from "../../../../db/seeds/additional-official-sources";
 import { ensureOfficialUrlLifecycle } from "../../../../lib/official-url-lifecycle";
+import { syncAgentFaSources } from "../../../../lib/agent-fa-source-sync";
 
 type SqlClient = ReturnType<typeof neon>;
 
@@ -194,6 +195,22 @@ export async function POST(request: Request) {
     const sql = neon(getDatabaseUrl());
     const body = await request.json().catch(() => ({})) as { mode?: string };
     await ensureFeedColumns(sql);
+
+    if (body.mode === "sync_agent_fa_sources") {
+      const summary = await syncAgentFaSources(sql);
+      return NextResponse.json({
+        ok: true,
+        mode: body.mode,
+        executedAt: new Date().toISOString(),
+        summary,
+        safety: {
+          automationAllowed: false,
+          requiresManualReview: true,
+          publishedOpportunitiesChanged: false,
+          officialUrlStatusChanged: false,
+        },
+      });
+    }
 
     if (body.mode === "add_additional_official_sources") {
       await ensureOfficialUrlLifecycle(sql);
