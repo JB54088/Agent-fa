@@ -1,0 +1,73 @@
+name: Daily source pool discovery
+
+on:
+  schedule:
+    # 07:00 Asia/Shanghai (23:00 UTC on the previous day).
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: source-pool-daily
+  cancel-in-progress: false
+
+jobs:
+  discover-and-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check required secret
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL repository secret is required."
+            exit 1
+          fi
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Playwright runtime
+        run: npm install --no-save --no-package-lock playwright@1.62.1
+
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Apply Source Pool migration
+        run: npm run source-pool:migrate
+
+      - name: Reconcile verified source directory
+        run: npm run source-pool:import
+
+      - name: Seed discovery queries
+        run: npm run source-pool:seed-queries
+
+      - name: Run daily Playwright discovery
+        run: npm run source-discovery:daily
+
+      - name: Export current Source Pool
+        run: npm run source-pool:export
+
+      - name: Commit daily report and exports
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/discovery exports/source_pool.csv exports/source_pool.json exports/source_pool.xlsx
+          if git diff --cached --quiet; then
+            echo "No report or Source Pool export changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(data): update daily source pool snapshot"
+          git push
