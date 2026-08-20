@@ -113,18 +113,18 @@ reports/discovery/YYYY-MM-DD.md
 
 报告只列当天候选、入队数量和失败页面，不重复输出完整历史池。
 
-北京时间每天 07:00 的 cron 示例：
+北京时间每天 09:30 的 cron 示例：
 
 ```cron
 CRON_TZ=Asia/Shanghai
-0 7 * * * cd /absolute/path/to/2026.7.24 && /absolute/path/to/node --experimental-strip-types scripts/run-source-discovery-daily.ts >> logs/source-discovery-cron.log 2>&1
+30 9 * * * cd /absolute/path/to/2026.7.24 && /absolute/path/to/node --experimental-strip-types scripts/run-source-discovery-daily.ts >> logs/source-discovery-cron.log 2>&1
 ```
 
 数据库必须使用持久化 PostgreSQL；不要把生产 Source Pool 放在 GitHub Actions 临时磁盘中。若使用 GitHub Actions，应把 `DATABASE_URL` 放在 repository secret，并让 workflow 只负责调用 Agent，数据始终写入 PostgreSQL。
 
 ### GitHub Actions 自动收录
 
-仓库已提供 `.github/workflows/source-pool-daily.yml`，默认每天北京时间 07:00 运行，也可以在 Actions 页面手动触发。每次运行会依次：
+仓库已提供 `.github/workflows/source-pool-daily.yml`，默认每天北京时间 09:30 运行，也可以在 Actions 页面手动触发。每次运行会依次：
 
 1. 安装 Node.js、Playwright 和 Chromium；
 2. 幂等应用项目基础数据库迁移；

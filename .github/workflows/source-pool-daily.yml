@@ -2,8 +2,8 @@ name: Daily source pool discovery
 
 on:
   schedule:
-    # 07:00 Asia/Shanghai (23:00 UTC on the previous day).
-    - cron: "0 23 * * *"
+    # 09:30 Asia/Shanghai (01:30 UTC).
+    - cron: "30 1 * * *"
   workflow_dispatch:
 
 permissions:
