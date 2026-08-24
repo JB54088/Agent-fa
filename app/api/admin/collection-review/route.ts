@@ -98,7 +98,12 @@ async function promoteReviewedItem(rawId: string, adminId: string, note: string 
   await sql`UPDATE raw_source_items SET promoted_opportunity_id = ${opportunityId}, review_status = 'converted', duplicate_status = 'not_duplicate', error_message = ${note ?? null}, reviewed_by = ${adminId}, reviewed_at = now(), updated_at = now() WHERE id = ${rawId}`;
   await sql`UPDATE staging_opportunities SET promoted_opportunity_id = ${opportunityId}, review_status = 'APPROVED', reviewer_note = ${note ?? "管理员审核通过，已进入正式招聘信息。"}, reviewed_by = ${adminId}, reviewed_at = now(), updated_at = now() WHERE id = ${String(item.staging_id)}`;
   await sql`UPDATE admin_tasks SET status = 'completed', resolution = 'published', completed_at = now(), updated_at = now() WHERE raw_source_item_id = ${rawId} AND status <> 'completed'`;
-  await syncFavoriteOpportunityReminders(opportunityId);
+  // 收藏提醒是发布后的附属同步，不能反向阻断已经成功写入正式库的审核发布。
+  try {
+    await syncFavoriteOpportunityReminders(opportunityId);
+  } catch (error) {
+    console.error("favorite_reminder_sync_after_review_publish_failed", error);
+  }
   return { status: "published", opportunityId };
 }
 
