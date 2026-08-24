@@ -7,6 +7,7 @@ import { organizationsSeed } from "../db/seeds/organizations";
 import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/seeds/national-source-directory";
 import { parseExcelUpload } from "../lib/excel-file-parser";
 import { normalizeExcelImportRow, type ExcelImportInputRow } from "../lib/excel-import";
+import { getReviewErrorMessage } from "../lib/review-errors";
 
 type AdminTab = "overview" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
@@ -161,11 +162,28 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, status, note: message }),
       });
-      if (!response.ok) throw new Error("review_action_failed");
-      setRawItems((current) => current.map((item) => item.id === id ? { ...item, reviewStatus: status } : item));
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? getReviewErrorMessage(payload.error, "审核操作失败，请稍后重试。"));
+      await refreshReviewQueue();
       onNotify(message);
-    } catch {
-      onNotify("审核操作未保存：数据库或管理员权限尚未连接");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "审核操作失败，请稍后重试。");
+    }
+  }
+
+  async function editRaw(id: string, fields: { companyName: string; projectName: string; originalMajorText: string; announcementUrl: string; applicationUrl: string; workLocations: string[]; deadline: string | null }) {
+    try {
+      const response = await fetch("/api/admin/collection-review", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, status: "待审核", action: "edit", fields, note: "管理员已补充发布字段，等待审核。" }),
+      });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? getReviewErrorMessage(payload.error, "发布字段保存失败，请稍后重试。"));
+      await refreshReviewQueue();
+      onNotify("发布字段已保存，现在可以点击“审核并发布”");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "发布字段保存失败，请稍后重试。");
     }
   }
 
@@ -208,7 +226,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
     {tab === "sources" && <SourceManagement onNotify={onNotify} />}
     {tab === "pending-sources" && <SourceManagement onNotify={onNotify} initialFilter="NEEDS_REVIEW" />}
     {tab === "collection" && <CollectionCenter onNotify={onNotify} />}
-    {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
+    {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} onEdit={editRaw} />}
     {tab === "published" && <PublishedCenter projects={catalogProjects} onOpen={onOpen} />}
     {tab === "failures" && <FailedSourceCenter onTab={setTab} />}
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} onImported={async () => { await refreshReviewQueue(); setTab("review"); }} />}
@@ -810,10 +828,38 @@ function FailedSourceCenter({ onTab }: { onTab: (tab: AdminTab) => void }) {
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">FAILED SOURCES</span><h2>失败来源</h2><p>访问失败不删除来源、不覆盖招聘信息，等待管理员重新打开官方页面核验。</p></div><button className="secondary-button" onClick={() => onTab("sources")}>回到来源管理 <span>→</span></button></div>{rows.length ? <div className="task-list">{rows.map((row) => <article className="task-card" key={row.id}><div className="task-priority priority-high">!</div><div className="task-main"><div className="task-title-line"><span>{row.company}</span><strong>{row.name}</strong></div><p>{row.lastError ?? "来源访问失败，待人工打开确认"}</p><small>{row.sourceDomain ?? "暂无域名"} · 失败 {row.failureCount} 次</small></div><div className="task-actions"><span className="task-status status-open">ACCESS_FAILED</span></div></article>)}</div> : <div className="surface empty-state"><h3>暂无失败来源</h3><p>被上游拒绝、无法访问或解析失败的来源会在这里集中显示。</p></div>}</div>;
 }
 
-function ReviewWorkbench({ items, selectedId, onSelect, onAction }: { items: RawItem[]; selectedId: string; onSelect: (id: string) => void; onAction: (id: string, status: RawStatus, message: string) => void }) {
+type ReviewEditFields = { companyName: string; projectName: string; originalMajorText: string; announcementUrl: string; applicationUrl: string; workLocations: string[]; deadline: string | null };
+
+function ReviewWorkbench({ items, selectedId, onSelect, onAction, onEdit }: { items: RawItem[]; selectedId: string; onSelect: (id: string) => void; onAction: (id: string, status: RawStatus, message: string) => void; onEdit: (id: string, fields: ReviewEditFields) => Promise<void> }) {
   const selected = items.find((item) => item.id === selectedId) ?? items[0];
+  const [draft, setDraft] = useState<ReviewEditFields>({ companyName: "", projectName: "", originalMajorText: "", announcementUrl: "", applicationUrl: "", workLocations: [], deadline: null });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!selected) return;
+    setDraft({
+      companyName: selected.companyName ?? "",
+      projectName: selected.projectName ?? selected.title,
+      originalMajorText: selected.originalMajorText ?? "",
+      announcementUrl: selected.announcementUrl ?? "",
+      applicationUrl: selected.applicationUrl ?? "",
+      workLocations: selected.workLocations ?? [],
+      deadline: selected.deadline ? selected.deadline.slice(0, 10) : null,
+    });
+  }, [selected?.id]);
+
+  async function saveDraft() {
+    if (!selected || saving) return;
+    setSaving(true);
+    try {
+      await onEdit(selected.id, draft);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!selected) return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">RAW INGESTION REVIEW</span><h2>采集审核工作台</h2><p>原始采集数据、Excel导入和页面变化记录会在这里进入人工审核。</p></div><span className="review-guard">人工审核闸门</span></div><div className="surface empty-state"><div className="empty-state-icon">✓</div><h3>当前没有待审核原始数据</h3><p>新发现的数据会先进入 raw_collected_items，再由管理员判断是否转为正式招聘信息。</p></div></div>;
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">RAW INGESTION REVIEW</span><h2>采集审核工作台</h2><p>原始标题、正文和附件先在这里人工判断，审核通过后才转为正式信息。</p></div><span className="review-guard">人工审核闸门</span></div><div className="review-workbench"><div className="review-queue"><div className="queue-header"><strong>待处理数据</strong><span>{items.filter((item) => item.reviewStatus !== "已转正式" && item.reviewStatus !== "已驳回").length} 条</span></div>{items.map((item) => <button key={item.id} className={`queue-item ${selected?.id === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><div><strong>{item.title}</strong><small>{item.source} · {item.collectedAt}</small></div><span className={`queue-status ${item.parseStatus === "失败" ? "danger" : item.reviewStatus === "审核中" ? "reviewing" : ""}`}>{item.parseStatus === "失败" ? "解析失败" : item.reviewStatus}</span></button>)}</div><div className="review-detail">{selected && <><div className="review-detail-head"><div><span className="source-level-badge level-A">原始记录</span><h3>{selected.title}</h3><p>{selected.source} · 采集于 {selected.collectedAt}</p></div><a className="secondary-button" href={selected.sourceUrl} target="_blank" rel="noreferrer">打开来源 <span>↗</span></a></div><div className="review-detail-tags"><span className={selected.parseStatus === "失败" ? "danger-tag" : "success-tag"}>解析{selected.parseStatus}</span><span className={selected.duplicateStatus === "疑似重复" ? "warning-tag" : "plain-tag"}>{selected.duplicateStatus}</span><span className="plain-tag">发布时间 {selected.publishedAt}</span>{selected.importBatchId && <span className="plain-tag">Excel批次 {selected.importBatchId.slice(0, 8)}</span>}</div><div className="raw-preview"><span>ORIGINAL CONTENT</span><h4>{selected.title}</h4><p>{selected.content}</p><div className="raw-summary"><b>解析摘要</b>{selected.summary}</div></div><div className="normalized-preview"><div><span>企业</span><strong>{selected.companyName || "待管理员确认"}</strong></div><div><span>招聘类型</span><strong>{selected.opportunityType || "待确认"}</strong></div><div><span>招聘批次 / 年份</span><strong>{selected.recruitmentBatch || "待补充"} / {selected.graduationYears?.join("、") || "待补充"}</strong></div><div><span>学历</span><strong>{selected.degreeRequirements?.join("、") || "待补充"}</strong></div><div><span>专业原文</span><strong>{selected.originalMajorText || "待补充"}</strong></div><div><span>工作地点</span><strong>{selected.workLocations?.join("、") || "待补充"}</strong></div><div><span>官方公告</span><strong>{selected.announcementUrl ? "已识别" : "待补充"}</strong></div><div><span>官方投递</span><strong>{selected.applicationUrl ? "已识别" : "待补充"}</strong></div><div><span>解析器</span><strong>{selected.parser}</strong></div></div><div className="review-actions"><button className="secondary-button" onClick={() => onAction(selected.id, "暂不处理", "已暂存，稍后继续处理")}>暂不处理</button><button className="secondary-button danger-button" onClick={() => onAction(selected.id, "已驳回", "已驳回无效原始记录")}>驳回无效</button><button className="secondary-button" onClick={() => onAction(selected.id, "审核中", "已标记为疑似重复，等待进一步核验")}>标记重复</button><button className="primary-button" onClick={() => onAction(selected.id, "已转正式", "审核通过，已进入正式信息编辑")}>审核并转正式 <span>→</span></button></div></>}</div></div></div>;
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">RAW INGESTION REVIEW</span><h2>采集审核工作台</h2><p>原始标题、正文和附件先在这里人工判断，审核通过后才转为正式信息。</p></div><span className="review-guard">人工审核闸门</span></div><div className="review-workbench"><div className="review-queue"><div className="queue-header"><strong>待处理数据</strong><span>{items.filter((item) => item.reviewStatus !== "已转正式" && item.reviewStatus !== "已驳回").length} 条</span></div>{items.map((item) => <button key={item.id} className={`queue-item ${selected?.id === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><div><strong>{item.title}</strong><small>{item.source} · {item.collectedAt}</small></div><span className={`queue-status ${item.parseStatus === "失败" ? "danger" : item.reviewStatus === "审核中" ? "reviewing" : ""}`}>{item.parseStatus === "失败" ? "解析失败" : item.reviewStatus}</span></button>)}</div><div className="review-detail"><div className="review-detail-head"><div><span className="source-level-badge level-A">原始记录</span><h3>{selected.title}</h3><p>{selected.source} · 采集于 {selected.collectedAt}</p></div><a className="secondary-button" href={selected.sourceUrl} target="_blank" rel="noreferrer">打开来源 <span>↗</span></a></div><div className="review-detail-tags"><span className={selected.parseStatus === "失败" ? "danger-tag" : "success-tag"}>解析{selected.parseStatus}</span><span className={selected.duplicateStatus === "疑似重复" ? "warning-tag" : "plain-tag"}>{selected.duplicateStatus}</span><span className="plain-tag">发布时间 {selected.publishedAt}</span>{selected.importBatchId && <span className="plain-tag">Excel批次 {selected.importBatchId.slice(0, 8)}</span>}</div><div className="raw-preview"><span>ORIGINAL CONTENT</span><h4>{selected.title}</h4><p>{selected.content}</p><div className="raw-summary"><b>解析摘要</b>{selected.summary}</div></div><div className="normalized-preview"><div><span>企业</span><strong>{selected.companyName || "待管理员确认"}</strong></div><div><span>招聘类型</span><strong>{selected.opportunityType || "待确认"}</strong></div><div><span>招聘批次 / 年份</span><strong>{selected.recruitmentBatch || "待补充"} / {selected.graduationYears?.join("、") || "待补充"}</strong></div><div><span>学历</span><strong>{selected.degreeRequirements?.join("、") || "待补充"}</strong></div><div><span>专业原文</span><strong>{selected.originalMajorText || "待补充"}</strong></div><div><span>工作地点</span><strong>{selected.workLocations?.join("、") || "待补充"}</strong></div><div><span>官方公告</span><strong>{selected.announcementUrl ? "已识别" : "待补充"}</strong></div><div><span>官方投递</span><strong>{selected.applicationUrl ? "已识别" : "待补充"}</strong></div><div><span>解析器</span><strong>{selected.parser}</strong></div></div><div className="review-edit-panel"><div><span className="section-kicker">PUBLISH FIELDS</span><h4>发布前可补充字段</h4><p>企业名称、项目名称和至少一个官方链接齐全时，管理员点击“审核并发布”即可；专业字段缺失时会明确显示“以官方公告为准”。</p></div><div className="review-edit-grid"><label>企业名称<input value={draft.companyName} onChange={(event) => setDraft((current) => ({ ...current, companyName: event.target.value }))} /></label><label>招聘项目名称<input value={draft.projectName} onChange={(event) => setDraft((current) => ({ ...current, projectName: event.target.value }))} /></label><label className="review-edit-wide">招聘专业原文<textarea value={draft.originalMajorText} onChange={(event) => setDraft((current) => ({ ...current, originalMajorText: event.target.value }))} placeholder="可粘贴官方公告中的专业要求；没有时保留空白即可人工发布" /></label><label>官方公告链接<input type="url" value={draft.announcementUrl} onChange={(event) => setDraft((current) => ({ ...current, announcementUrl: event.target.value }))} placeholder="https://" /></label><label>官方报名链接<input type="url" value={draft.applicationUrl} onChange={(event) => setDraft((current) => ({ ...current, applicationUrl: event.target.value }))} placeholder="https://" /></label><label>工作地点<input value={draft.workLocations.join("、")} onChange={(event) => setDraft((current) => ({ ...current, workLocations: event.target.value.split(/[、,，]/).map((value) => value.trim()).filter(Boolean) }))} /></label><label>报名截止日期<input type="date" value={draft.deadline ?? ""} onChange={(event) => setDraft((current) => ({ ...current, deadline: event.target.value || null }))} /></label></div><button className="secondary-button" disabled={saving} onClick={() => void saveDraft()}>{saving ? "保存中…" : "保存补充字段"}</button></div><div className="review-actions"><button className="secondary-button" onClick={() => onAction(selected.id, "暂不处理", "已暂存，稍后继续处理")}>暂不处理</button><button className="secondary-button danger-button" onClick={() => onAction(selected.id, "已驳回", "已驳回无效原始记录")}>驳回无效</button><button className="secondary-button" onClick={() => onAction(selected.id, "审核中", "已标记为疑似重复，等待进一步核验")}>标记重复</button><button className="primary-button" onClick={() => onAction(selected.id, "已转正式", "审核通过，已进入正式招聘信息")}>审核并发布 <span>→</span></button></div></div></div></div>;
 }
 
 type ExcelImportSummary = { total: number; inserted: number; duplicates: number; errors: number; warningRows: number; pendingReviewAfter: number };

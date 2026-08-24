@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getChatGPTUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { syncFavoriteOpportunityReminders } from "../../../../lib/reminders/store";
+import { getReviewErrorMessage, isReviewValidationError } from "../../../../lib/review-errors";
 
 const uiStatusToDb = {
   "待审核": "pending",
@@ -45,10 +46,14 @@ async function promoteReviewedItem(rawId: string, adminId: string, note: string 
   `;
   const item = rows[0] as Record<string, unknown> | undefined;
   if (!item) throw new Error("raw_item_not_found");
-  if (item.source_level === "D级") throw new Error("D级来源不得直接发布，请先补充更高等级官方来源或特别确认");
+  if (item.source_level === "D级") throw new Error("D_level_source_blocked");
   if (!item.staging_id || !item.organization_id || !item.project_name || String(item.project_name) === "待审核补充招聘项目") throw new Error("recruitment_project_name_required");
   if (!item.announcement_url && !item.application_url) throw new Error("official_source_url_required");
-  if (!item.original_major_text || String(item.original_major_text) === "专业要求待管理员补充") throw new Error("major_requirement_required");
+  // 人工审核本身就是发布确认。Excel/人工录入允许先缺少专业字段，发布时保留透明兜底文案，
+  // 避免把已经具备企业、项目和官方入口的记录错误拦截成“没有权限”。
+  const majorRequirementText = item.original_major_text && String(item.original_major_text) !== "专业要求待管理员补充"
+    ? String(item.original_major_text)
+    : "专业要求以官方招聘公告/岗位详情为准（导入记录未提供专业原文）";
 
   const duplicate = await sql`
     SELECT id::text AS id FROM opportunities
@@ -83,7 +88,7 @@ async function promoteReviewedItem(rawId: string, adminId: string, note: string 
       ${opportunityId}, ${String(item.project_name)}, ${String(item.organization_id)}, ${String(item.opportunity_type ?? "ENTERPRISE_CAMPUS")}, ${item.recruitment_season ?? null},
       ${item.recruitment_year ? Number(item.recruitment_year) : null}, ${JSON.stringify(item.graduation_years ?? [])}::jsonb, ${item.recruitment_batch ?? null}, ${String(item.original_content ?? item.project_name)},
       ${JSON.stringify(item.work_locations ?? [])}::jsonb, ${JSON.stringify(item.degree_requirements ?? [])}::jsonb, ${JSON.stringify(item.degree_requirements ?? [])}::jsonb,
-      ${String(item.original_major_text ?? "以官方岗位详情为准")}, ${item.announcement_url ?? null}, ${item.application_url ?? null},
+      ${majorRequirementText}, ${item.announcement_url ?? null}, ${item.application_url ?? null},
       ${String(item.source_id)}, ${String(item.source_level)}, 'verified', now(), ${adminId}, now() + interval '1 day', 'accessible',
       'published', ${calculatedStatus}, ${calculatedStatus}, ${item.deadline_type ?? "NOT_ANNOUNCED"}, ${item.deadline ?? null},
       'CURRENT_OPEN', '已核验', false
@@ -245,6 +250,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, id: body.id, status: body.status });
   } catch (error) {
     const message = error instanceof Error ? error.message : "审核操作失败";
-    return NextResponse.json({ ok: false, error: message }, { status: 503 });
+    const status = isReviewValidationError(message) ? 409 : 503;
+    return NextResponse.json({ ok: false, error: message, message: getReviewErrorMessage(message, "审核操作失败，请稍后重试。") }, { status });
   }
 }
