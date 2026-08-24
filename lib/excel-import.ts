@@ -2,7 +2,10 @@ export type ExcelImportInputRow = Record<string, unknown>;
 
 export type NormalizedExcelImportRow = {
   companyName: string;
+  companyType: string;
   projectName: string;
+  recruitmentType: string;
+  recruitmentAudience: string;
   recruitmentBatch: string;
   graduationYear: number | null;
   degreeRequirements: string[];
@@ -28,24 +31,28 @@ export type NormalizedExcelImportRow = {
 
 const aliases = {
   companyName: ["企业名称", "公司名称", "单位名称", "企业", "company", "organization"],
-  projectName: ["招聘项目名称", "项目名称", "招聘名称", "公告标题", "project", "title"],
+  companyType: ["企业类型", "单位性质", "公司类型", "企业类别", "organizationtype"],
+  projectName: ["招聘项目名称", "项目名称", "招聘名称", "招聘标题", "公告标题", "project", "title"],
+  recruitmentType: ["招聘类型", "招聘类别", "招聘分类", "招聘性质", "类别", "类型", "recruitmenttype"],
+  recruitmentAudience: ["招聘对象", "面向对象", "目标人群", "应聘对象", "对象", "targetaudience"],
   recruitmentBatch: ["招聘批次", "批次", "batch"],
   graduationYear: ["毕业年份", "毕业年度", "届别", "目标毕业年份", "graduationyear"],
   degreeRequirements: ["学历要求", "学历", "degree", "education"],
-  originalMajorText: ["招聘专业原文", "专业要求", "招聘专业", "专业", "majorrequirement"],
+  originalMajorText: ["招聘专业原文", "专业要求", "招聘专业", "专业限制", "专业", "majorrequirement"],
   normalizedMajorNames: ["标准专业名称", "专业名称", "标准专业", "majors"],
   majorCategories: ["专业大类", "学科门类", "majorcategories"],
-  workLocations: ["招聘地区", "工作地点", "地区", "地点", "locations"],
-  publishedAt: ["公告发布时间", "发布日期", "发布时间", "publishedat"],
+  workLocations: ["招聘地区", "工作地点", "工作城市", "地区", "地点", "locations"],
+  publishedAt: ["公告发布时间", "发布日期", "发布日期", "发布时间", "publishedat"],
   startAt: ["招聘开始时间", "报名开始时间", "开始时间", "startat"],
-  deadline: ["报名截止时间", "截止时间", "deadline"],
-  announcementUrl: ["官方公告链接", "公告链接", "officialannouncementurl"],
-  applicationUrl: ["官方报名链接", "报名链接", "officialapplicationurl"],
-  sourceName: ["来源名称", "数据源名称", "sourcename"],
-  sourceUrl: ["来源链接", "数据源链接", "sourceurl"],
+  deadline: ["报名截止时间", "截止时间", "截止日期", "deadline"],
+  officialWebsite: ["官网", "官方网站", "企业官网", "招聘官网", "官网地址", "website", "officialwebsite"],
+  announcementUrl: ["官方公告链接", "公告链接", "招聘公告", "公告地址", "公告url", "officialannouncementurl"],
+  applicationUrl: ["官方报名链接", "报名链接", "招聘链接", "招聘地址", "投递链接", "投递地址", "应聘链接", "职位链接", "官方招聘链接", "officialapplicationurl", "joburl"],
+  sourceName: ["来源名称", "数据源名称", "信息来源", "数据来源", "来源", "sourcename"],
+  sourceUrl: ["来源链接", "数据源链接", "信息来源链接", "来源网址", "sourceurl"],
   sourceLevel: ["来源级别", "级别", "sourcelevel"],
   timeVerificationStatus: ["时间核验状态", "时间状态", "timeverificationstatus"],
-  adminNote: ["管理员备注", "备注", "note"],
+  adminNote: ["管理员备注", "备注", "备注说明", "note"],
 } as const;
 
 function normalizeHeader(value: string) {
@@ -134,12 +141,16 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
   const errors: string[] = [];
   const warnings: string[] = [];
   const companyName = pick(row, aliases.companyName);
+  const companyType = pick(row, aliases.companyType);
   const projectName = pick(row, aliases.projectName);
+  const recruitmentType = pick(row, aliases.recruitmentType);
+  const recruitmentAudience = pick(row, aliases.recruitmentAudience);
   const batchValue = pick(row, aliases.recruitmentBatch);
   const yearValue = pick(row, aliases.graduationYear);
   const originalMajorText = pick(row, aliases.originalMajorText);
   const announcementValue = pick(row, aliases.announcementUrl);
   const applicationValue = pick(row, aliases.applicationUrl);
+  const officialWebsiteValue = pick(row, aliases.officialWebsite);
   const sourceUrlValue = pick(row, aliases.sourceUrl);
   const sourceLevelValue = pick(row, aliases.sourceLevel);
   const publishedValue = pick(row, aliases.publishedAt);
@@ -148,15 +159,20 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
 
   if (!companyName) errors.push("缺少企业名称");
   if (!projectName) errors.push("缺少招聘项目名称");
-  if (!originalMajorText) errors.push("缺少招聘专业原文");
 
-  const announcementUrl = normalizeUrl(announcementValue);
+  const officialWebsite = normalizeUrl(officialWebsiteValue);
+  const explicitAnnouncementUrl = normalizeUrl(announcementValue);
+  const announcementUrl = explicitAnnouncementUrl ?? officialWebsite;
   const applicationUrl = normalizeUrl(applicationValue);
   const explicitSourceUrl = normalizeUrl(sourceUrlValue);
-  if (announcementValue && !announcementUrl) errors.push("官方公告链接格式无效");
+  if (announcementValue && !explicitAnnouncementUrl) errors.push("官方公告链接格式无效");
   if (applicationValue && !applicationUrl) errors.push("官方报名链接格式无效");
+  if (officialWebsiteValue && !officialWebsite) errors.push("官网链接格式无效");
   if (sourceUrlValue && !explicitSourceUrl) errors.push("来源链接格式无效");
   if (!announcementUrl && !applicationUrl) errors.push("官方公告链接或官方报名链接至少填写一个");
+
+  const normalizedMajorText = originalMajorText || "专业要求待管理员补充";
+  if (!originalMajorText) warnings.push("招聘专业原文未填写，待管理员审核时补充");
 
   const yearMatch = yearValue.match(/20\d{2}/)?.[0];
   const graduationYear = yearMatch ? Number(yearMatch) : null;
@@ -178,18 +194,21 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
   if (!sourceLevelValue) warnings.push("来源级别未填写，暂按C级进入人工审核");
   else if (!normalizeSourceLevel(sourceLevelValue)) errors.push("来源级别必须为A、B、C或D");
 
-  const combinedText = [companyName, projectName, recruitmentBatch, pick(row, aliases.adminNote)].join(" ");
+  const combinedText = [companyName, companyType, projectName, recruitmentType, recruitmentAudience, recruitmentBatch, pick(row, aliases.adminNote)].join(" ");
   const sourceUrl = explicitSourceUrl ?? announcementUrl ?? applicationUrl;
   const timeVerificationStatus = pick(row, aliases.timeVerificationStatus) || "时间待确认";
   if (!pick(row, aliases.timeVerificationStatus)) warnings.push("时间核验状态待管理员确认");
 
   return {
     companyName,
+    companyType,
     projectName,
+    recruitmentType,
+    recruitmentAudience,
     recruitmentBatch,
     graduationYear,
     degreeRequirements: splitValues(pick(row, aliases.degreeRequirements)),
-    originalMajorText,
+    originalMajorText: normalizedMajorText,
     normalizedMajorNames: splitValues(pick(row, aliases.normalizedMajorNames)),
     majorCategories: splitValues(pick(row, aliases.majorCategories)),
     workLocations: splitValues(pick(row, aliases.workLocations)),

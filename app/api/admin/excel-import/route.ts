@@ -63,7 +63,10 @@ function sourceDomain(value: string) {
 function rawContent(row: NormalizedExcelImportRow) {
   return [
     `企业：${row.companyName}`,
+    `企业类型：${row.companyType || "待确认"}`,
     `招聘项目：${row.projectName}`,
+    `招聘类型：${row.recruitmentType || "待确认"}`,
+    `招聘对象：${row.recruitmentAudience || "待确认"}`,
     `招聘批次：${row.recruitmentBatch}`,
     `毕业年份：${row.graduationYear ?? "待确认"}`,
     `学历要求：${row.degreeRequirements.join("、") || "待确认"}`,
@@ -190,7 +193,7 @@ export async function POST(request: Request) {
           ) VALUES (
             ${rawId}, ${dataSourceId}, ${sourceUrl}, ${normalized.projectName}, ${originalContent}, '[]'::jsonb,
             ${normalized.publishedAt}, ${contentHash}, ${`${normalized.companyName} · ${normalized.projectName} · ${normalized.recruitmentBatch}`},
-            'excel-import-v1', ${json({ batchId, rowNumber, fileName, warnings: normalized.warnings })}::jsonb,
+            'excel-import-v1', ${json({ source: "excel_import", batchId, rowNumber, fileName, warnings: normalized.warnings })}::jsonb,
             ${json(normalized)}::jsonb, ${parseStatus}, 'pending', 'unique'
           )
         `;
@@ -242,8 +245,15 @@ export async function POST(request: Request) {
     const pendingRows = await sql`SELECT count(*)::int AS count FROM raw_source_items WHERE review_status IN ('pending', 'in_review')`;
     return NextResponse.json({
       ok: true,
+      success: true,
       batchId,
+      import_batch_id: batchId,
       summary: { total: rows.length, inserted, duplicates, errors, warningRows, pendingReviewAfter: Number(pendingRows[0]?.count ?? 0) },
+      total: rows.length,
+      success_count: inserted,
+      failed_count: errors,
+      duplicate_count: duplicates,
+      pending_count: inserted,
       rowResults: rowResults.filter((row) => row.status !== "pending_review" || row.messages.length).slice(0, 50),
       safety: { publishedOpportunitiesChanged: false, requiresManualReview: true },
     });

@@ -48,6 +48,7 @@ async function promoteReviewedItem(rawId: string, adminId: string, note: string 
   if (item.source_level === "D级") throw new Error("D级来源不得直接发布，请先补充更高等级官方来源或特别确认");
   if (!item.staging_id || !item.organization_id || !item.project_name) throw new Error("staging_opportunity_incomplete");
   if (!item.announcement_url && !item.application_url) throw new Error("official_source_url_required");
+  if (!item.original_major_text || String(item.original_major_text) === "专业要求待管理员补充") throw new Error("major_requirement_required");
 
   const duplicate = await sql`
     SELECT id::text AS id FROM opportunities
@@ -127,8 +128,22 @@ export async function GET() {
       summary: schema.rawSourceItems.contentSummary,
       parser: schema.rawSourceItems.parserName,
       parserResult: schema.rawSourceItems.parserResult,
+      companyName: schema.stagingOpportunities.companyName,
+      projectName: schema.stagingOpportunities.projectName,
+      opportunityType: schema.stagingOpportunities.opportunityType,
+      recruitmentBatch: schema.stagingOpportunities.recruitmentBatch,
+      graduationYears: schema.stagingOpportunities.graduationYears,
+      degreeRequirements: schema.stagingOpportunities.degreeRequirements,
+      originalMajorText: schema.stagingOpportunities.originalMajorText,
+      workLocations: schema.stagingOpportunities.workLocations,
+      startAt: schema.stagingOpportunities.startAt,
+      deadline: schema.stagingOpportunities.deadline,
+      announcementUrl: schema.stagingOpportunities.announcementUrl,
+      applicationUrl: schema.stagingOpportunities.applicationUrl,
+      importBatchId: schema.stagingOpportunities.importBatchId,
     }).from(schema.rawSourceItems)
       .leftJoin(schema.dataSources, eq(schema.rawSourceItems.dataSourceId, schema.dataSources.id))
+      .leftJoin(schema.stagingOpportunities, eq(schema.stagingOpportunities.rawSourceItemId, schema.rawSourceItems.id))
       .where(inArray(schema.rawSourceItems.reviewStatus, ["pending", "in_review", "snoozed"]))
       .orderBy(desc(schema.rawSourceItems.collectedAt));
 
@@ -144,6 +159,19 @@ export async function GET() {
       content: row.content ?? "原始正文未保存。请打开官方来源人工核对。",
       summary: row.summary ?? "暂无解析摘要",
       parser: row.parser ?? "未命名解析器",
+      companyName: row.companyName ?? "",
+      projectName: row.projectName ?? row.title ?? "",
+      opportunityType: row.opportunityType ?? "",
+      recruitmentBatch: row.recruitmentBatch ?? "",
+      graduationYears: row.graduationYears ?? [],
+      degreeRequirements: row.degreeRequirements ?? [],
+      originalMajorText: row.originalMajorText ?? "",
+      workLocations: row.workLocations ?? [],
+      startAt: row.startAt ?? "",
+      deadline: row.deadline ?? "",
+      announcementUrl: row.announcementUrl ?? "",
+      applicationUrl: row.applicationUrl ?? "",
+      importBatchId: row.importBatchId ?? null,
     })) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "审核队列读取失败";
@@ -155,8 +183,52 @@ export async function POST(request: Request) {
   try {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
-    const body = await request.json() as { id?: string; status?: keyof typeof uiStatusToDb; note?: string };
+    const body = await request.json() as {
+      id?: string;
+      status?: keyof typeof uiStatusToDb;
+      note?: string;
+      action?: "edit";
+      fields?: {
+        companyName?: string;
+        projectName?: string;
+        originalMajorText?: string;
+        announcementUrl?: string;
+        applicationUrl?: string;
+        workLocations?: string[];
+        deadline?: string | null;
+      };
+    };
     if (!body.id || !body.status || !uiStatusToDb[body.status]) return NextResponse.json({ ok: false, error: "invalid_review_action" }, { status: 400 });
+    if (body.action === "edit") {
+      const fields = body.fields ?? {};
+      const companyName = String(fields.companyName ?? "").trim();
+      const projectName = String(fields.projectName ?? "").trim();
+      const originalMajorText = String(fields.originalMajorText ?? "").trim();
+      const announcementUrl = String(fields.announcementUrl ?? "").trim() || null;
+      const applicationUrl = String(fields.applicationUrl ?? "").trim() || null;
+      if (!companyName || !projectName) return NextResponse.json({ ok: false, error: "company_and_project_required" }, { status: 400 });
+      if (announcementUrl) new URL(announcementUrl);
+      if (applicationUrl) new URL(applicationUrl);
+      if (!announcementUrl && !applicationUrl) return NextResponse.json({ ok: false, error: "official_source_url_required" }, { status: 400 });
+      const sql = neon(getDatabaseUrl());
+      const stagingRows = await sql`SELECT id::text AS id, raw_source_item_id::text AS raw_id FROM staging_opportunities WHERE raw_source_item_id = ${body.id} LIMIT 1`;
+      if (!stagingRows[0]?.id) return NextResponse.json({ ok: false, error: "staging_opportunity_not_found" }, { status: 404 });
+      await sql`
+        UPDATE staging_opportunities
+        SET company_name = ${companyName}, project_name = ${projectName}, original_major_text = ${originalMajorText || "专业要求待管理员补充"},
+            work_locations = ${JSON.stringify(fields.workLocations ?? [])}::jsonb, deadline = ${fields.deadline || null},
+            announcement_url = ${announcementUrl}, application_url = ${applicationUrl}, reviewer_note = ${body.note ?? "管理员已编辑导入记录，等待审核。"}, updated_at = now()
+        WHERE id = ${String(stagingRows[0].id)}
+      `;
+      await sql`
+        UPDATE raw_source_items
+        SET original_title = ${projectName}, source_url = ${announcementUrl ?? applicationUrl},
+            normalized_payload = coalesce(normalized_payload, '{}'::jsonb) || ${JSON.stringify({ companyName, projectName, originalMajorText, announcementUrl, applicationUrl, workLocations: fields.workLocations ?? [], deadline: fields.deadline ?? null })}::jsonb,
+            updated_at = now()
+        WHERE id = ${body.id}
+      `;
+      return NextResponse.json({ ok: true, id: body.id, status: "已编辑" });
+    }
     const db = getDb();
     if (body.status === "已转正式") {
       const promotion = await promoteReviewedItem(body.id, adminId, body.note);
