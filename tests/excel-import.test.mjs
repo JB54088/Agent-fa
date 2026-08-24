@@ -100,6 +100,20 @@ test("兼容官方招聘/报名网站表头，非标准日期保留为待确认�
   assert.ok(row.warnings.some((item) => item.includes("报名截止时间待管理员确认")));
 });
 
+test("兼容日报实际使用的官方招聘或报名网站表头", () => {
+  const row = normalizeExcelImportRow({
+    企业名称: "腾讯",
+    企业类型: "大厂",
+    招聘项目名称: "腾讯2027校园招聘",
+    招聘类型: "秋招/校园招聘",
+    官方招聘或报名网站: "https://join.qq.com/",
+    信息来源: "官方招聘渠道",
+  });
+  assert.deepEqual(row.errors, []);
+  assert.equal(row.announcementUrl, "https://join.qq.com/");
+  assert.equal(row.sourceUrl, "https://join.qq.com/");
+});
+
 test("识别Excel日期序列并拒绝错误日期", () => {
   assert.equal(normalizeExcelDate("45566"), "2024-10-01");
   assert.equal(normalizeExcelDate("2026/02/29"), null);
