@@ -46,7 +46,7 @@ async function promoteReviewedItem(rawId: string, adminId: string, note: string 
   const item = rows[0] as Record<string, unknown> | undefined;
   if (!item) throw new Error("raw_item_not_found");
   if (item.source_level === "D级") throw new Error("D级来源不得直接发布，请先补充更高等级官方来源或特别确认");
-  if (!item.staging_id || !item.organization_id || !item.project_name) throw new Error("staging_opportunity_incomplete");
+  if (!item.staging_id || !item.organization_id || !item.project_name || String(item.project_name) === "待审核补充招聘项目") throw new Error("recruitment_project_name_required");
   if (!item.announcement_url && !item.application_url) throw new Error("official_source_url_required");
   if (!item.original_major_text || String(item.original_major_text) === "专业要求待管理员补充") throw new Error("major_requirement_required");
 

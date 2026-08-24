@@ -45,11 +45,11 @@ const aliases = {
   publishedAt: ["公告发布时间", "发布日期", "发布日期", "发布时间", "publishedat"],
   startAt: ["招聘开始时间", "报名开始时间", "开始时间", "startat"],
   deadline: ["报名截止时间", "截止时间", "截止日期", "deadline"],
-  officialWebsite: ["官网", "官方网站", "企业官网", "招聘官网", "官网地址", "website", "officialwebsite"],
+  officialWebsite: ["官网", "官方网站", "企业官网", "招聘官网", "官网地址", "网站链接", "招聘网站", "网站", "网址", "website", "officialwebsite", "url", "link"],
   announcementUrl: ["官方公告链接", "公告链接", "招聘公告", "公告地址", "公告url", "officialannouncementurl"],
   applicationUrl: ["官方报名链接", "报名链接", "招聘链接", "招聘地址", "投递链接", "投递地址", "应聘链接", "职位链接", "官方招聘链接", "officialapplicationurl", "joburl"],
   sourceName: ["来源名称", "数据源名称", "信息来源", "数据来源", "来源", "sourcename"],
-  sourceUrl: ["来源链接", "数据源链接", "信息来源链接", "来源网址", "sourceurl"],
+  sourceUrl: ["来源链接", "数据源链接", "信息来源链接", "来源网址", "网站链接", "sourceurl"],
   sourceLevel: ["来源级别", "级别", "sourcelevel"],
   timeVerificationStatus: ["时间核验状态", "时间状态", "timeverificationstatus"],
   adminNote: ["管理员备注", "备注", "备注说明", "note"],
@@ -142,7 +142,8 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
   const warnings: string[] = [];
   const companyName = pick(row, aliases.companyName);
   const companyType = pick(row, aliases.companyType);
-  const projectName = pick(row, aliases.projectName);
+  const projectNameValue = pick(row, aliases.projectName);
+  const projectName = projectNameValue || "待审核补充招聘项目";
   const recruitmentType = pick(row, aliases.recruitmentType);
   const recruitmentAudience = pick(row, aliases.recruitmentAudience);
   const batchValue = pick(row, aliases.recruitmentBatch);
@@ -158,18 +159,18 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
   const deadlineValue = pick(row, aliases.deadline);
 
   if (!companyName) errors.push("缺少企业名称");
-  if (!projectName) errors.push("缺少招聘项目名称");
+  if (!projectNameValue) warnings.push("招聘项目名称待管理员补充");
 
   const officialWebsite = normalizeUrl(officialWebsiteValue);
   const explicitAnnouncementUrl = normalizeUrl(announcementValue);
-  const announcementUrl = explicitAnnouncementUrl ?? officialWebsite;
   const applicationUrl = normalizeUrl(applicationValue);
   const explicitSourceUrl = normalizeUrl(sourceUrlValue);
+  const announcementUrl = explicitAnnouncementUrl ?? officialWebsite ?? explicitSourceUrl;
   if (announcementValue && !explicitAnnouncementUrl) errors.push("官方公告链接格式无效");
   if (applicationValue && !applicationUrl) errors.push("官方报名链接格式无效");
   if (officialWebsiteValue && !officialWebsite) errors.push("官网链接格式无效");
   if (sourceUrlValue && !explicitSourceUrl) errors.push("来源链接格式无效");
-  if (!announcementUrl && !applicationUrl) errors.push("官方公告链接或官方报名链接至少填写一个");
+  if (!announcementUrl && !applicationUrl) errors.push("缺少网站链接");
 
   const normalizedMajorText = originalMajorText || "专业要求待管理员补充";
   if (!originalMajorText) warnings.push("招聘专业原文未填写，待管理员审核时补充");
@@ -231,5 +232,5 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
 
 export function excelImportDedupeKey(row: NormalizedExcelImportRow, organizationId?: string) {
   const compact = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "");
-  return [organizationId ?? compact(row.companyName), compact(row.projectName), row.graduationYear ?? "unknown", compact(row.recruitmentBatch)].join(":");
+  return [organizationId ?? compact(row.companyName), compact(row.projectName), row.graduationYear ?? "unknown", compact(row.recruitmentBatch), compact(row.sourceUrl ?? row.announcementUrl ?? row.applicationUrl ?? "")].join(":");
 }

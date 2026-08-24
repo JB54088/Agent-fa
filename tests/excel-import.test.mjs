@@ -35,11 +35,21 @@ test("识别校招雷达Excel模板字段并生成待审核数据", () => {
   assert.equal(row.deadline, "2026-09-30");
   assert.deepEqual(row.degreeRequirements, ["本科", "硕士"]);
   assert.deepEqual(row.workLocations, ["上海", "北京"]);
-  assert.match(excelImportDedupeKey(row, "org-1"), /^org-1:2027届秋季校园招聘:2027:正式批$/);
+  assert.match(excelImportDedupeKey(row, "org-1"), /^org-1:2027届秋季校园招聘:2027:正式批:/);
 });
-test("阻止缺少官方链接，但允许专业字段留待人工补充", () => {
+
+test("只要企业名称和网站链接即可进入待审核", () => {
+  const row = normalizeExcelImportRow({ 企业名称: "示例单位", 网站链接: "https://example.com/campus" });
+  assert.deepEqual(row.errors, []);
+  assert.equal(row.projectName, "待审核补充招聘项目");
+  assert.equal(row.announcementUrl, "https://example.com/campus");
+  assert.ok(row.warnings.includes("招聘项目名称待管理员补充"));
+  assert.ok(row.warnings.includes("招聘专业原文未填写，待管理员审核时补充"));
+});
+
+test("缺少企业名称或网站链接时才阻止导入", () => {
   const row = normalizeExcelImportRow({ 企业名称: "示例单位", 招聘项目名称: "校园招聘" });
-  assert.ok(row.errors.includes("官方公告链接或官方报名链接至少填写一个"));
+  assert.ok(row.errors.includes("缺少网站链接"));
   assert.ok(row.warnings.includes("招聘专业原文未填写，待管理员审核时补充"));
 });
 
