@@ -44,8 +44,8 @@ const aliases = {
   workLocations: ["招聘地区", "工作地点", "工作城市", "地区", "地点", "locations"],
   publishedAt: ["公告发布时间", "发布日期", "发布日期", "发布时间", "publishedat"],
   startAt: ["招聘开始时间", "报名开始时间", "开始时间", "startat"],
-  deadline: ["报名截止时间", "截止时间", "截止日期", "deadline"],
-  officialWebsite: ["官网", "官方网站", "企业官网", "招聘官网", "官网地址", "网站链接", "招聘网站", "网站", "网址", "website", "officialwebsite", "url", "link"],
+  deadline: ["报名截止时间", "报名截止日期", "截止时间", "截止日期", "deadline"],
+  officialWebsite: ["官网", "官方网站", "企业官网", "招聘官网", "官方招聘网站", "官方报名网站", "官方招聘/报名网站", "官方招聘/报名网址", "官网地址", "网站链接", "招聘网站", "网站", "网址", "website", "officialwebsite", "url", "link"],
   announcementUrl: ["官方公告链接", "公告链接", "招聘公告", "公告地址", "公告url", "officialannouncementurl"],
   applicationUrl: ["官方报名链接", "报名链接", "招聘链接", "招聘地址", "投递链接", "投递地址", "应聘链接", "职位链接", "官方招聘链接", "officialapplicationurl", "joburl"],
   sourceName: ["来源名称", "数据源名称", "信息来源", "数据来源", "来源", "sourcename"],
@@ -186,9 +186,9 @@ export function normalizeExcelImportRow(row: ExcelImportInputRow): NormalizedExc
   const publishedAt = normalizeExcelDate(publishedValue);
   const startAt = normalizeExcelDate(startValue);
   const deadline = normalizeExcelDate(deadlineValue);
-  if (publishedValue && !publishedAt) errors.push("公告发布时间格式无效");
-  if (startValue && !startAt) errors.push("招聘开始时间格式无效");
-  if (deadlineValue && !deadline) errors.push("报名截止时间格式无效");
+  if (publishedValue && !publishedAt) warnings.push(`公告发布时间待管理员确认（原值：${publishedValue}）`);
+  if (startValue && !startAt) warnings.push(`招聘开始时间待管理员确认（原值：${startValue}）`);
+  if (deadlineValue && !deadline) warnings.push(`报名截止时间待管理员确认（原值：${deadlineValue}）`);
   if (startAt && deadline && deadline < startAt) errors.push("报名截止时间早于招聘开始时间");
 
   const sourceLevel = normalizeSourceLevel(sourceLevelValue) ?? "C级";

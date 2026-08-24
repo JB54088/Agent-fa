@@ -14,6 +14,15 @@ test("实际读取CSV招聘文件并解析出数据行", async () => {
   assert.equal(parsed.rows[0]["公司名称"], "示例科技");
 });
 
+test("忽略表格末尾的说明行", async () => {
+  const file = new File([
+    "企业名称,官网\n示例科技,https://example.com/campus\n说明：正式文件只记录当日新发现\n",
+  ], "带说明行.csv", { type: "text/csv" });
+  const parsed = await parseExcelUpload(file);
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0]["企业名称"], "示例科技");
+});
+
 test("识别校招雷达Excel模板字段并生成待审核数据", () => {
   const row = normalizeExcelImportRow({
     企业名称: "示例科技有限公司",
@@ -73,6 +82,22 @@ test("兼容常见招聘Excel表头并进入待审核数据", () => {
   assert.equal(row.applicationUrl, "https://example.com/apply");
   assert.equal(row.opportunityType, "BANK_CAMPUS");
   assert.equal(row.recruitmentSeason, "AUTUMN");
+});
+
+test("兼容官方招聘/报名网站表头，非标准日期保留为待确认提示", () => {
+  const row = normalizeExcelImportRow({
+    企业名称: "示例大厂",
+    招聘项目名称: "2027届校园招聘",
+    发布日期: "2026-08",
+    报名截止日期: "岗位滚动，招满即止",
+    "官方招聘/报名网站": "https://example.com/campus",
+  });
+  assert.deepEqual(row.errors, []);
+  assert.equal(row.announcementUrl, "https://example.com/campus");
+  assert.equal(row.publishedAt, null);
+  assert.equal(row.deadline, null);
+  assert.ok(row.warnings.some((item) => item.includes("公告发布时间待管理员确认")));
+  assert.ok(row.warnings.some((item) => item.includes("报名截止时间待管理员确认")));
 });
 
 test("识别Excel日期序列并拒绝错误日期", () => {

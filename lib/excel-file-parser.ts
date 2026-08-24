@@ -73,7 +73,11 @@ function rowsToRecords(rows: string[][]) {
   if (headerIndex < 0) throw new Error("文件中没有识别到表头");
   const headers = rows[headerIndex].map((value, index) => String(value ?? "").replace(/^\ufeff/, "").trim() || `未命名字段${index + 1}`);
   const uniqueHeaders = headers.map((header, index) => headers.indexOf(header) === index ? header : `${header}_${index + 1}`);
-  const records = rows.slice(headerIndex + 1).filter((row) => row.some((value) => String(value ?? "").trim())).map((row) => Object.fromEntries(uniqueHeaders.map((header, index) => {
+  const records = rows.slice(headerIndex + 1).filter((row) => {
+    const nonEmpty = row.map((value) => String(value ?? "").trim()).filter(Boolean);
+    if (!nonEmpty.length) return false;
+    return !(nonEmpty.length === 1 && /^(说明|注释|备注说明)\s*[：:]/.test(nonEmpty[0]));
+  }).map((row) => Object.fromEntries(uniqueHeaders.map((header, index) => {
     const raw = String(row[index] ?? "").trim();
     if (/时间|日期/.test(header) && /^\d{5}(?:\.\d+)?$/.test(raw)) {
       const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(raw)) * 86_400_000);
