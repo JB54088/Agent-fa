@@ -44,10 +44,10 @@ type AppNotification = { id: string; opportunityId: string | null; type: string;
 
 const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
   { id: "home", label: "总览", icon: "⌂" },
-  { id: "projects", label: "招聘信息", icon: "▤" },
-  { id: "calendar", label: "招聘日历", icon: "□" },
-  { id: "my-projects", label: "我的招聘", icon: "♡" },
-  { id: "messages", label: "消息中心", icon: "◌" },
+  { id: "projects", label: "校招机会", icon: "▤" },
+  { id: "calendar", label: "报名日历", icon: "□" },
+  { id: "my-projects", label: "我的机会", icon: "♡" },
+  { id: "messages", label: "提醒中心", icon: "◌" },
 ];
 
 const trackerDefaults: Record<string, { status: ApplicationStatus; note: string }> = {};
@@ -120,6 +120,7 @@ export default function Home() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({
     name: "",
     major: "",
@@ -171,6 +172,15 @@ export default function Home() {
         if (payload.user?.displayName) setProfile((current) => ({ ...current, name: payload.user!.displayName! }));
       })
       .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/bootstrap")
+      .then((response) => response.ok ? response.json() as Promise<{ ok?: boolean; isAdmin?: boolean }> : null)
+      .then((payload) => { if (active) setIsAdmin(Boolean(payload?.ok && payload.isAdmin)); })
+      .catch(() => { if (active) setIsAdmin(false); });
     return () => { active = false; };
   }, []);
 
@@ -298,7 +308,7 @@ export default function Home() {
         <div className="sidebar-section-label side-secondary-label">更多</div>
         <nav className="side-nav" aria-label="更多导航">
           <button className={`nav-item ${view === "profile" ? "active" : ""}`} onClick={() => navigate("profile")}><span className="nav-icon">◎</span><span>求职资料</span></button>
-          <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span></button>
+          {isAdmin && <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span></button>}
           <button className={`nav-item ${view === "about" ? "active" : ""}`} onClick={() => navigate("about")}><span className="nav-icon">i</span><span>关于平台</span></button>
         </nav>
 
@@ -309,7 +319,7 @@ export default function Home() {
           </div>
           <button className="user-mini" onClick={() => setProfileOpen(true)}>
             <span className="avatar">林</span>
-            <span className="user-mini-text"><strong>{loggedIn ? profile.name : "未登录"}</strong><small>{loggedIn ? `${profile.graduation}届 · ${profile.degree}` : "登录后管理招聘"}</small></span>
+            <span className="user-mini-text"><strong>{loggedIn ? profile.name : "未登录"}</strong><small>{loggedIn ? `${profile.graduation}届 · ${profile.degree}` : "登录后保存机会、报名进度和提醒"}</small></span>
             <span className="user-more">•••</span>
           </button>
         </div>
@@ -326,8 +336,8 @@ export default function Home() {
           <div className="topbar-actions">
             <span className="trust-pill"><span className="pulse-dot" />官方来源 · 人工核验</span>
             <button className="icon-button" aria-label="帮助" onClick={() => navigate("about")}>?</button>
-            <button className="icon-button notification-button" aria-label="消息中心" onClick={() => navigate("messages")}>♧{notifications.some((notification) => !notification.readAt) && <span />}</button>
-            <button className="icon-button mobile-admin-button" aria-label="运营后台" onClick={() => navigate("admin")}>▦</button>
+            <button className="icon-button notification-button" aria-label="提醒中心" onClick={() => navigate("messages")}>♧{notifications.some((notification) => !notification.readAt) && <span />}</button>
+            {isAdmin && <button className="icon-button mobile-admin-button" aria-label="运营后台" onClick={() => navigate("admin")}>▦</button>}
             <button className="top-avatar" onClick={() => setProfileOpen(true)}>林</button>
           </div>
         </header>
@@ -419,7 +429,7 @@ function ProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOp
   }), [search, scope, status, type, region, matchOnly, profile.major]);
   const scopes = ["全部", "秋招", "春招", "央企", "国企", "国考", "省考", "选调生", "事业单位/事业编", "军队文职", "官方招聘入口", "大厂", "即将截止", "不限专业", "与我匹配"];
   return <>
-    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>招聘信息</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button className={`filter-button ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 筛选 <b>{[type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
+    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>校招机会</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button className={`filter-button ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 筛选 <b>{[type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
     <div className="opportunity-scope-tabs" aria-label="机会专区">{scopes.map((item) => <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>{item}</button>)}</div>
     <div className="list-caption"><span>批次口径</span><span className="caption-divider" /><span className="soft-text">春招 = 官方标注春季/春招批次；秋招 = 官方标注秋季/秋招批次；实习与专项招聘单独展示，不混入春秋招统计。</span></div>
     <div className="list-toolbar"><div className="list-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索企业、招聘项目、专业关键词" /></div><div className="result-count">共 <strong>{filtered.length}</strong> 个项目</div></div>
@@ -492,7 +502,7 @@ function CalendarView({ onOpen }: { onOpen: (project: Project) => void }) {
     .slice(0, 4);
 
   return <>
-    <div className="page-heading calendar-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR TIMELINE</span><h1>招聘日历</h1><p>把明确的开始报名和报名截止时间放在同一张日历里，未公布日期的项目不会被虚构安排。</p></div><div className="calendar-month"><button aria-label="上个月" onClick={() => setMonthCursor(new Date(year, month - 1, 1))}>‹</button><strong>{year}年 {month + 1}月</strong><button aria-label="下个月" onClick={() => setMonthCursor(new Date(year, month + 1, 1))}>›</button></div></div>
+    <div className="page-heading calendar-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR TIMELINE</span><h1>报名日历</h1><p>把明确的开始报名和报名截止时间放在同一张日历里，未公布日期的项目不会被虚构安排。</p></div><div className="calendar-month"><button aria-label="上个月" onClick={() => setMonthCursor(new Date(year, month - 1, 1))}>‹</button><strong>{year}年 {month + 1}月</strong><button aria-label="下个月" onClick={() => setMonthCursor(new Date(year, month + 1, 1))}>›</button></div></div>
     <div className="calendar-layout"><div className="surface calendar-surface"><div className="calendar-weekdays">{["一", "二", "三", "四", "五", "六", "日"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{days.map((day) => { const key = calendarDateKey(day); const inMonth = day.getMonth() === month; const events = inMonth ? calendarEvents[key] ?? [] : []; return <div className={`calendar-day ${!inMonth ? "muted-day" : ""} ${key === todayKey ? "today-day" : ""}`} key={key}><span className="day-number">{day.getDate()}</span>{key === todayKey && <span className="today-label">今天</span>}<div className="day-events">{events.slice(0, 2).map((event) => <button key={`${event.project.id}-${event.type}-${key}`} className={`calendar-event ${event.type}`} onClick={() => onOpen(event.project)}><b>{event.type === "end" ? "截止" : "开始"}</b><span>{event.project.shortName}</span></button>)}</div></div>; })}</div></div><aside className="calendar-aside"><div className="surface upcoming-panel"><div className="surface-heading"><div><span className="section-kicker">UP NEXT</span><h3>接下来</h3></div><span className="date-count">{upcoming.length} 件</span></div>{upcoming.map(({ project, date, type }) => { const dateValue = new Date(`${date}T00:00:00`); return <button className="upcoming-row" key={project.id} onClick={() => onOpen(project)}><span className={`date-bullet ${type === "end" ? "hot" : ""}`}><b>{dateValue.getDate()}</b><small>{dateValue.getMonth() + 1}月</small></span><span><strong>{type === "end" ? "报名截止" : "开始报名"}</strong><small>{project.shortName}</small></span><i>›</i></button>; })}</div><div className="surface legend-panel"><h4>日历说明</h4><div><span className="legend-dot start" />开始报名</div><div><span className="legend-dot end" />报名截止</div><div><span className="legend-dot mine" />我的跟进</div></div></aside></div>
   </>;
 }
@@ -501,7 +511,7 @@ function LegacyMyProjectsView({ projects: favoriteProjects, trackers, onOpen, on
   const [filter, setFilter] = useState<"全部" | ApplicationStatus>("全部");
   const list = favoriteProjects.filter((project) => filter === "全部" || trackers[project.id]?.status === filter);
   const statusList: ("全部" | ApplicationStatus)[] = ["全部", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"];
-  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MY TRACKER</span><h1>我的招聘</h1><p>收藏、进度和备注都放在这里，按自己的节奏推进。</p></div><button className="secondary-button" onClick={() => setFilter("全部")}>导出清单 <span>↓</span></button></div><div className="tracker-summary"><div><strong>{favoriteProjects.length}</strong><span>已收藏</span></div><div><strong>{favoriteProjects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{Object.values(trackers).filter((item) => item.status === "已报名").length}</strong><span>已报名</span></div><div className="tracker-summary-note"><span>✦</span><p>建议先处理 <b>7天内截止</b> 的项目，避免错过窗口。</p></div></div><div className="status-tabs">{statusList.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}{item === "全部" && <small>{favoriteProjects.length}</small>}</button>)}</div><div className="project-list">{list.length ? list.map((project) => <article className="tracker-card" key={project.id} onClick={() => onOpen(project)}><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="tracker-main"><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span></div><h3>{project.title}</h3><div className="tracker-line"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span>截止 {formatDate(project.deadline)}</span><span>✦ {getMatch(project)}</span></div>{trackers[project.id]?.note && <div className="note-line"><span>▰</span>{trackers[project.id].note}</div>}</div><div className="tracker-actions"><select value={trackers[project.id]?.status ?? "暂未处理"} onClick={(event) => event.stopPropagation()} onChange={(event) => onUpdateTracker(project, event.target.value as ApplicationStatus)} aria-label={`${project.title}报名状态`}>{["暂未处理", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"].map((status) => <option key={status}>{status}</option>)}</select><button className="favorite-button hearted" onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>♥</button></div></article>) : <EmptyState onReset={() => setFilter("全部")} />}</div></>;
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MY TRACKER</span><h1>我的机会</h1><p>收藏、进度和备注都放在这里，按自己的节奏推进。</p></div><button className="secondary-button" onClick={() => setFilter("全部")}>导出清单 <span>↓</span></button></div><div className="tracker-summary"><div><strong>{favoriteProjects.length}</strong><span>已收藏</span></div><div><strong>{favoriteProjects.filter((project) => project.status === "ending").length}</strong><span>近期截止</span></div><div><strong>{Object.values(trackers).filter((item) => item.status === "已报名").length}</strong><span>已报名</span></div><div className="tracker-summary-note"><span>✦</span><p>建议先处理 <b>7天内截止</b> 的项目，避免错过窗口。</p></div></div><div className="status-tabs">{statusList.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}{item === "全部" && <small>{favoriteProjects.length}</small>}</button>)}</div><div className="project-list">{list.length ? list.map((project) => <article className="tracker-card" key={project.id} onClick={() => onOpen(project)}><div className={`company-mark ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div className="tracker-main"><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span></div><h3>{project.title}</h3><div className="tracker-line"><span className={`status-tag ${statusClass[project.status]}`}><i />{statusLabel[project.status]}</span><span>截止 {formatDate(project.deadline)}</span><span>✦ {getMatch(project)}</span></div>{trackers[project.id]?.note && <div className="note-line"><span>▰</span>{trackers[project.id].note}</div>}</div><div className="tracker-actions"><select value={trackers[project.id]?.status ?? "暂未处理"} onClick={(event) => event.stopPropagation()} onChange={(event) => onUpdateTracker(project, event.target.value as ApplicationStatus)} aria-label={`${project.title}报名状态`}>{["暂未处理", "准备报名", "已报名", "已完成测评", "已参加笔试", "已进入面试", "已结束"].map((status) => <option key={status}>{status}</option>)}</select><button className="favorite-button hearted" onClick={(event) => { event.stopPropagation(); onToggleFavorite(project); }}>♥</button></div></article>) : <EmptyState onReset={() => setFilter("全部")} />}</div></>;
 }
 
 function MyProjectsView({ projects: favoriteProjects, trackers, tasks, onOpen, onToggleFavorite, onUpdateTracker, onAddTask, onToggleTask }: { projects: Project[]; trackers: Record<string, { status: ApplicationStatus; note: string }>; tasks: PersonalTask[]; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; onUpdateTracker: (project: Project, status: ApplicationStatus, note?: string) => void; onAddTask: (title: string, projectId?: string) => void; onToggleTask: (taskId: string) => void }) {
@@ -517,7 +527,7 @@ function PersonalTasksPanel({ tasks, projects: favoriteProjects, onAddTask, onTo
 function MessagesView({ notifications, onRead }: { notifications: AppNotification[]; onRead: (id: string) => void }) {
   const messages = notifications.map((notification) => ({ id: notification.id, icon: "◷", title: notification.title, text: notification.body, time: notification.createdAt, unread: !notification.readAt, color: "teal" }));
   const hasMessages = messages.length > 0;
-  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />INBOX</span><h1>消息中心</h1><p>和你收藏的校招项目有关的重要变化，会在这里提醒你。</p></div></div>{hasMessages ? <><div className="message-banner"><div className="message-banner-icon">◷</div><div><strong>提醒已开启</strong><p>收藏项目的截止、开始和信息变化会在这里显示。</p></div><span className="plain-tag">站内提醒</span></div><div className="message-list">{messages.map((notification) => <article className={`message-card ${notification.unread ? "unread" : ""}`} key={notification.id}><div className={`message-icon ${notification.color}`}>{notification.icon}</div><div className="message-copy"><div><strong>{notification.title}</strong>{notification.unread && <span className="unread-dot" />}</div><p>{notification.text}</p><small>{notification.time}</small></div>{notification.unread && <button className="message-arrow" onClick={() => onRead(notification.id)} aria-label="标记已读">✓</button>}</article>)}</div></> : <div className="surface empty-state"><div className="empty-state-icon">◌</div><h3>暂无提醒</h3><p>收藏招聘后，我们会在重要报名时间前提醒你。</p></div>}</>;
+  return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />INBOX</span><h1>提醒中心</h1><p>和你收藏的校招项目有关的重要变化，会在这里提醒你。</p></div></div>{hasMessages ? <><div className="message-banner"><div className="message-banner-icon">◷</div><div><strong>提醒已开启</strong><p>收藏项目的截止、开始和信息变化会在这里显示。</p></div><span className="plain-tag">站内提醒</span></div><div className="message-list">{messages.map((notification) => <article className={`message-card ${notification.unread ? "unread" : ""}`} key={notification.id}><div className={`message-icon ${notification.color}`}>{notification.icon}</div><div className="message-copy"><div><strong>{notification.title}</strong>{notification.unread && <span className="unread-dot" />}</div><p>{notification.text}</p><small>{notification.time}</small></div>{notification.unread && <button className="message-arrow" onClick={() => onRead(notification.id)} aria-label="标记已读">✓</button>}</article>)}</div></> : <div className="surface empty-state"><div className="empty-state-icon">◌</div><h3>暂无提醒</h3><p>收藏招聘后，我们会在重要报名时间前提醒你。</p></div>}</>;
 }
 
 type PublicSourceRecord = {
