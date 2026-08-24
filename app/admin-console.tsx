@@ -5,6 +5,8 @@ import { formatDate, siteConfig, statusLabel, type BrandConfig, type Project } f
 import { dataSourcesSeed } from "../db/seeds/data-sources";
 import { organizationsSeed } from "../db/seeds/organizations";
 import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/seeds/national-source-directory";
+import { parseExcelUpload } from "../lib/excel-file-parser";
+import { normalizeExcelImportRow, type ExcelImportInputRow } from "../lib/excel-import";
 
 type AdminTab = "overview" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
@@ -96,15 +98,16 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
   const [pendingSourceCount, setPendingSourceCount] = useState<number | null>(null);
   const [bootstrapState, setBootstrapState] = useState<"checking" | "available" | "admin" | "unavailable">("checking");
 
+  async function refreshReviewQueue() {
+    const response = await fetch("/api/admin/collection-review");
+    const payload = await response.json() as { ok?: boolean; items?: RawItem[] };
+    if (!response.ok || !payload.ok || !Array.isArray(payload.items)) throw new Error("待审核队列读取失败");
+    setRawItems(payload.items);
+    return payload.items;
+  }
+
   useEffect(() => {
-    let active = true;
-    fetch("/api/admin/collection-review")
-      .then((response) => response.json() as Promise<{ ok?: boolean; items?: RawItem[] }>)
-      .then((payload) => {
-        if (active && payload.ok && Array.isArray(payload.items)) setRawItems(payload.items);
-      })
-      .catch(() => undefined);
-    return () => { active = false; };
+    void refreshReviewQueue().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -195,7 +198,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} />}
     {tab === "published" && <PublishedCenter projects={catalogProjects} onOpen={onOpen} />}
     {tab === "failures" && <FailedSourceCenter onTab={setTab} />}
-    {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} />}
+    {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} onImported={async () => { await refreshReviewQueue(); setTab("review"); }} />}
     {tab === "verifications" && <VerificationPanel projects={catalogProjects} onNotify={onNotify} onOpen={onOpen} />}
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
     {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
@@ -800,10 +803,80 @@ function ReviewWorkbench({ items, selectedId, onSelect, onAction }: { items: Raw
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">RAW INGESTION REVIEW</span><h2>采集审核工作台</h2><p>原始标题、正文和附件先在这里人工判断，审核通过后才转为正式信息。</p></div><span className="review-guard">人工审核闸门</span></div><div className="review-workbench"><div className="review-queue"><div className="queue-header"><strong>待处理数据</strong><span>{items.filter((item) => item.reviewStatus !== "已转正式" && item.reviewStatus !== "已驳回").length} 条</span></div>{items.map((item) => <button key={item.id} className={`queue-item ${selected?.id === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><div><strong>{item.title}</strong><small>{item.source} · {item.collectedAt}</small></div><span className={`queue-status ${item.parseStatus === "失败" ? "danger" : item.reviewStatus === "审核中" ? "reviewing" : ""}`}>{item.parseStatus === "失败" ? "解析失败" : item.reviewStatus}</span></button>)}</div><div className="review-detail">{selected && <><div className="review-detail-head"><div><span className="source-level-badge level-A">原始记录</span><h3>{selected.title}</h3><p>{selected.source} · 采集于 {selected.collectedAt}</p></div><a className="secondary-button" href={selected.sourceUrl} target="_blank" rel="noreferrer">打开来源 <span>↗</span></a></div><div className="review-detail-tags"><span className={selected.parseStatus === "失败" ? "danger-tag" : "success-tag"}>解析{selected.parseStatus}</span><span className={selected.duplicateStatus === "疑似重复" ? "warning-tag" : "plain-tag"}>{selected.duplicateStatus}</span><span className="plain-tag">发布时间 {selected.publishedAt}</span></div><div className="raw-preview"><span>ORIGINAL CONTENT</span><h4>{selected.title}</h4><p>{selected.content}</p><div className="raw-summary"><b>解析摘要</b>{selected.summary}</div></div><div className="normalized-preview"><div><span>解析器</span><strong>{selected.parser}</strong></div><div><span>企业匹配</span><strong>{"待管理员确认"}</strong></div><div><span>正式项目</span><strong>{selected.duplicateStatus === "疑似重复" ? "存在候选项目" : "尚未创建"}</strong></div></div><div className="review-actions"><button className="secondary-button" onClick={() => onAction(selected.id, "暂不处理", "已暂存，稍后继续处理")}>暂不处理</button><button className="secondary-button danger-button" onClick={() => onAction(selected.id, "已驳回", "已驳回无效原始记录")}>驳回无效</button><button className="secondary-button" onClick={() => onAction(selected.id, "审核中", "已标记为疑似重复，等待进一步核验")}>标记重复</button><button className="primary-button" onClick={() => onAction(selected.id, "已转正式", "审核通过，已进入正式信息编辑")}>审核并转正式 <span>→</span></button></div></>}</div></div></div>;
 }
 
-function ImportPanel({ onDownload, onNotify }: { onDownload: () => void; onNotify: (message: string) => void }) {
-  const [preview, setPreview] = useState(false);
+type ExcelImportSummary = { total: number; inserted: number; duplicates: number; errors: number; warningRows: number; pendingReviewAfter: number };
+
+function ImportPanel({ onDownload, onNotify, onImported }: { onDownload: () => void; onNotify: (message: string) => void; onImported: () => Promise<void> }) {
   const [fileName, setFileName] = useState("");
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">EXCEL INGESTION</span><h2>Excel导入增强</h2><p>批量数据经过映射、校验、匹配和去重后，统一进入待审核状态。</p></div><button className="secondary-button" onClick={onDownload}>↓ 下载Excel模板</button></div><div className="import-steps"><span className="active"><b>01</b>上传文件</span><i>→</i><span className={preview ? "active" : ""}><b>02</b>字段映射</span><i>→</i><span className={preview ? "active" : ""}><b>03</b>预览校验</span><i>→</i><span><b>04</b>进入审核</span></div>{!preview ? <div className="upload-card"><div className="upload-icon">↑</div><h3>拖入招聘信息Excel</h3><p>支持 .xlsx、.xls、.csv，单次最多 5000 行</p><label className="primary-button">选择文件<input type="file" accept=".xlsx,.xls,.csv" hidden onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setFileName(file.name); setPreview(true); onNotify("文件已读取，等待字段映射和校验"); }} /></label><small>平台不会自动发布导入数据，确认后仍需管理员审核。</small></div> : <div className="import-preview"><div className="preview-header"><div><span className="success-tag">✓ 文件已读取</span><h3>{fileName}</h3><p>下一步执行字段映射、必填字段、日期、URL、企业、专业和重复校验。</p></div><button className="text-button" onClick={() => { setPreview(false); setFileName(""); }}>重新上传</button></div><div className="mapping-grid"><div><span>企业匹配</span><strong>待执行 · 关联企业目录</strong></div><div><span>招聘项目名称</span><strong>待执行 · 必填校验</strong></div><div><span>招聘时间</span><strong>待执行 · 日期格式校验</strong></div><div><span>官方链接</span><strong>待执行 · HTTPS URL校验</strong></div><div><span>专业标签</span><strong>待执行 · 官方专业目录匹配</strong></div><div><span>重复检测</span><strong>待执行 · 企业ID + 项目名称 + 毕业年份 + 批次</strong></div></div><div className="surface empty-state import-queue-note"><h3>等待提交校验</h3><p>文件确认后进入原始采集审核队列，不会直接写入已发布招聘信息。</p></div><button className="primary-button import-confirm" onClick={() => { setPreview(false); onNotify("已提交导入校验，等待管理员审核"); }}>提交校验并进入审核 <span>→</span></button></div>}</div>;
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<ExcelImportInputRow[]>([]);
+  const [reading, setReading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<ExcelImportSummary | null>(null);
+  const normalizedRows = useMemo(() => rows.map(normalizeExcelImportRow), [rows]);
+  const validCount = normalizedRows.filter((row) => row.errors.length === 0).length;
+  const errorCount = normalizedRows.length - validCount;
+  const warningCount = normalizedRows.filter((row) => row.warnings.length > 0).length;
+
+  function reset() {
+    setFileName("");
+    setHeaders([]);
+    setRows([]);
+    setResult(null);
+  }
+
+  async function selectFile(file: File) {
+    setReading(true);
+    setResult(null);
+    try {
+      const parsed = await parseExcelUpload(file);
+      setFileName(file.name);
+      setHeaders(parsed.headers);
+      setRows(parsed.rows);
+      onNotify(`已识别 ${parsed.rows.length} 行数据，请确认校验结果后提交`);
+    } catch (error) {
+      reset();
+      onNotify(error instanceof Error ? error.message : "Excel文件读取失败");
+    } finally {
+      setReading(false);
+    }
+  }
+
+  async function submitImport() {
+    if (!rows.length || submitting) return;
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/admin/excel-import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fileName, headers, rows }),
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string; summary?: ExcelImportSummary };
+      if (!response.ok || !payload.ok || !payload.summary) throw new Error(payload.error ?? "Excel导入失败");
+      setResult(payload.summary);
+      onNotify(`导入完成：${payload.summary.inserted} 条进入待审核，${payload.summary.duplicates} 条重复，${payload.summary.errors} 条错误`);
+      if (payload.summary.inserted > 0) await onImported();
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Excel导入失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const preview = rows.length > 0;
+  return <div className="admin-section">
+    <div className="admin-panel-heading"><div><span className="section-kicker">EXCEL INGESTION</span><h2>Excel导入增强</h2><p>真实解析文件，完成字段识别、校验和去重后写入 raw → staging → 待审核。</p></div><button className="secondary-button" onClick={onDownload}>↓ 下载Excel模板</button></div>
+    <div className="import-steps"><span className="active"><b>01</b>上传文件</span><i>→</i><span className={preview ? "active" : ""}><b>02</b>字段识别</span><i>→</i><span className={preview ? "active" : ""}><b>03</b>预览校验</span><i>→</i><span className={result?.inserted ? "active" : ""}><b>04</b>进入审核</span></div>
+    {!preview ? <div className="upload-card"><div className="upload-icon">↑</div><h3>上传招聘信息Excel</h3><p>支持 .xlsx、.csv，单次最多 5000 行</p><label className={`primary-button ${reading ? "disabled" : ""}`}>{reading ? "正在读取…" : "选择文件"}<input type="file" accept=".xlsx,.csv" hidden disabled={reading} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void selectFile(file); }} /></label><small>旧版 .xls 请先在Excel中另存为 .xlsx；所有数据仍需管理员审核后才能发布。</small></div> : <div className="import-preview">
+      <div className="preview-header"><div><span className="success-tag">✓ 已识别 {rows.length} 行</span><h3>{fileName}</h3><p>已自动识别 {headers.length} 个字段；错误行不会入库，有效行提交后进入待审核。</p></div><button className="text-button" onClick={reset}>重新上传</button></div>
+      <div className="mapping-grid"><div><span>企业匹配</span><strong>{normalizedRows.filter((row) => row.companyName).length}/{rows.length} 行已识别</strong></div><div><span>招聘项目名称</span><strong>{normalizedRows.filter((row) => row.projectName).length}/{rows.length} 行已识别</strong></div><div><span>招聘时间</span><strong>{normalizedRows.filter((row) => row.publishedAt || row.startAt || row.deadline).length} 行包含时间</strong></div><div><span>官方链接</span><strong>{normalizedRows.filter((row) => row.announcementUrl || row.applicationUrl).length}/{rows.length} 行有效</strong></div><div><span>专业字段</span><strong>{normalizedRows.filter((row) => row.originalMajorText).length}/{rows.length} 行已识别</strong></div><div><span>重复检测</span><strong>提交时与正式库、暂存库共同检测</strong></div></div>
+      <div className="import-validation-summary"><span className="success-copy">可进入审核 {validCount} 行</span><span className={errorCount ? "danger-copy" : "plain-tag"}>错误 {errorCount} 行</span><span className="pending-copy">待补充 {warningCount} 行</span></div>
+      <div className="import-table"><div><span>行号</span><span>企业</span><span>招聘项目</span><span>批次 / 年份</span><span>校验</span></div>{normalizedRows.slice(0, 12).map((row, index) => <div key={`${row.companyName}-${row.projectName}-${index}`}><span>{index + 2}</span><span>{row.companyName || "未识别"}</span><span>{row.projectName || "未识别"}</span><span>{row.recruitmentBatch} / {row.graduationYear ?? "待补"}</span><span className={row.errors.length ? "danger-copy" : row.warnings.length ? "pending-copy" : "success-copy"}>{row.errors.length ? row.errors.join("；") : row.warnings.length ? "可导入·待补充" : "通过"}</span></div>)}</div>
+      {rows.length > 12 && <p className="import-more-note">这里只预览前12行，提交时会校验全部 {rows.length} 行。</p>}
+      {errorCount > 0 && <div className="import-errors"><strong>需要修正的行</strong>{normalizedRows.map((row, index) => row.errors.length ? <p key={index}>第 {index + 2} 行：{row.errors.join("；")}</p> : null).filter(Boolean).slice(0, 10)}</div>}
+      {result && <div className="surface import-result"><strong>本次导入已处理</strong><p>{result.inserted} 条进入待审核，{result.duplicates} 条重复未导入，{result.errors} 条错误未导入；当前待审核共 {result.pendingReviewAfter} 条。</p></div>}
+      <button className="primary-button import-confirm" disabled={!validCount || submitting} onClick={submitImport}>{submitting ? "正在校验并写入…" : `提交 ${validCount} 条并进入待审核`} <span>→</span></button>
+    </div>}
+  </div>;
 }
 
 function VerificationPanel({ projects, onNotify, onOpen }: { projects: Project[]; onNotify: (message: string) => void; onOpen: (project: Project) => void }) {
