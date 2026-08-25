@@ -31,7 +31,7 @@ export const sourceStatusEnum = pgEnum("source_status", ["active", "paused", "in
 export const parseStatusEnum = pgEnum("parse_status", ["pending", "success", "partial", "failed"]);
 export const rawReviewStatusEnum = pgEnum("raw_review_status", ["pending", "in_review", "approved", "rejected", "snoozed", "converted"]);
 export const duplicateStatusEnum = pgEnum("duplicate_status", ["pending", "unique", "suspected", "confirmed", "not_duplicate"]);
-export const publishStatusEnum = pgEnum("publish_status", ["draft", "pending_review", "approved", "published", "rejected", "withdrawn"]);
+export const publishStatusEnum = pgEnum("publish_status", ["draft", "pending_review", "approved", "published", "rejected", "withdrawn", "offline"]);
 export const verificationStatusEnum = pgEnum("verification_status", ["unverified", "pending", "verified", "needs_review", "expired"]);
 export const officialPageStatusEnum = pgEnum("official_page_status", ["unknown", "accessible", "unreachable", "redirected", "blocked", "expired"]);
 export const adminTaskStatusEnum = pgEnum("admin_task_status", ["open", "claimed", "in_progress", "completed", "rejected", "snoozed"]);
@@ -134,6 +134,17 @@ export const organizations = pgTable("organizations", {
   monitoringSource: text("monitoring_source"),
   monitoringCategory: text("monitoring_category"),
   monitoringRegionName: text("monitoring_region_name"),
+  poolNormalizedName: text("pool_normalized_name"),
+  poolAliases: jsonb("pool_aliases").$type<string[]>().default([]).notNull(),
+  poolCategory: text("pool_category"),
+  poolSubcategory: text("pool_subcategory"),
+  poolOrganizationFingerprint: text("pool_organization_fingerprint"),
+  poolOfficialStatus: text("pool_official_status"),
+  poolFirstDiscoveredAt: timestamp("pool_first_discovered_at", { withTimezone: true }),
+  poolLastVerifiedAt: timestamp("pool_last_verified_at", { withTimezone: true }),
+  poolDiscoveryMethod: text("pool_discovery_method"),
+  poolDiscoveryQuery: text("pool_discovery_query"),
+  poolDiscoveredFromUrl: text("pool_discovered_from_url"),
   initialSyncStatus: text("initial_sync_status").default("NOT_CHECKED").notNull(),
   initialSyncLastCheckedAt: timestamp("initial_sync_last_checked_at", { withTimezone: true }),
   initialSyncNextCheckAt: timestamp("initial_sync_next_check_at", { withTimezone: true }),
@@ -145,7 +156,7 @@ export const organizations = pgTable("organizations", {
   initialSyncBatch: text("initial_sync_batch"),
   initialSyncCompletedAt: timestamp("initial_sync_completed_at", { withTimezone: true }),
   ...timestamps,
-}, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), index("organizations_type_idx").on(table.organizationType), index("organizations_parent_idx").on(table.parentId), index("organizations_region_idx").on(table.regionId)]);
+}, (table) => [uniqueIndex("organizations_name_uidx").on(table.name), uniqueIndex("organizations_pool_fingerprint_uidx").on(table.poolOrganizationFingerprint), index("organizations_type_idx").on(table.organizationType), index("organizations_parent_idx").on(table.parentId), index("organizations_region_idx").on(table.regionId), index("organizations_pool_category_idx").on(table.poolCategory)]);
 
 export const organizationInitialSyncChecks = pgTable("organization_initial_sync_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -176,6 +187,23 @@ export const dataSources = pgTable("data_sources", {
   sourceType: sourceTypeEnum("source_type"),
   collectionMethod: collectionMethodEnum("collection_method"),
   sourceUrl: text("source_url"),
+  poolCategory: text("pool_category"),
+  poolSubcategory: text("pool_subcategory"),
+  poolSourceType: text("pool_source_type"),
+  poolOfficialStatus: text("pool_official_status"),
+  poolWebsiteName: text("pool_website_name"),
+  poolUrl: text("pool_url"),
+  poolCareerUrl: text("pool_career_url"),
+  poolNormalizedUrl: text("pool_normalized_url"),
+  poolSourceFingerprint: text("pool_source_fingerprint"),
+  poolFirstDiscoveredAt: timestamp("pool_first_discovered_at", { withTimezone: true }),
+  poolLastVerifiedAt: timestamp("pool_last_verified_at", { withTimezone: true }),
+  poolVerificationIntervalDays: integer("pool_verification_interval_days").default(30),
+  poolDiscoveryMethod: text("pool_discovery_method"),
+  poolDiscoveryQuery: text("pool_discovery_query"),
+  poolDiscoveredFromUrl: text("pool_discovered_from_url"),
+  poolStatus: text("pool_status").default("active"),
+  poolNotes: text("pool_notes"),
   sourceDomain: text("source_domain"),
   crawlerStrategy: text("crawler_strategy"),
   listPageUrl: text("list_page_url"),
@@ -228,7 +256,7 @@ export const dataSources = pgTable("data_sources", {
   officialUrlPublishedAt: timestamp("official_url_published_at", { withTimezone: true }),
   officialUrlPublishedBy: uuid("official_url_published_by").references(() => users.id),
   ...timestamps,
-}, (table) => [index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_region_idx").on(table.regionId), index("data_sources_category_idx").on(table.sourceCategory), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus), index("data_sources_recruitment_link_status_idx").on(table.recruitmentLinkStatus), index("data_sources_next_check_idx").on(table.nextCheckAt)]);
+}, (table) => [uniqueIndex("data_sources_pool_fingerprint_uidx").on(table.poolSourceFingerprint), index("data_sources_level_idx").on(table.level), index("data_sources_company_idx").on(table.companyId), index("data_sources_organization_idx").on(table.organizationId), index("data_sources_region_idx").on(table.regionId), index("data_sources_category_idx").on(table.sourceCategory), index("data_sources_status_idx").on(table.status), index("data_sources_discovery_status_idx").on(table.discoveryStatus), index("data_sources_recruitment_link_status_idx").on(table.recruitmentLinkStatus), index("data_sources_next_check_idx").on(table.nextCheckAt), index("data_sources_pool_category_idx").on(table.poolCategory), index("data_sources_pool_normalized_url_idx").on(table.poolNormalizedUrl)]);
 
 export const sourceDiscoveries = pgTable("source_discoveries", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -247,6 +275,82 @@ export const sourceDiscoveries = pgTable("source_discoveries", {
   notes: text("notes"),
   ...timestamps,
 }, (table) => [index("source_discoveries_status_idx").on(table.discoveryStatus), index("source_discoveries_category_idx").on(table.sourceCategory), index("source_discoveries_region_idx").on(table.regionId)]);
+
+/** Long-lived queue for organization/source candidates discovered by Playwright. */
+export const discoveryQueue = pgTable("discovery_queue", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  organizationFingerprint: text("organization_fingerprint"),
+  possibleCategory: text("possible_category"),
+  subcategory: text("subcategory"),
+  parentOrganizationId: uuid("parent_organization_id").references(() => organizations.id),
+  parentOrganizationName: text("parent_organization_name"),
+  province: text("province"),
+  city: text("city"),
+  discoveredFrom: text("discovered_from").notNull(),
+  discoveredFromUrl: text("discovered_from_url"),
+  candidateUrl: text("candidate_url"),
+  candidateNormalizedUrl: text("candidate_normalized_url"),
+  queueFingerprint: text("queue_fingerprint").notNull(),
+  discoveredAt: timestamp("discovered_at", { withTimezone: true }).defaultNow().notNull(),
+  priority: integer("priority").default(50).notNull(),
+  status: text("status").default("pending").notNull(),
+  retryCount: integer("retry_count").default(0).notNull(),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  verifiedOrganizationId: uuid("verified_organization_id").references(() => organizations.id),
+  verifiedSourceId: uuid("verified_source_id").references(() => dataSources.id),
+  notes: text("notes"),
+  ...timestamps,
+}, (table) => [uniqueIndex("discovery_queue_fingerprint_uidx").on(table.queueFingerprint), index("discovery_queue_status_priority_idx").on(table.status, table.priority), index("discovery_queue_category_region_idx").on(table.possibleCategory, table.province), index("discovery_queue_next_attempt_idx").on(table.nextAttemptAt)]);
+
+export const discoveryRuns = pgTable("discovery_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  triggerType: text("trigger_type").default("scheduled").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  status: text("status").default("running").notNull(),
+  maxNewCandidates: integer("max_new_candidates").default(200).notNull(),
+  maxVerifications: integer("max_verifications").default(100).notNull(),
+  maxBrowserPages: integer("max_browser_pages").default(100).notNull(),
+  candidatesFound: integer("candidates_found").default(0).notNull(),
+  queueAdded: integer("queue_added").default(0).notNull(),
+  verifiedSources: integer("verified_sources").default(0).notNull(),
+  newSources: integer("new_sources").default(0).notNull(),
+  failedCount: integer("failed_count").default(0).notNull(),
+  reportPath: text("report_path"),
+  errorMessage: text("error_message"),
+  details: jsonb("details"),
+  ...timestamps,
+}, (table) => [index("discovery_runs_started_idx").on(table.startedAt), index("discovery_runs_status_idx").on(table.status)]);
+
+export const discoveryQueries = pgTable("discovery_queries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  query: text("query").notNull(),
+  category: text("category").notNull(),
+  province: text("province").default("").notNull(),
+  strategy: text("strategy").notNull(),
+  priority: integer("priority").default(50).notNull(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  resultCount: integer("result_count").default(0).notNull(),
+  newSourceCount: integer("new_source_count").default(0).notNull(),
+  zeroResultStreak: integer("zero_result_streak").default(0).notNull(),
+  notes: text("notes"),
+  ...timestamps,
+}, (table) => [uniqueIndex("discovery_queries_query_scope_uidx").on(table.query, table.category, table.province), index("discovery_queries_priority_idx").on(table.priority, table.lastRunAt)]);
+
+export const organizationRelations = pgTable("organization_relations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  parentOrganizationId: uuid("parent_organization_id").notNull().references(() => organizations.id),
+  childOrganizationId: uuid("child_organization_id").notNull().references(() => organizations.id),
+  relationType: text("relation_type").notNull(),
+  sourceUrl: text("source_url"),
+  discoveredAt: timestamp("discovered_at", { withTimezone: true }).defaultNow().notNull(),
+  notes: text("notes"),
+  ...timestamps,
+}, (table) => [uniqueIndex("organization_relations_edge_uidx").on(table.parentOrganizationId, table.childOrganizationId, table.relationType), index("organization_relations_parent_idx").on(table.parentOrganizationId), index("organization_relations_child_idx").on(table.childOrganizationId)]);
 
 export const opportunities = pgTable("opportunities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -279,6 +383,9 @@ export const opportunities = pgTable("opportunities", {
   nextVerifyAt: timestamp("next_verify_at", { withTimezone: true }),
   officialPageStatus: officialPageStatusEnum("official_page_status").default("unknown").notNull(),
   publicationStatus: publishStatusEnum("publication_status").default("draft").notNull(),
+  offlineReason: text("offline_reason"),
+  offlineAt: timestamp("offline_at", { withTimezone: true }),
+  offlineBy: uuid("offline_by").references(() => users.id),
   calculatedStatus: projectStatusEnum("calculated_status").default("pending_review").notNull(),
   manualStatus: projectStatusEnum("manual_status"),
   statusOverride: boolean("status_override").default(false).notNull(),
@@ -825,6 +932,15 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   afterData: jsonb("after_data"),
   ...timestamps,
 }, (table) => [index("admin_audit_actor_idx").on(table.actorId, table.createdAt), index("admin_audit_entity_idx").on(table.entityType, table.entityId)]);
+
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  action: text("action").notNull(),
+  opportunityId: uuid("opportunity_id"),
+  operator: text("operator").notNull(),
+  reason: text("reason"),
+  ...timestamps,
+}, (table) => [index("audit_logs_opportunity_idx").on(table.opportunityId, table.createdAt), index("audit_logs_action_idx").on(table.action, table.createdAt)]);
 
 export const majorAliases = pgTable("major_aliases", {
   id: uuid("id").defaultRandom().primaryKey(),

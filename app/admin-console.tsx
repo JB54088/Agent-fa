@@ -227,7 +227,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
     {tab === "pending-sources" && <SourceManagement onNotify={onNotify} initialFilter="NEEDS_REVIEW" />}
     {tab === "collection" && <CollectionCenter onNotify={onNotify} />}
     {tab === "review" && <ReviewWorkbench items={rawItems} selectedId={selectedRawId} onSelect={setSelectedRawId} onAction={updateRaw} onEdit={editRaw} />}
-    {tab === "published" && <PublishedCenter projects={catalogProjects} onOpen={onOpen} />}
+    {tab === "published" && <PublishedCenter onNotify={onNotify} />}
     {tab === "failures" && <FailedSourceCenter onTab={setTab} />}
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} onImported={async () => { await refreshReviewQueue(); setTab("review"); }} />}
     {tab === "verifications" && <VerificationPanel projects={catalogProjects} onNotify={onNotify} onOpen={onOpen} />}
@@ -816,8 +816,107 @@ function CollectionCenter({ onNotify }: { onNotify: (message: string) => void })
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">COLLECTION PIPELINE</span><h2>招聘采集</h2><p>只访问公开内容；自动发现先写入 raw → staging → review，不直接覆盖正式招聘。</p></div><button className="primary-button" disabled={running} onClick={run}>{running ? "公开扫描中…" : "运行增量扫描"} <span>↻</span></button></div><div className="coverage-summary"><div><strong>{report?.sourceSummary?.due ?? 0}</strong><span>到期来源</span></div><div><strong>{report?.sourceSummary?.scanned ?? 0}</strong><span>已检查</span></div><div><strong>{report?.sourceSummary?.changed ?? 0}</strong><span>页面变化</span></div><div><strong>{report?.pipeline?.rawInserted ?? 0}</strong><span>原始新增</span></div><div><strong>{report?.pipeline?.stagingInserted ?? 0}</strong><span>暂存新增</span></div><div><strong>{report?.pipeline?.reviewTasksCreated ?? 0}</strong><span>待人工审核</span></div></div><div className="surface process-note"><strong>安全边界</strong><p>不会绕过登录、验证码、反爬或访问限制；被阻断的来源会记录失败状态并进入失败来源/任务中心。</p></div></div>;
 }
 
-function PublishedCenter({ projects, onOpen }: { projects: Project[]; onOpen: (project: Project) => void }) {
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">PUBLISHED OPPORTUNITIES</span><h2>正式招聘</h2><p>这里显示前台实际可见的正式库记录，官方入口记录会排在具体招聘项目之后。</p></div><span className="safe-collection-badge">{projects.length} 条前台可见</span></div>{projects.length ? <div className="surface verification-table"><div className="verification-row verification-head"><span>招聘信息</span><span>展示类型</span><span>来源</span><span>状态</span><span>核验</span><span>操作</span></div>{projects.map((project) => <div className="verification-row" key={project.id}><span><strong>{project.title}</strong><small>{project.company} · {project.batch}</small></span><span>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方招聘入口" : "具体招聘项目"}</span><span>{project.sourceName} · {project.sourceLevel}</span><span>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官网公告为准" : statusLabel[project.status]}</span><span>{formatDate(project.verifiedAt)}</span><span><button className="text-button" onClick={() => onOpen(project)}>查看</button></span></div>)}</div> : <div className="surface empty-state"><h3>暂无正式招聘</h3><p>审核通过的招聘信息或已核验官方入口会出现在这里。</p></div>}</div>;
+type PublishedAdminOpportunity = {
+  id: string;
+  title: string;
+  company: string;
+  shortName: string;
+  batch: string;
+  displayType: "RECRUITMENT_PROJECT" | "OFFICIAL_RECRUITMENT_ENTRY";
+  sourceName: string;
+  sourceLevel: string;
+  sourceUrl: string | null;
+  announcementUrl: string | null;
+  applicationUrl: string | null;
+  officialUrl: string | null;
+  publicationStatus: string;
+  verificationStatus: string;
+  officialPageStatus: string;
+  lastVerifiedAt: string | null;
+  offlineReason: string | null;
+  offlineAt: string | null;
+  offlineBy: string | null;
+  isDemo: boolean;
+};
+
+const OFFLINE_REASON_OPTIONS = ["招聘已结束", "官网链接失效", "页面不存在 / 404", "重复招聘", "信息错误", "非官方来源", "其他"];
+const PERMANENT_DELETE_REASON_OPTIONS = ["重复招聘", "测试数据", "明显错误数据"];
+
+function adminDate(value: string | null) {
+  return value ? formatDate(value.slice(0, 10)) : "时间待公布";
+}
+
+function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) {
+  const [items, setItems] = useState<PublishedAdminOpportunity[]>([]);
+  const [view, setView] = useState<"published" | "offline">("published");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState<{ kind: "offline" | "delete"; ids: string[]; title: string; reason: string } | null>(null);
+
+  const activeItems = items.filter((item) => item.publicationStatus === "published");
+  const offlineItems = items.filter((item) => ["offline", "withdrawn"].includes(item.publicationStatus));
+  const visible = view === "published" ? activeItems : offlineItems;
+  const selectedVisible = visible.filter((item) => selectedIds.includes(item.id));
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/opportunities?status=all");
+      const payload = await response.json() as { ok?: boolean; items?: PublishedAdminOpportunity[]; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "正式招聘读取失败");
+      setItems(Array.isArray(payload.items) ? payload.items : []);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "正式招聘读取失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void refresh(); }, []);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function toggleAll() {
+    const visibleIds = visible.map((item) => item.id);
+    setSelectedIds((current) => visibleIds.every((id) => current.includes(id)) ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])]);
+  }
+
+  async function submitAction(action: "offline" | "restore" | "delete" | "reverify", ids: string[], reason?: string) {
+    try {
+      const response = await fetch("/api/admin/opportunities", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, opportunityIds: ids, reason }) });
+      const payload = await response.json() as { ok?: boolean; error?: string; updatedCount?: number; skippedCount?: number; skipped?: string[] };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "正式招聘操作失败");
+      setModal(null);
+      setOpenMenuId(null);
+      setSelectedIds([]);
+      await refresh();
+      const suffix = payload.skippedCount ? `，${payload.skippedCount} 条未处理` : "";
+      onNotify(`${action === "offline" ? "下架" : action === "restore" ? "恢复上架" : action === "delete" ? "永久删除" : "已标记重新核验"}完成：${payload.updatedCount ?? 0} 条${suffix}`);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "正式招聘操作失败");
+    }
+  }
+
+  function openOffline(ids: string[]) {
+    setModal({ kind: "offline", ids, title: ids.length > 1 ? "批量下架招聘信息" : "下架招聘信息", reason: "" });
+  }
+
+  function openDelete(item: PublishedAdminOpportunity) {
+    setModal({ kind: "delete", ids: [item.id], title: "永久删除招聘信息", reason: "" });
+  }
+
+  const allVisibleSelected = visible.length > 0 && visible.every((item) => selectedIds.includes(item.id));
+
+  return <div className="admin-section">
+    <div className="admin-panel-heading"><div><span className="section-kicker">PUBLISHED OPPORTUNITIES</span><h2>正式招聘</h2><p>查看会打开真实官方链接；下架只改变展示状态，数据库记录和操作日志都会保留。</p></div><span className="safe-collection-badge">{activeItems.length} 条前台可见</span></div>
+    <div className="admin-filter-bar published-tabs"><button className={view === "published" ? "active" : ""} onClick={() => { setView("published"); setSelectedIds([]); }}>正式招聘 <b>{activeItems.length}</b></button><button className={view === "offline" ? "active" : ""} onClick={() => { setView("offline"); setSelectedIds([]); }}>已下架 <b>{offlineItems.length}</b></button></div>
+    {view === "published" && selectedVisible.length > 0 && <div className="published-batch-toolbar"><span>已选 {selectedVisible.length} 条</span><button className="secondary-button danger-button" onClick={() => openOffline(selectedVisible.map((item) => item.id))}>批量下架</button><button className="secondary-button" onClick={() => void submitAction("reverify", selectedVisible.map((item) => item.id))}>批量重新核验链接</button></div>}
+    {loading ? <div className="surface empty-state"><h3>正在读取正式招聘</h3><p>只显示数据库中的真实记录。</p></div> : visible.length ? <div className="surface verification-table published-table"><div className="published-admin-row published-admin-head"><span><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="全选当前列表" /></span><span>招聘信息</span><span>展示类型</span><span>来源</span><span>核验状态</span><span>下架信息</span><span>操作</span></div>{visible.map((item) => { const link = item.officialUrl; const canDelete = item.offlineReason ? PERMANENT_DELETE_REASON_OPTIONS.includes(item.offlineReason) : false; return <div className="published-admin-row" key={item.id}><span><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`选择 ${item.title}`} /></span><span><strong>{item.title}</strong><small>{item.company} · {item.batch}</small></span><span>{item.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方招聘入口" : "具体招聘项目"}</span><span>{item.sourceName} · {item.sourceLevel}</span><span className={item.verificationStatus === "needs_review" ? "danger-copy" : "success-copy"}>{item.verificationStatus === "needs_review" ? "待人工复核" : item.officialPageStatus === "unknown" ? "待核验" : "已记录"}<small>最近核验 {adminDate(item.lastVerifiedAt)}</small></span><span>{view === "offline" ? <><strong className="danger-copy">{item.offlineReason ?? "未填写原因"}</strong><small>{adminDate(item.offlineAt)} · {item.offlineBy ?? "未知操作人"}</small></> : "—"}</span><span className="published-actions"><span className="published-action-main">{link ? <a className="text-button" href={link} target="_blank" rel="noreferrer">查看 ↗</a> : <button className="text-button" disabled>链接缺失</button>}{view === "published" ? <button className="text-button danger-copy" onClick={() => openOffline([item.id])}>下架</button> : <button className="text-button" onClick={() => void submitAction("restore", [item.id])}>恢复上架</button>}<button className="text-button" onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}>更多</button></span>{openMenuId === item.id && <span className="published-more-menu">{view === "published" ? <button onClick={() => void submitAction("reverify", [item.id])}>重新核验链接</button> : <>{canDelete ? <button className="danger-copy" onClick={() => openDelete(item)}>永久删除</button> : <button disabled title="只有重复、测试或明显错误数据允许永久删除">永久删除（需合规原因）</button>}</>}</span>}</span></div>; })}</div> : <div className="surface empty-state"><h3>{view === "published" ? "暂无正式招聘" : "暂无已下架招聘"}</h3><p>{view === "published" ? "审核通过的招聘信息或已核验官方入口会出现在这里。" : "下架记录会保留在这里，支持恢复上架；不会因访问失败自动永久删除。"}</p></div>}
+    {modal && <div className="modal-backdrop" onMouseDown={() => setModal(null)}><div className="small-modal moderation-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setModal(null)} aria-label="关闭">×</button><div className="external-icon">{modal.kind === "offline" ? "↓" : "!"}</div><h3>{modal.title}</h3><p>{modal.kind === "offline" ? "确定将该招聘信息下架吗？下架后前台用户将无法看到，但后台仍保留记录。" : "该操作将永久删除此招聘记录，无法恢复，是否继续？"}</p><label className="moderation-reason-label">{modal.kind === "offline" ? "请选择下架原因" : "请选择永久删除依据"}<select value={modal.reason} onChange={(event) => setModal((current) => current ? { ...current, reason: event.target.value } : current)}><option value="">请选择</option>{(modal.kind === "offline" ? OFFLINE_REASON_OPTIONS : PERMANENT_DELETE_REASON_OPTIONS).map((reason) => <option key={reason} value={reason}>{reason}</option>)}</select></label><div className="small-modal-actions"><button className="secondary-button" onClick={() => setModal(null)}>取消</button><button className={`primary-button ${modal.kind === "offline" ? "danger-button" : ""}`} disabled={!modal.reason} onClick={() => void submitAction(modal.kind, modal.ids, modal.reason)}>{modal.kind === "offline" ? "确认下架" : "确认永久删除"}</button></div></div></div>}
+  </div>;
 }
 
 function FailedSourceCenter({ onTab }: { onTab: (tab: AdminTab) => void }) {
