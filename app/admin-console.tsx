@@ -9,7 +9,7 @@ import { parseExcelUpload } from "../lib/excel-file-parser";
 import { normalizeExcelImportRow, type ExcelImportInputRow } from "../lib/excel-import";
 import { getReviewErrorMessage } from "../lib/review-errors";
 
-type AdminTab = "overview" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "settings";
+type AdminTab = "overview" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "corrections" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -100,6 +100,7 @@ const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "imports", label: "Excel导入", icon: "▤" },
   { id: "verifications", label: "信息复核", icon: "◷" },
   { id: "tasks", label: "任务中心", icon: "⚑" },
+  { id: "corrections", label: "用户纠错", icon: "✎" },
   { id: "settings", label: "站点配置", icon: "⚙" },
 ];
 
@@ -232,6 +233,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
     {tab === "imports" && <ImportPanel onDownload={downloadTemplate} onNotify={onNotify} onImported={async () => { await refreshReviewQueue(); setTab("review"); }} />}
     {tab === "verifications" && <VerificationPanel projects={catalogProjects} onNotify={onNotify} onOpen={onOpen} />}
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
+    {tab === "corrections" && <CorrectionsCenter onNotify={onNotify} />}
     {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
   </>;
 }
@@ -849,6 +851,7 @@ function adminDate(value: string | null) {
 function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) {
   const [items, setItems] = useState<PublishedAdminOpportunity[]>([]);
   const [view, setView] = useState<"published" | "offline">("published");
+  const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -856,7 +859,12 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
 
   const activeItems = items.filter((item) => item.publicationStatus === "published");
   const offlineItems = items.filter((item) => ["offline", "withdrawn"].includes(item.publicationStatus));
-  const visible = view === "published" ? activeItems : offlineItems;
+  const baseVisible = view === "published" ? activeItems : offlineItems;
+  const visible = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return baseVisible;
+    return baseVisible.filter((item) => [item.title, item.company, item.shortName, item.batch, item.sourceName, item.sourceLevel].join(" ").toLowerCase().includes(normalizedQuery));
+  }, [baseVisible, query]);
   const selectedVisible = visible.filter((item) => selectedIds.includes(item.id));
 
   async function refresh() {
@@ -913,6 +921,7 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
   return <div className="admin-section">
     <div className="admin-panel-heading"><div><span className="section-kicker">PUBLISHED OPPORTUNITIES</span><h2>正式招聘</h2><p>查看会打开真实官方链接；下架只改变展示状态，数据库记录和操作日志都会保留。</p></div><span className="safe-collection-badge">{activeItems.length} 条前台可见</span></div>
     <div className="admin-filter-bar published-tabs"><button className={view === "published" ? "active" : ""} onClick={() => { setView("published"); setSelectedIds([]); }}>正式招聘 <b>{activeItems.length}</b></button><button className={view === "offline" ? "active" : ""} onClick={() => { setView("offline"); setSelectedIds([]); }}>已下架 <b>{offlineItems.length}</b></button></div>
+    <div className="admin-filter-bar published-search-bar"><div className="admin-search"><span>⌕</span><input aria-label="搜索正式招聘" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索招聘名称、公司、批次或来源" /></div><span className="published-search-result">显示 {visible.length} / {baseVisible.length} 条</span></div>
     {view === "published" && selectedVisible.length > 0 && <div className="published-batch-toolbar"><span>已选 {selectedVisible.length} 条</span><button className="secondary-button danger-button" onClick={() => openOffline(selectedVisible.map((item) => item.id))}>批量下架</button><button className="secondary-button" onClick={() => void submitAction("reverify", selectedVisible.map((item) => item.id))}>批量重新核验链接</button></div>}
     {loading ? <div className="surface empty-state"><h3>正在读取正式招聘</h3><p>只显示数据库中的真实记录。</p></div> : visible.length ? <div className="surface verification-table published-table"><div className="published-admin-row published-admin-head"><span><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="全选当前列表" /></span><span>招聘信息</span><span>展示类型</span><span>来源</span><span>核验状态</span><span>下架信息</span><span>操作</span></div>{visible.map((item) => { const link = item.officialUrl; const canDelete = item.offlineReason ? PERMANENT_DELETE_REASON_OPTIONS.includes(item.offlineReason) : false; return <div className="published-admin-row" key={item.id}><span><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`选择 ${item.title}`} /></span><span><strong>{item.title}</strong><small>{item.company} · {item.batch}</small></span><span>{item.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方招聘入口" : "具体招聘项目"}</span><span>{item.sourceName} · {item.sourceLevel}</span><span className={item.verificationStatus === "needs_review" ? "danger-copy" : "success-copy"}>{item.verificationStatus === "needs_review" ? "待人工复核" : item.officialPageStatus === "unknown" ? "待核验" : "已记录"}<small>最近核验 {adminDate(item.lastVerifiedAt)}</small></span><span>{view === "offline" ? <><strong className="danger-copy">{item.offlineReason ?? "未填写原因"}</strong><small>{adminDate(item.offlineAt)} · {item.offlineBy ?? "未知操作人"}</small></> : "—"}</span><span className="published-actions"><span className="published-action-main">{link ? <a className="text-button" href={link} target="_blank" rel="noreferrer">查看 ↗</a> : <button className="text-button" disabled>链接缺失</button>}{view === "published" ? <button className="text-button danger-copy" onClick={() => openOffline([item.id])}>下架</button> : <button className="text-button" onClick={() => void submitAction("restore", [item.id])}>恢复上架</button>}<button className="text-button" onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}>更多</button></span>{openMenuId === item.id && <span className="published-more-menu">{view === "published" ? <button onClick={() => void submitAction("reverify", [item.id])}>重新核验链接</button> : <>{canDelete ? <button className="danger-copy" onClick={() => openDelete(item)}>永久删除</button> : <button disabled title="只有重复、测试或明显错误数据允许永久删除">永久删除（需合规原因）</button>}</>}</span>}</span></div>; })}</div> : <div className="surface empty-state"><h3>{view === "published" ? "暂无正式招聘" : "暂无已下架招聘"}</h3><p>{view === "published" ? "审核通过的招聘信息或已核验官方入口会出现在这里。" : "下架记录会保留在这里，支持恢复上架；不会因访问失败自动永久删除。"}</p></div>}
     {modal && <div className="modal-backdrop" onMouseDown={() => setModal(null)}><div className="small-modal moderation-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setModal(null)} aria-label="关闭">×</button><div className="external-icon">{modal.kind === "offline" ? "↓" : "!"}</div><h3>{modal.title}</h3><p>{modal.kind === "offline" ? "确定将该招聘信息下架吗？下架后前台用户将无法看到，但后台仍保留记录。" : "该操作将永久删除此招聘记录，无法恢复，是否继续？"}</p><label className="moderation-reason-label">{modal.kind === "offline" ? "请选择下架原因" : "请选择永久删除依据"}<select value={modal.reason} onChange={(event) => setModal((current) => current ? { ...current, reason: event.target.value } : current)}><option value="">请选择</option>{(modal.kind === "offline" ? OFFLINE_REASON_OPTIONS : PERMANENT_DELETE_REASON_OPTIONS).map((reason) => <option key={reason} value={reason}>{reason}</option>)}</select></label><div className="small-modal-actions"><button className="secondary-button" onClick={() => setModal(null)}>取消</button><button className={`primary-button ${modal.kind === "offline" ? "danger-button" : ""}`} disabled={!modal.reason} onClick={() => void submitAction(modal.kind, modal.ids, modal.reason)}>{modal.kind === "offline" ? "确认下架" : "确认永久删除"}</button></div></div></div>}
@@ -1049,4 +1058,65 @@ function TaskCenter({ tasks, onClaim, onComplete }: { tasks: AdminTask[]; onClai
   const [filter, setFilter] = useState("全部");
   const visible = tasks.filter((task) => filter === "全部" || task.status === filter || task.priority === filter);
   return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">ADMIN TASK CENTER</span><h2>任务中心</h2><p>认领、处理、完成和备注全部留痕。</p></div><span className="task-sla">当前开放任务 · {tasks.filter((task) => task.status !== "已完成").length}</span></div><div className="task-toolbar">{["全部", "待处理", "处理中", "高", "中"].map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div><div className="task-list">{visible.map((task) => <article className="task-card" key={task.id}><div className={`task-priority priority-${task.priority}`}>{task.priority}</div><div className="task-main"><div className="task-title-line"><span>{task.type}</span><strong>{task.title}</strong></div><p>{task.note}</p><small>{task.source} · 截止 {task.due}{task.assignee !== "—" ? ` · 负责人 ${task.assignee}` : ""}</small></div><div className="task-actions"><span className={`task-status status-${task.status === "已完成" ? "done" : task.status === "处理中" ? "working" : "open"}`}>{task.status}</span>{task.status === "待处理" && <button className="secondary-button" onClick={() => onClaim(task)}>认领</button>}{task.status !== "已完成" && task.status !== "待处理" && <button className="primary-button" onClick={() => onComplete(task)}>完成</button>}</div></article>)}</div></div>;
+}
+
+type UserCorrectionItem = {
+  id: string;
+  opportunityId: string;
+  type: string;
+  content: string;
+  status: "pending" | "in_review" | "resolved" | "rejected";
+  reporterEmail: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  adminNote: string;
+  title: string;
+  company: string;
+  officialUrl: string | null;
+};
+
+function CorrectionsCenter({ onNotify }: { onNotify: (message: string) => void }) {
+  const [items, setItems] = useState<UserCorrectionItem[]>([]);
+  const [filter, setFilter] = useState("全部");
+  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/corrections");
+      const payload = await response.json() as { ok?: boolean; error?: string; items?: UserCorrectionItem[] };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "用户纠错读取失败");
+      const next = Array.isArray(payload.items) ? payload.items : [];
+      setItems(next);
+      setNotes(Object.fromEntries(next.map((item) => [item.id, item.adminNote ?? ""])));
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "用户纠错读取失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void refresh(); }, []);
+
+  async function update(id: string, status: UserCorrectionItem["status"], note?: string) {
+    try {
+      const response = await fetch("/api/admin/corrections", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, status, adminNote: note ?? notes[id] ?? "" }),
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "纠错处理失败");
+      await refresh();
+      onNotify(status === "in_review" ? "纠错已标记为处理中" : status === "resolved" ? "纠错已处理完成" : status === "rejected" ? "纠错已驳回" : "纠错已重新打开");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "纠错处理失败");
+    }
+  }
+
+  const visible = items.filter((item) => filter === "全部" || (filter === "待处理" && item.status === "pending") || (filter === "处理中" && item.status === "in_review") || (filter === "已处理" && item.status === "resolved") || (filter === "已驳回" && item.status === "rejected"));
+  const openCount = items.filter((item) => ["pending", "in_review"].includes(item.status)).length;
+  const statusLabel: Record<UserCorrectionItem["status"], string> = { pending: "待处理", in_review: "处理中", resolved: "已处理", rejected: "已驳回" };
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">USER CORRECTIONS</span><h2>用户纠错</h2><p>用户从招聘详情提交的纠错会进入这里，管理员核对官网后再记录处理结果。</p></div><span className="task-sla">待处理 · {openCount}</span></div><div className="task-toolbar">{["全部", "待处理", "处理中", "已处理", "已驳回"].map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div>{loading ? <div className="surface empty-state"><h3>正在读取用户纠错</h3><p>只显示数据库中的真实提交记录。</p></div> : visible.length ? <div className="correction-admin-list">{visible.map((item) => <article className="correction-admin-card" key={item.id}><div className="correction-admin-card-head"><div><span className="source-level-badge level-A">{statusLabel[item.status]}</span><h3>{item.title}</h3><p>{item.company} · {item.type}</p></div><small>{new Date(item.createdAt).toLocaleString("zh-CN", { hour12: false })}</small></div><p className="correction-admin-content">{item.content}</p><div className="correction-admin-meta"><span>提交人：{item.reporterEmail ?? "未登录用户"}</span>{item.officialUrl ? <a href={item.officialUrl} target="_blank" rel="noreferrer">打开官方链接 ↗</a> : <span>暂无官方链接</span>}</div><div className="correction-admin-actions"><input value={notes[item.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="管理员备注（可选）" /><button className="secondary-button" onClick={() => void update(item.id, item.status, notes[item.id])}>保存备注</button>{item.status === "pending" && <button className="secondary-button" onClick={() => void update(item.id, "in_review")}>开始处理</button>}{item.status === "in_review" && <><button className="primary-button" onClick={() => void update(item.id, "resolved")}>标记已处理</button><button className="secondary-button danger-button" onClick={() => void update(item.id, "rejected")}>驳回</button></>}{["resolved", "rejected"].includes(item.status) && <button className="secondary-button" onClick={() => void update(item.id, "pending")}>重新打开</button>}</div></article>)}</div> : <div className="surface empty-state"><h3>暂无用户纠错</h3><p>用户在招聘详情中提交纠错后，会在这里显示。</p></div>}</div>;
 }

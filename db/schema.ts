@@ -651,6 +651,23 @@ export const correctionReports = pgTable("correction_reports", {
   ...timestamps,
 }, (table) => [index("correction_reports_status_idx").on(table.status), index("correction_reports_project_idx").on(table.projectId)]);
 
+// User-submitted corrections target the canonical opportunities table. Keep
+// this separate from the legacy correction_reports table, whose project_id
+// still points at the retired recruitment_projects model.
+export const userCorrectionReports = pgTable("user_correction_reports", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  opportunityId: uuid("opportunity_id").notNull().references(() => opportunities.id),
+  userId: uuid("user_id").references(() => users.id),
+  reporterEmail: text("reporter_email"),
+  type: text("type").notNull(),
+  content: text("content").notNull(),
+  status: text("status").default("pending").notNull(),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  adminNote: text("admin_note"),
+  ...timestamps,
+}, (table) => [index("user_correction_reports_status_idx").on(table.status, table.createdAt), index("user_correction_reports_opportunity_idx").on(table.opportunityId, table.createdAt)]);
+
 export const adminUsers = pgTable("admin_users", {
   userId: uuid("user_id").primaryKey().references(() => users.id),
   role: text("role").default("editor").notNull(),

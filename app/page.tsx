@@ -199,6 +199,22 @@ export default function Home() {
     window.setTimeout(() => setToast(null), 2600);
   }
 
+  async function submitCorrection(project: Project, type: string, content: string) {
+    try {
+      const response = await fetch("/api/corrections", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ opportunityId: project.id, type, content }),
+      });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "纠错提交失败");
+      setCorrectionProject(null);
+      notify("纠错已提交，管理员后台可以查看并处理");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "纠错提交失败，请稍后重试", "info");
+    }
+  }
+
   async function toggleFavorite(project: Project) {
     if (!loggedIn) {
       setLoginOpen(true);
@@ -358,7 +374,7 @@ export default function Home() {
 
       {selectedProject && <ProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenExternal={() => setExternalProject(selectedProject)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
       {externalProject && <ExternalLinkModal project={externalProject} onClose={() => setExternalProject(null)} />}
-      {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={() => { setCorrectionProject(null); notify("纠错已提交，管理员会在核验后处理"); }} />}
+      {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={(type, content) => void submitCorrection(correctionProject, type, content)} />}
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={() => { window.location.assign("/signin-with-chatgpt?return_to=/"); }} />}
       {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { setLoggedIn(false); setProfileOpen(false); notify("已退出当前账号", "info"); }} />}
       {toast && <div className={`toast ${toast.tone === "info" ? "toast-info" : ""}`}><span>{toast.tone === "info" ? "i" : "✓"}</span>{toast.message}</div>}
@@ -621,10 +637,10 @@ function ReminderControls({ project, isFavorite, settings, onUpdate }: { project
   return <section className="reminder-controls"><div className="detail-title"><span>04</span><h3>报名截止提醒</h3><span className={isFavorite && current.enabled ? "reminder-enabled" : "reminder-disabled"}>{isFavorite && current.enabled ? "已开启提醒" : "收藏后自动开启"}</span></div><div className="reminder-options"><label><input type="checkbox" checked={current.remind7Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind7Days: event.target.checked })} /><span>截止前7天</span></label><label><input type="checkbox" checked={current.remind3Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind3Days: event.target.checked })} /><span>截止前3天</span></label><label><input type="checkbox" checked={current.remind1Day} disabled={!isFavorite} onChange={(event) => onUpdate({ remind1Day: event.target.checked })} /><span>截止前1天</span></label><label><input type="checkbox" checked={current.remindSameDay} disabled={!isFavorite} onChange={(event) => onUpdate({ remindSameDay: event.target.checked })} /><span>当天提醒</span></label><label><input type="checkbox" checked={current.changeNotificationEnabled} disabled={!isFavorite} onChange={(event) => onUpdate({ changeNotificationEnabled: event.target.checked })} /><span>招聘信息变更</span></label></div><small className="reminder-footnote">{isFavorite ? "站内消息会在这里展示；取消收藏后，未来未发送提醒会被取消。" : "收藏这个项目后，系统会按选中的时间点创建站内提醒。"}</small></section>;
 }
 
-function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: () => void }) {
+function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: (type: string, content: string) => void }) {
   const [type, setType] = useState("时间错误");
   const [content, setContent] = useState("");
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal correction-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="external-icon">✎</div><h3>提交信息纠错</h3><p className="correction-project">{project.title}</p><label className="login-field"><span>纠错类型</span><select value={type} onChange={(event) => setType(event.target.value)}><option>时间错误</option><option>官方链接失效</option><option>招聘已截止</option><option>专业要求错误</option><option>招聘信息重复</option><option>其他问题</option></select></label><label className="login-field"><span>补充说明</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="请尽量提供可核验的线索" /></label><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={onSubmit}>提交纠错 <span>→</span></button></div></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal correction-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="external-icon">✎</div><h3>提交信息纠错</h3><p className="correction-project">{project.title}</p><label className="login-field"><span>纠错类型</span><select value={type} onChange={(event) => setType(event.target.value)}><option>时间错误</option><option>官方链接失效</option><option>招聘已截止</option><option>专业要求错误</option><option>招聘信息重复</option><option>其他问题</option></select></label><label className="login-field"><span>补充说明</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="请尽量提供可核验的线索" /></label><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!content.trim()} onClick={() => onSubmit(type, content.trim())}>提交纠错 <span>→</span></button></div></div></div>;
 }
 
 function ExternalLinkModal({ project, onClose }: { project: Project; onClose: () => void }) {
