@@ -14,6 +14,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:import-current-batch": "node --experimental-strip-types scripts/import-current-batch.ts",
+    "source-pool:inspect": "node --experimental-strip-types scripts/inspect-source-pool.ts",
+    "source-pool:migrate": "node --experimental-strip-types scripts/migrate-source-pool.ts",
+    "source-pool:import": "node --experimental-strip-types scripts/import-source-pool.ts",
+    "source-pool:seed-queries": "node --experimental-strip-types scripts/seed-discovery-queries.ts",
+    "source-pool:export": "node --experimental-strip-types scripts/export-source-pool.ts",
+    "source-pool:query": "node --experimental-strip-types scripts/query-source-pool.ts",
+    "source-discovery:daily": "node --experimental-strip-types scripts/run-source-discovery-daily.ts",
     "db:seed": "node --experimental-strip-types db/seed.ts",
     "sources:export": "node --experimental-strip-types scripts/generate-source-docs.mjs",
     "validate:major-directory": "node scripts/validate-major-directory.mjs"

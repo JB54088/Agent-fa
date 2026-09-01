@@ -80,3 +80,7 @@ node scripts/cleanup-demo-data.mjs
 ```
 
 清理脚本默认只读审计，不对数据库或业务文件做广泛删除。
+
+## 长期招聘/招考信息源池 Agent
+
+现有 Playwright 核验结果已作为增量 Source Pool 的第一批数据，新增了机构指纹、来源指纹、Discovery Queue、每日探索运行和组织关系表；实施说明与迁移/导入/运行命令见 [docs/source-pool-agent.md](docs/source-pool-agent.md)。

@@ -1,7 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# dependencies and local caches
+/node_modules/
+/.pnpm-store/
 /.pnp
 .pnp.*
 .yarn/*
@@ -20,7 +21,19 @@
 
 # misc
 .DS_Store
+*.log
+
+# private keys and certificates
 *.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Python caches
+__pycache__/
+**/__pycache__/
 
 # debug
 npm-debug.log*
@@ -28,7 +41,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (only the empty example is allowed)
+.env
 .env*
 !.env.example
 
@@ -37,7 +51,9 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
+/build/
 /.wrangler/
 /.codex-node
 /outputs/
