@@ -44,6 +44,7 @@ export const deadlineTypeEnum = pgEnum("deadline_type", ["FIXED_DATE", "UNTIL_FI
 export const opportunityEventTimeStatusEnum = pgEnum("opportunity_event_time_status", ["CONFIRMED", "ESTIMATED", "NOT_ANNOUNCED", "CHANGED", "ENDED"]);
 export const opportunityRequirementTypeEnum = pgEnum("opportunity_requirement_type", ["EDUCATION", "DEGREE", "MAJOR", "MAJOR_CATEGORY", "DISCIPLINE", "GRADUATION_YEAR", "FRESH_GRADUATE_STATUS", "AGE", "HOUSEHOLD_REGISTRATION", "POLITICAL_STATUS", "WORK_EXPERIENCE", "BASIC_LEVEL_EXPERIENCE", "CERTIFICATE", "LANGUAGE_LEVEL", "GENDER", "PHYSICAL_CONDITION", "WORK_REGION", "OTHER"]);
 export const adminRoleEnum = pgEnum("admin_role", ["SUPER_ADMIN", "CONTENT_ADMIN", "DATA_ENTRY", "REVIEWER", "READ_ONLY"]);
+export const userRoleEnum = pgEnum("user_role", ["admin", "customer"]);
 export const sourceDiscoveryStatusEnum = pgEnum("source_discovery_status", ["DISCOVERED", "AUTO_ALLOWED", "ATTACHMENT_ONLY", "MANUAL_ONLY", "NEEDS_REVIEW", "VERIFIED", "BLOCKED", "INACTIVE", "UNKNOWN"]);
 export const sourceRunStatusEnum = pgEnum("source_run_status", ["RUNNING", "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "SKIPPED", "BLOCKED"]);
 export const collectionReviewStatusEnum = pgEnum("collection_review_status", ["PENDING", "IN_REVIEW", "APPROVED", "REJECTED", "DUPLICATE", "NEEDS_MORE_INFORMATION"]);
@@ -58,10 +59,13 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   phone: text("phone"),
   passwordHash: text("password_hash"),
+  role: userRoleEnum("role").default("customer").notNull(),
+  name: text("name"),
+  status: text("status").default("active").notNull(),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   ...timestamps,
-}, (table) => [uniqueIndex("users_email_uidx").on(table.email), uniqueIndex("users_phone_uidx").on(table.phone)]);
+}, (table) => [uniqueIndex("users_email_uidx").on(table.email), uniqueIndex("users_phone_uidx").on(table.phone), index("users_role_status_idx").on(table.role, table.status)]);
 
 export const majorCategories = pgTable("major_categories", {
   id: uuid("id").defaultRandom().primaryKey(),

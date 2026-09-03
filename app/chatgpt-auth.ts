@@ -1,10 +1,16 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "../db";
+import { getSessionUserId } from "../lib/auth/session";
 
 export type ChatGPTUser = {
+  id?: string;
   displayName: string;
   email: string;
   fullName: string | null;
+  phone?: string | null;
+  role?: "admin" | "customer" | null;
 };
 
 const USER_EMAIL_HEADER = "oai-authenticated-user-email";
@@ -17,6 +23,16 @@ const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
+  const sessionUserId = await getSessionUserId();
+  if (sessionUserId) {
+    const db = getDb();
+    const rows = await db.select({ id: schema.users.id, email: schema.users.email, phone: schema.users.phone, name: schema.users.name, role: schema.users.role })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, sessionUserId), eq(schema.users.status, "active")))
+      .limit(1);
+    const account = rows[0];
+    if (account) return { id: account.id, displayName: account.name ?? account.phone ?? account.email, email: account.email, fullName: account.name, phone: account.phone, role: account.role };
+  }
   const requestHeaders = await headers();
   const email = requestHeaders.get(USER_EMAIL_HEADER);
   if (!email) return null;

@@ -29,6 +29,7 @@ let projects: Project[] = [];
 type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "profile" | "admin" | "about";
 type ToastTone = "success" | "info";
 type Toast = { message: string; tone?: ToastTone } | null;
+type AuthUser = { id: string; phone: string | null; name: string | null; role: "admin" | "customer" };
 type UserProfile = {
   name: string;
   major: string;
@@ -165,22 +166,14 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     fetch("/api/auth/me")
-      .then((response) => response.ok ? response.json() as Promise<{ authenticated?: boolean; user?: { displayName?: string } }> : null)
+      .then((response) => response.ok ? response.json() as Promise<{ authenticated?: boolean; user?: { id?: string | null; displayName?: string; phone?: string | null; role?: "admin" | "customer" | null } }> : null)
       .then((payload) => {
         if (!active || !payload?.authenticated) return;
         setLoggedIn(true);
+        setIsAdmin(payload.user?.role === "admin");
         if (payload.user?.displayName) setProfile((current) => ({ ...current, name: payload.user!.displayName! }));
       })
       .catch(() => undefined);
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/admin/bootstrap")
-      .then((response) => response.ok ? response.json() as Promise<{ ok?: boolean; isAdmin?: boolean }> : null)
-      .then((payload) => { if (active) setIsAdmin(Boolean(payload?.ok && payload.isAdmin)); })
-      .catch(() => { if (active) setIsAdmin(false); });
     return () => { active = false; };
   }, []);
 
@@ -375,8 +368,8 @@ export default function Home() {
       {selectedProject && <ProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenExternal={() => setExternalProject(selectedProject)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
       {externalProject && <ExternalLinkModal project={externalProject} onClose={() => setExternalProject(null)} />}
       {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={(type, content) => void submitCorrection(correctionProject, type, content)} />}
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={() => { window.location.assign("/signin-with-chatgpt?return_to=/"); }} />}
-      {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { setLoggedIn(false); setProfileOpen(false); notify("已退出当前账号", "info"); }} />}
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={(user) => { setLoggedIn(true); setIsAdmin(user.role === "admin"); setProfile((current) => ({ ...current, name: user.name ?? user.phone ?? "当前账号" })); setLoginOpen(false); notify(user.role === "admin" ? "管理员登录成功" : "登录成功"); }} />}
+      {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { void fetch("/api/auth/logout", { method: "POST" }); setLoggedIn(false); setIsAdmin(false); setProfileOpen(false); notify("已退出当前账号", "info"); }} />}
       {toast && <div className={`toast ${toast.tone === "info" ? "toast-info" : ""}`}><span>{toast.tone === "info" ? "i" : "✓"}</span>{toast.message}</div>}
     </div>
   );
@@ -647,9 +640,34 @@ function ExternalLinkModal({ project, onClose }: { project: Project; onClose: ()
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="external-icon">↗</div><h3>即将前往第三方官方网站</h3><p>请注意核实网站域名和招聘信息，具体招聘条件、报名时间及岗位要求以招聘单位官方发布为准。</p><div className="external-domain">{project.link.replace("https://", "")}</div><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>返回查看</button><a className="primary-button" href={project.link} target="_blank" rel="noreferrer">继续访问 <span>↗</span></a></div></div></div>;
 }
 
-function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
-  const [mode, setMode] = useState<"email" | "phone">("email");
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>欢迎回到校招雷达</h2><p>登录后收藏招聘项目，设置属于你的提醒。</p><div className="login-tabs"><button className={mode === "email" ? "active" : ""} onClick={() => setMode("email")}>邮箱登录</button><button className={mode === "phone" ? "active" : ""} onClick={() => setMode("phone")}>手机号登录</button></div>{mode === "email" ? <><label className="login-field"><span>邮箱</span><input placeholder="you@domain.cn" type="email" /></label><label className="login-field"><span>密码</span><input placeholder="请输入密码" type="password" /></label></> : <><label className="login-field"><span>手机号</span><input placeholder="请输入手机号" /></label><label className="login-field"><span>验证码</span><div className="code-input"><input placeholder="6位验证码" /><button>获取验证码</button></div></label></>}<button className="primary-button login-submit" onClick={onLogin}>登录并继续 <span>→</span></button><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
+function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (user: AuthUser) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(mode === "register" ? { phone, password, confirmPassword, name } : { phone, password }) });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; user?: AuthUser; error?: string };
+      if (!response.ok || !payload.ok || !payload.user) throw new Error(payload.error ?? (mode === "register" ? "注册失败" : "登录失败"));
+      onLogin(payload.user);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "操作失败，请稍后重试";
+      const messages: Record<string, string> = { invalid_mainland_phone: "请输入正确的中国大陆手机号", password_too_short: "密码至少需要 8 位", password_confirmation_mismatch: "两次密码不一致", phone_already_registered: "该手机号已经注册，请直接登录", invalid_credentials: "手机号或密码错误", role_must_not_be_submitted: "注册请求不允许提交角色" };
+      setError(messages[message] ?? message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>{mode === "login" ? "欢迎回到校招雷达" : "注册校招雷达"}</h2><p>{mode === "login" ? "使用手机号和密码登录，继续管理你的求职机会。" : "手机号注册后默认为普通客户账号。"}</p><div className="login-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>手机号登录</button><button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>注册账号</button></div><form onSubmit={submit}><label className="login-field"><span>手机号</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></label>{mode === "register" && <label className="login-field"><span>姓名/昵称（可选）</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" /></label>}<label className="login-field"><span>密码</span><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入密码" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>{mode === "register" && <label className="login-field"><span>确认密码</span><input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="请再次输入密码" type="password" autoComplete="new-password" required /></label>}{error && <p className="login-error" role="alert">{error}</p>}<button className="primary-button login-submit" type="submit" disabled={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button></form><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
 }
 
 function ProfileQuickPanel({ profile, onClose, onEdit, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; onClose: () => void; onEdit: () => void; onLogout: () => void }) {
