@@ -168,18 +168,12 @@ export default function Home() {
     fetch("/api/auth/me")
       .then((response) => response.ok ? response.json() as Promise<{ authenticated?: boolean; user?: { id?: string | null; displayName?: string; phone?: string | null; role?: "admin" | "customer" | null } }> : null)
       .then((payload) => {
-        if (!active) return;
-        if (!payload?.authenticated) {
-          setLoginOpen(true);
-          return;
-        }
+        if (!active || !payload?.authenticated) return;
         setLoggedIn(true);
         setIsAdmin(payload.user?.role === "admin");
         if (payload.user?.displayName) setProfile((current) => ({ ...current, name: payload.user!.displayName! }));
       })
-      .catch(() => {
-        if (active) setLoginOpen(true);
-      });
+      .catch(() => undefined);
     return () => { active = false; };
   }, []);
 
@@ -332,7 +326,7 @@ export default function Home() {
             <div className="help-spark">✦</div>
             <div><strong>把机会留给准备好的人</strong><span>完善资料，匹配更精准</span></div>
           </div>
-          <button className="user-mini" onClick={() => loggedIn ? setProfileOpen(true) : setLoginOpen(true)}>
+          <button className="user-mini" onClick={() => setProfileOpen(true)}>
             <span className="avatar">林</span>
             <span className="user-mini-text"><strong>{loggedIn ? profile.name : "未登录"}</strong><small>{loggedIn ? `${profile.graduation}届 · ${profile.degree}` : "登录后保存机会、报名进度和提醒"}</small></span>
             <span className="user-more">•••</span>
@@ -353,8 +347,7 @@ export default function Home() {
             <button className="icon-button" aria-label="帮助" onClick={() => navigate("about")}>?</button>
             <button className="icon-button notification-button" aria-label="提醒中心" onClick={() => navigate("messages")}>♧{notifications.some((notification) => !notification.readAt) && <span />}</button>
             {isAdmin && <button className="icon-button mobile-admin-button" aria-label="运营后台" onClick={() => navigate("admin")}>▦</button>}
-            {!loggedIn && <button className="text-button login-top-button" onClick={() => setLoginOpen(true)}>登录</button>}
-            <button className="top-avatar" aria-label={loggedIn ? "账户" : "登录"} onClick={() => loggedIn ? setProfileOpen(true) : setLoginOpen(true)}>林</button>
+            <button className="top-avatar" onClick={() => setProfileOpen(true)}>林</button>
           </div>
         </header>
 
