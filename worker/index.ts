@@ -2,13 +2,11 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { configureDatabase } from "../db/index";
-import { configureSessionSecret } from "../lib/auth/session";
 import { runIncrementalSync } from "../lib/collection/incremental-sync";
 
 interface Env {
   ASSETS: Fetcher;
   DATABASE_URL?: string;
-  AUTH_SESSION_SECRET?: string;
   CRON_SECRET?: string;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -33,7 +31,6 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     configureDatabase(env.DATABASE_URL);
-    configureSessionSecret(env.AUTH_SESSION_SECRET);
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {
