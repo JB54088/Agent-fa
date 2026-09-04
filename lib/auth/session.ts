@@ -3,9 +3,15 @@ import { cookies } from "next/headers";
 export const SESSION_COOKIE_NAME = "school_radar_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const encoder = new TextEncoder();
+let runtimeSessionSecret: string | undefined;
+
+/** Allows the Cloudflare Worker adapter to pass its secret binding explicitly. */
+export function configureSessionSecret(secret: string | undefined) {
+  if (secret && secret !== runtimeSessionSecret) runtimeSessionSecret = secret;
+}
 
 function sessionSecret() {
-  const secret = process.env.AUTH_SESSION_SECRET ?? process.env.JWT_SECRET ?? process.env.NEXTAUTH_SECRET;
+  const secret = runtimeSessionSecret ?? process.env.AUTH_SESSION_SECRET ?? process.env.JWT_SECRET ?? process.env.NEXTAUTH_SECRET;
   if (!secret) throw new Error("AUTH_SESSION_SECRET is required");
   return secret;
 }
