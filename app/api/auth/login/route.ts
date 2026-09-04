@@ -16,8 +16,7 @@ export async function POST(request: Request) {
     const rows = await db.select({ id: schema.users.id, phone: schema.users.phone, name: schema.users.name, email: schema.users.email, role: schema.users.role, status: schema.users.status, passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
     const account = rows[0];
     const passwordMatches = account ? await verifyPassword(password, account.passwordHash) : false;
-    const hashParts = account?.passwordHash?.split("$") ?? [];
-    console.log(JSON.stringify({ event: "auth_login_check", accountFound: Boolean(account), accountStatus: account?.status ?? null, hasPasswordHash: Boolean(account?.passwordHash), passwordHashLength: account?.passwordHash?.length ?? 0, passwordLength: password.length, hashParts: hashParts.length, hashAlgorithm: hashParts[0] ?? null, hashIterations: hashParts[1] ?? null, saltLength: hashParts[2]?.length ?? 0, digestLength: hashParts[3]?.length ?? 0, passwordMatches }));
+    console.log(JSON.stringify({ event: "auth_login_check", accountFound: Boolean(account), accountStatus: account?.status ?? null, hasPasswordHash: Boolean(account?.passwordHash), passwordHashLength: account?.passwordHash?.length ?? 0, passwordMatches }));
     if (!account || account.status !== "active" || !passwordMatches) return NextResponse.json({ ok: false, error: "invalid_credentials" }, { status: 401 });
     await db.update(schema.users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(schema.users.id, account.id));
     await setSessionCookie(account.id);
