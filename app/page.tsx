@@ -630,6 +630,8 @@ function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminde
   const match = getMatch(project, userMajor);
   const announcementUrl = safeExternalUrl(project.announcementUrl);
   const applicationUrl = safeExternalUrl(project.applicationUrl);
+  const recruitmentTypeLabel = project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方招聘入口" : "校园招聘";
+  const batchLabel = project.graduationYears.length ? project.graduationYears.map((year) => `${year}届`).join("、") : project.batch || "招聘批次待确认";
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -652,7 +654,7 @@ function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminde
           <div className="job-detail-modal-heading">
             <div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div>
             <h2 id="job-detail-title">{project.title}</h2>
-            <div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="plain-tag">{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "校招机会" : project.displayType}</span><span className="plain-tag">{project.batch}</span></div>
+            <div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="plain-tag">{recruitmentTypeLabel}</span><span className="plain-tag">{batchLabel}</span></div>
           </div>
           <button className="job-detail-modal-close" onClick={onClose} aria-label="关闭招聘详情">×</button>
         </header>
@@ -664,9 +666,9 @@ function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminde
               <div><span>招聘单位</span><strong>{project.company}</strong></div>
               <div><span>工作地区</span><strong>{project.regions.join(" · ") || "以官方公告为准"}</strong></div>
               <div><span>招聘对象</span><strong>{project.graduationYears.length ? project.graduationYears.map((year) => `${year}届毕业生`).join("、") : "以官方公告为准"}</strong></div>
-              <div><span>招聘批次</span><strong>{project.batch || "以官方公告为准"}</strong></div>
+              <div><span>招聘批次</span><strong>{batchLabel}</strong></div>
               <div><span>学历要求</span><strong>{project.degrees.join(" / ") || "以官方公告为准"}</strong></div>
-              <div><span>发布时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDate(project.startAt)}</strong></div>
+              <div><span>发布时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDate(project.publishedAt)}</strong></div>
               <div><span>截止时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDateWithWeekday(project.deadline)}</strong></div>
               <div><span>信息状态</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口，人工核验" : statusLabel[project.status]}</strong></div>
             </div>
