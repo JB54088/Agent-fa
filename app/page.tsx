@@ -65,6 +65,16 @@ function readLocalStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function matchesOpportunityScope(project: Project, scope: string, profileMajor = ""): boolean {
   const season = String(project.recruitmentSeason ?? "").toUpperCase();
   switch (scope) {
@@ -115,7 +125,6 @@ export default function Home() {
   const [projectScope, setProjectScope] = useState("全部");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [externalProject, setExternalProject] = useState<Project | null>(null);
   const [correctionProject, setCorrectionProject] = useState<Project | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -365,8 +374,7 @@ export default function Home() {
         </div>
       </main>
 
-      {selectedProject && <ProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenExternal={() => setExternalProject(selectedProject)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
-      {externalProject && <ExternalLinkModal project={externalProject} onClose={() => setExternalProject(null)} />}
+      {selectedProject && <CenteredProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
       {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={(type, content) => void submitCorrection(correctionProject, type, content)} />}
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={(user) => { setLoggedIn(true); setIsAdmin(user.role === "admin"); setProfile((current) => ({ ...current, name: user.name ?? user.phone ?? "当前账号" })); setLoginOpen(false); notify(user.role === "admin" ? "管理员登录成功" : "登录成功"); }} />}
       {profileOpen && <ProfileQuickPanel profile={profile} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onLogout={() => { void fetch("/api/auth/logout", { method: "POST" }); setLoggedIn(false); setIsAdmin(false); setProfileOpen(false); notify("已退出当前账号", "info"); }} />}
@@ -617,11 +625,92 @@ function AboutView({ brand }: { brand: BrandConfig }) {
   return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />ABOUT RADAR</span><h1>关于{brand.name}</h1><p>{brand.marketingCopy}</p></div></div><div className="about-layout"><div className="surface about-main"><div className="about-quote">“少一点错过，多一点准备。”</div><p>{brand.marketingCopy}平台聚合企业、央国企及后续招录模块的公开信息，帮助你按专业、学历、地区和时间筛选机会，也可以收藏、设置提醒和记录申请进度。</p><div className="about-points"><div><span>01</span><strong>公开来源</strong><small>信息来自企业官网、官方账号与高校就业渠道</small></div><div><span>02</span><strong>规则匹配</strong><small>匹配结果帮助筛选，不替代招聘方审核</small></div><div><span>03</span><strong>保持更新</strong><small>展示最近核验时间和信息变更记录</small></div></div></div><div className="surface disclaimer-card"><span className="notice-icon">i</span><h3>重要说明</h3><p>{brand.disclaimer}</p><div className="source-legend"><strong>信息来源级别</strong><span><b>A</b> 企业官方招聘网站或政府网站</span><span><b>B</b> 企业官方公众号、官方招聘账号</span><span><b>C</b> 高校就业网站转载</span><span><b>D</b> 第三方平台或用户提交</span></div></div></div></>;
 }
 
-function ProjectModal({ project, userMajor, isFavorite, tracker, reminderSettings, onClose, onToggleFavorite, onUpdateTracker, onUpdateReminderSettings, onOpenExternal, onOpenCorrection, onNotify }: { project: Project; userMajor: string; isFavorite: boolean; tracker?: { status: ApplicationStatus; note: string }; reminderSettings?: ReminderSettings; onClose: () => void; onToggleFavorite: () => void; onUpdateTracker: (status: ApplicationStatus, note?: string) => void; onUpdateReminderSettings: (patch: Partial<ReminderSettings>) => void; onOpenExternal: () => void; onOpenCorrection: () => void; onNotify: (message: string) => void }) {
+function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminderSettings, onClose, onToggleFavorite, onUpdateTracker, onUpdateReminderSettings, onOpenCorrection, onNotify }: { project: Project; userMajor: string; isFavorite: boolean; tracker?: { status: ApplicationStatus; note: string }; reminderSettings?: ReminderSettings; onClose: () => void; onToggleFavorite: () => void; onUpdateTracker: (status: ApplicationStatus, note?: string) => void; onUpdateReminderSettings: (patch: Partial<ReminderSettings>) => void; onOpenCorrection: () => void; onNotify: (message: string) => void }) {
   const [note, setNote] = useState(tracker?.note ?? "");
   const match = getMatch(project, userMajor);
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="project-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="关闭">×</button><div className="modal-header"><div className={`company-mark large ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div><div><div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div><h2>{project.title}</h2><div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="plain-tag">{project.companyType}</span><span className="plain-tag">{project.batch}</span></div></div></div><div className="modal-deadline"><div><span>报名截止</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官网公告为准" : formatDateWithWeekday(project.deadline)}</strong></div><div><span>报名开始</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "尚未公布" : formatDateWithWeekday(project.startAt)}</strong></div><div><span>工作地区</span><strong>{project.regions.join(" · ")}</strong></div></div><div className="modal-body"><section><div className="detail-title"><span>01</span><h3>招聘简介</h3></div><p>{project.intro}</p><div className="detail-grid"><div><span>面向毕业年份</span><strong>{project.graduationYears.length ? project.graduationYears.map((year) => `${year}届`).join("、") : "以官方公告为准"}</strong></div><div><span>学历要求</span><strong>{project.degrees.join(" / ") || "以官方公告为准"}</strong></div><div><span>专业要求</span><strong>{project.originalMajors}</strong></div><div><span>标准专业标签</span><strong>{project.majors.length ? project.majors.join("、") : "以官方公告为准"}</strong></div></div></section><section className="match-result"><div className="detail-title"><span>02</span><h3>你的专业匹配</h3></div><div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div><strong>{match}</strong><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据专业大类和招聘原文整理，仅供筛选参考。"}</p></div></div><small className="match-disclaimer">专业匹配结果仅供信息筛选参考，是否符合报名条件请以招聘单位官方审核结果为准。</small></section><section><div className="detail-title"><span>03</span><h3>我的跟进</h3></div><div className="tracker-editor"><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加一条个人备注，例如：周日前完成网申" /><button onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div></section><ReminderControls project={project} isFavorite={isFavorite} settings={reminderSettings} onUpdate={onUpdateReminderSettings} /></div><div className="modal-footer"><div><span>来源：{project.sourceName}</span><span>最近核验：{formatDate(project.verifiedAt)}</span></div><div className="modal-actions">{project.announcementUrl && <a className="secondary-button" href={project.announcementUrl} target="_blank" rel="noreferrer">官方公告 <span>↗</span></a>}<button className="text-button correction-button" onClick={onOpenCorrection}>提交纠错</button><button className={`secondary-button favorite-action ${isFavorite ? "active" : ""}`} onClick={onToggleFavorite}>{isFavorite ? "♥ 已收藏" : "♡ 收藏项目"}</button><button className="primary-button" onClick={onOpenExternal}>前往官方报名 <span>↗</span></button></div></div></div></div>;
+  const announcementUrl = safeExternalUrl(project.announcementUrl);
+  const applicationUrl = safeExternalUrl(project.applicationUrl);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="job-detail-modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="job-detail-modal" role="dialog" aria-modal="true" aria-labelledby="job-detail-title" onClick={(event) => event.stopPropagation()}>
+        <header className="job-detail-modal-header">
+          <div className={`company-mark large ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div>
+          <div className="job-detail-modal-heading">
+            <div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div>
+            <h2 id="job-detail-title">{project.title}</h2>
+            <div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="plain-tag">{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "校招机会" : project.displayType}</span><span className="plain-tag">{project.batch}</span></div>
+          </div>
+          <button className="job-detail-modal-close" onClick={onClose} aria-label="关闭招聘详情">×</button>
+        </header>
+
+        <main className="job-detail-modal-main">
+          <section className="job-detail-section">
+            <div className="detail-title"><span>01</span><h3>基本信息</h3></div>
+            <div className="job-detail-info-grid">
+              <div><span>招聘单位</span><strong>{project.company}</strong></div>
+              <div><span>工作地区</span><strong>{project.regions.join(" · ") || "以官方公告为准"}</strong></div>
+              <div><span>招聘对象</span><strong>{project.graduationYears.length ? project.graduationYears.map((year) => `${year}届毕业生`).join("、") : "以官方公告为准"}</strong></div>
+              <div><span>招聘批次</span><strong>{project.batch || "以官方公告为准"}</strong></div>
+              <div><span>学历要求</span><strong>{project.degrees.join(" / ") || "以官方公告为准"}</strong></div>
+              <div><span>发布时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDate(project.startAt)}</strong></div>
+              <div><span>截止时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDateWithWeekday(project.deadline)}</strong></div>
+              <div><span>信息状态</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口，人工核验" : statusLabel[project.status]}</strong></div>
+            </div>
+          </section>
+
+          <section className="job-detail-section">
+            <div className="detail-title"><span>02</span><h3>招聘简介</h3></div>
+            <p className="job-detail-description">{project.intro || "招聘单位暂未提供完整简介，请以官方公告内容为准。"}</p>
+          </section>
+
+          <section className="job-detail-section">
+            <div className="detail-title"><span>03</span><h3>专业要求</h3></div>
+            <p className="job-detail-description">{project.originalMajors || "以官方公告为准"}</p>
+            {project.majors.length > 0 && <div className="job-detail-major-tags">{project.majors.map((major) => <span key={major}>{major}</span>)}</div>}
+          </section>
+
+          <section className="job-detail-section match-result">
+            <div className="detail-title"><span>04</span><h3>我的专业匹配</h3></div>
+            <div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div><strong>{match}</strong><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据专业大类和招聘原文整理，仅供筛选参考。"}</p></div></div>
+            <small className="match-disclaimer">专业匹配结果仅供信息筛选参考，是否符合报名条件请以招聘单位官方审核结果为准。</small>
+          </section>
+
+          <section className="job-detail-section">
+            <div className="detail-title"><span>05</span><h3>我的跟进</h3></div>
+            <div className="tracker-editor"><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加一条个人备注，例如：周日前完成网申" /><button onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div>
+          </section>
+
+          <ReminderControls project={project} isFavorite={isFavorite} settings={reminderSettings} onUpdate={onUpdateReminderSettings} />
+        </main>
+
+        <footer className="job-detail-modal-footer">
+          <div className="job-detail-source"><span>来源：{project.sourceName || "官方招聘来源"}</span><span>最近核验：{formatDate(project.verifiedAt)}</span></div>
+          <div className="job-detail-modal-actions">
+            <button className="text-button correction-button" onClick={onOpenCorrection}>提交纠错</button>
+            <button className={`secondary-button favorite-action ${isFavorite ? "active" : ""}`} onClick={onToggleFavorite}>{isFavorite ? "♥ 已收藏" : "♡ 收藏"}</button>
+            {announcementUrl && <a className="secondary-button" href={announcementUrl} target="_blank" rel="noopener noreferrer">查看官方公告 <span>↗</span></a>}
+            {applicationUrl && <a className="primary-button" href={applicationUrl} target="_blank" rel="noopener noreferrer">前往官方报名 <span>↗</span></a>}
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
 }
+
 
 function ReminderControls({ project, isFavorite, settings, onUpdate }: { project: Project; isFavorite: boolean; settings?: ReminderSettings; onUpdate: (patch: Partial<ReminderSettings>) => void }) {
   const eligible = hasExplicitDeadline(project);
@@ -636,9 +725,6 @@ function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onC
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal correction-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="external-icon">✎</div><h3>提交信息纠错</h3><p className="correction-project">{project.title}</p><label className="login-field"><span>纠错类型</span><select value={type} onChange={(event) => setType(event.target.value)}><option>时间错误</option><option>官方链接失效</option><option>招聘已截止</option><option>专业要求错误</option><option>招聘信息重复</option><option>其他问题</option></select></label><label className="login-field"><span>补充说明</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="请尽量提供可核验的线索" /></label><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!content.trim()} onClick={() => onSubmit(type, content.trim())}>提交纠错 <span>→</span></button></div></div></div>;
 }
 
-function ExternalLinkModal({ project, onClose }: { project: Project; onClose: () => void }) {
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="external-icon">↗</div><h3>即将前往第三方官方网站</h3><p>请注意核实网站域名和招聘信息，具体招聘条件、报名时间及岗位要求以招聘单位官方发布为准。</p><div className="external-domain">{project.link.replace("https://", "")}</div><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>返回查看</button><a className="primary-button" href={project.link} target="_blank" rel="noreferrer">继续访问 <span>↗</span></a></div></div></div>;
-}
 
 function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (user: AuthUser) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
