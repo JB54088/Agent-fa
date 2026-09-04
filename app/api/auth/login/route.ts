@@ -15,9 +15,7 @@ export async function POST(request: Request) {
     const db = getDb();
     const rows = await db.select({ id: schema.users.id, phone: schema.users.phone, name: schema.users.name, email: schema.users.email, role: schema.users.role, status: schema.users.status, passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
     const account = rows[0];
-    const passwordMatches = account ? await verifyPassword(password, account.passwordHash) : false;
-    console.log(JSON.stringify({ event: "auth_login_check", accountFound: Boolean(account), accountStatus: account?.status ?? null, hasPasswordHash: Boolean(account?.passwordHash), passwordHashLength: account?.passwordHash?.length ?? 0, passwordMatches }));
-    if (!account || account.status !== "active" || !passwordMatches) return NextResponse.json({ ok: false, error: "invalid_credentials" }, { status: 401 });
+    if (!account || account.status !== "active" || !(await verifyPassword(password, account.passwordHash))) return NextResponse.json({ ok: false, error: "invalid_credentials" }, { status: 401 });
     await db.update(schema.users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(schema.users.id, account.id));
     await setSessionCookie(account.id);
     return NextResponse.json({ ok: true, user: { id: account.id, phone: account.phone, name: account.name, role: account.role } });
