@@ -23,6 +23,8 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -48,31 +50,56 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
     }
   }
 
+  function switchMode(nextMode: Mode) {
+    setMode(nextMode);
+    setError("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+  }
+
   return (
     <main className="login-page">
+      <div className="login-page-orb login-page-orb-one" aria-hidden="true" />
+      <div className="login-page-orb login-page-orb-two" aria-hidden="true" />
       <section className="login-page-card" aria-labelledby="login-page-title">
+        <div className="login-page-card-topline"><span>校招雷达</span><span className="login-page-secure-pill"><i />账户安全</span></div>
         <div className="login-page-brand">
           <div className="brand-mark"><span>⌁</span></div>
           <div><strong>校招雷达</strong><small>校园招聘信息雷达</small></div>
         </div>
         <div className="login-page-heading">
           <span className="eyebrow"><i />安全登录</span>
-          <h1 id="login-page-title">{mode === "login" ? "欢迎回到校招雷达" : "注册校招雷达"}</h1>
-          <p>{mode === "login" ? "登录后查看招聘机会、收藏项目并接收截止提醒。" : "注册后默认成为普通求职者账号，管理员权限由后台统一管理。"}</p>
+          <h1 id="login-page-title">{mode === "login" ? "欢迎回来" : "注册校招雷达"}</h1>
+          <p>{mode === "login" ? "登录校招雷达，继续查看你的招聘机会和求职进度。" : "注册后默认成为普通求职者账号，管理员权限由后台统一管理。"}</p>
         </div>
         <div className="login-tabs" role="tablist" aria-label="账号操作">
-          <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>手机号登录</button>
-          <button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>注册账号</button>
+          <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")}>手机号登录</button>
+          <button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => switchMode("register")}>注册账号</button>
         </div>
         <form onSubmit={submit} className="login-page-form">
-          <label className="login-field"><span>手机号</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></label>
-          {mode === "register" && <label className="login-field"><span>姓名/昵称（可选）</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" /></label>}
-          <label className="login-field"><span>密码</span><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入密码" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
-          {mode === "register" && <label className="login-field"><span>确认密码</span><input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="请再次输入密码" type="password" autoComplete="new-password" required /> </label>}
+          <div className="login-field">
+            <div className="login-field-label"><label htmlFor="login-phone">手机号</label><span>中国大陆</span></div>
+            <div className="login-input-wrap"><span className="login-input-prefix">+86</span><input id="login-phone" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></div>
+          </div>
+          {mode === "register" && <div className="login-field">
+            <div className="login-field-label"><label htmlFor="login-name">姓名 / 昵称</label><span>选填</span></div>
+            <input id="login-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" />
+          </div>}
+          <div className="login-field">
+            <div className="login-field-label"><label htmlFor="login-password">密码</label>{mode === "register" && <span>至少 8 位</span>}</div>
+            <div className="login-input-wrap"><input id="login-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入登录密码" type={showPassword ? "text" : "password"} autoComplete={mode === "login" ? "current-password" : "new-password"} required /><button type="button" className="login-password-toggle" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "隐藏密码" : "显示密码"}>{showPassword ? "隐藏" : "显示"}</button></div>
+            {mode === "register" && <small className="login-field-hint">建议使用字母、数字或符号组合。</small>}
+          </div>
+          {mode === "register" && <div className="login-field">
+            <div className="login-field-label"><label htmlFor="login-confirm-password">确认密码</label><span>再次输入</span></div>
+            <div className="login-input-wrap"><input id="login-confirm-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="请再次输入密码" type={showConfirmPassword ? "text" : "password"} autoComplete="new-password" required /><button type="button" className="login-password-toggle" onClick={() => setShowConfirmPassword((current) => !current)} aria-label={showConfirmPassword ? "隐藏确认密码" : "显示确认密码"}>{showConfirmPassword ? "隐藏" : "显示"}</button></div>
+          </div>}
           {error && <p className="login-error" role="alert">{error}</p>}
-          <button className="primary-button login-submit" type="submit" disabled={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button>
+          <button className="primary-button login-submit" type="submit" disabled={busy} aria-busy={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button>
         </form>
-        <p className="login-page-footnote">招聘内容、搜索和平台业务数据仅对已登录账号开放。</p>
+        <p className="login-mode-switch"><span>{mode === "login" ? "还没有账号？" : "已经有账号？"}</span><button type="button" onClick={() => switchMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "立即注册" : "返回登录"}</button></p>
+        <div className="login-page-divider"><span>校招雷达</span><i /><span>公开来源 · 人工核验</span></div>
+        <p className="login-page-footnote">招聘信息及个人求职数据仅对已登录用户开放。</p>
       </section>
     </main>
   );

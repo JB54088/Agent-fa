@@ -23,6 +23,7 @@
     "source-discovery:daily": "node --experimental-strip-types scripts/run-source-discovery-daily.ts",
     "db:seed": "node --experimental-strip-types db/seed.ts",
     "create-admin": "node --experimental-strip-types scripts/create_admin.ts",
+    "init-admin": "node --experimental-strip-types scripts/init-admin.ts",
     "reset-password": "node --experimental-strip-types scripts/reset_password.ts",
     "sources:export": "node --experimental-strip-types scripts/generate-source-docs.mjs",
     "validate:major-directory": "node scripts/validate-major-directory.mjs"
