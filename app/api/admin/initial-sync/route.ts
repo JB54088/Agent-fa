@@ -27,7 +27,7 @@ async function stableUuid(value: string) {
 
 async function requireAdmin() {
   const user = await getAppUser();
-  if (!user) return null;
+  if (!user || user.role !== "admin") return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id })
     .from(schema.users)
@@ -116,7 +116,7 @@ export async function runBatch1(adminId: string | null) {
   const sql = neon(getDatabaseUrl());
   await ensureNationalOpportunityModel(sql);
   const before = await countRows(sql);
-  const queries: any[] = [];
+  const queries: ReturnType<typeof sql>[] = [];
   const now = new Date().toISOString();
   const organizationIds = new Map<string, string>();
   const sourceIds = new Map<string, string>();

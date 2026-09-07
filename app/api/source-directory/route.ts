@@ -7,7 +7,7 @@ import { ensureOfficialUrlLifecycle } from "../../../lib/official-url-lifecycle"
 
 async function requireAdmin() {
   const user = await getAppUser();
-  if (!user) return false;
+  if (!user || user.role !== "admin") return false;
   const db = getDb();
   const rows = await db.select({ id: schema.users.id })
     .from(schema.users)

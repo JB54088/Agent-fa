@@ -17,9 +17,8 @@ export async function GET() {
   try {
     const user = await getAppUser();
     if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
-    const db = getDb();
+    if (user.role !== "admin") return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const admin = await currentAdmin(user.email);
-    const anyAdmin = await db.select({ userId: schema.adminUsers.userId }).from(schema.adminUsers).limit(1);
     return NextResponse.json({ ok: true, isAdmin: Boolean(admin), role: admin ? "admin" : null, canBootstrap: false });
   } catch (error) {
     const message = error instanceof Error ? error.message : "管理员初始化检查失败";

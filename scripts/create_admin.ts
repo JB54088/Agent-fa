@@ -8,6 +8,12 @@ import { hashPassword, PASSWORD_MIN_LENGTH } from "../lib/auth/password.ts";
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 const INTERNAL_EMAIL_DOMAIN = "accounts.school-recruitment-radar.invalid";
 
+function configuredAdminPhones() {
+  return [process.env.ADMIN_PHONE_1, process.env.ADMIN_PHONE_2, process.env.ADMIN_PHONE_3]
+    .map((phone) => (phone ?? "").replace(/\s+/g, ""))
+    .filter(Boolean);
+}
+
 async function ask(prompt: string) {
   const rl = createInterface({ input, output });
   try {
@@ -56,6 +62,8 @@ async function askSecret(prompt: string) {
 async function main() {
   const phone = (await ask("请输入管理员手机号：")).replace(/\s+/g, "");
   if (!PHONE_PATTERN.test(phone)) throw new Error("手机号格式不正确，应为中国大陆 11 位手机号。");
+  const adminPhones = configuredAdminPhones();
+  if (adminPhones.length === 3 && new Set(adminPhones).size === 3 && !adminPhones.includes(phone)) throw new Error("该手机号不在 ADMIN_PHONE_1..3 管理员白名单中。");
   const password = await askSecret("请输入管理员密码：");
   if (password.length < PASSWORD_MIN_LENGTH) throw new Error(`密码至少需要 ${PASSWORD_MIN_LENGTH} 位。`);
   const name = (await ask("请输入管理员姓名（可选）：")).slice(0, 80) || null;
@@ -81,14 +89,14 @@ async function main() {
     }
     await sql.transaction([
       sql`UPDATE users SET role = 'admin', password_hash = ${passwordHash}, name = COALESCE(${name}, name), updated_at = now() WHERE id = ${account.id}`,
-      sql`INSERT INTO admin_users (user_id, role, created_at, updated_at) VALUES (${account.id}, 'SUPER_ADMIN', now(), now()) ON CONFLICT (user_id) DO NOTHING`,
+      sql`INSERT INTO admin_users (user_id, role, created_at, updated_at) VALUES (${account.id}, 'admin', now(), now()) ON CONFLICT (user_id) DO NOTHING`,
     ]);
   } else {
     const id = randomUUID();
     const email = `${phone}@${INTERNAL_EMAIL_DOMAIN}`;
     await sql.transaction([
       sql`INSERT INTO users (id, email, phone, password_hash, role, name, status, created_at, updated_at) VALUES (${id}, ${email}, ${phone}, ${passwordHash}, 'admin', ${name}, 'active', now(), now())`,
-      sql`INSERT INTO admin_users (user_id, role, created_at, updated_at) VALUES (${id}, 'SUPER_ADMIN', now(), now())`,
+      sql`INSERT INTO admin_users (user_id, role, created_at, updated_at) VALUES (${id}, 'admin', now(), now())`,
     ]);
   }
   console.log(`管理员创建成功\n手机号：${phone}`);

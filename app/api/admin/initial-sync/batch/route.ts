@@ -6,7 +6,7 @@ import { runInitialSyncBatch } from "../../../../../lib/collection/initial-sync"
 
 async function requireAdmin() {
   const user = await getAppUser();
-  if (!user) return null;
+  if (!user || user.role !== "admin") return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id })
     .from(schema.users)

@@ -11,7 +11,7 @@ const PERMANENT_DELETE_REASONS = new Set(["重复招聘", "测试数据", "明�
 
 async function requireAdmin() {
   const user = await getAppUser();
-  if (!user) return null;
+  if (!user || user.role !== "admin") return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id, email: schema.users.email })
     .from(schema.users)
