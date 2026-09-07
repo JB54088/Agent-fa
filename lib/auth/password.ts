@@ -1,5 +1,9 @@
 const PASSWORD_MIN_LENGTH = 8;
-const PBKDF2_ITERATIONS = 210_000;
+// Cloudflare Workers rejects a single PBKDF2 request above 100,000 iterations.
+// Two sequential derivations keep the PBKDF2 family and preserve the original
+// order of work without asking the runtime for an unsupported single request.
+const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_STAGES = 2;
 const encoder = new TextEncoder();
 
 function webCrypto(): Crypto {
@@ -29,13 +33,22 @@ export async function hashPassword(password: string) {
   assertPassword(password);
   const cryptoApi = webCrypto();
   const salt = cryptoApi.getRandomValues(new Uint8Array(16));
-  const key = await cryptoApi.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const derived = await cryptoApi.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
-    key,
-    256,
-  );
-  return `pbkdf2_sha256$${PBKDF2_ITERATIONS}$${toBase64Url(salt)}$${toBase64Url(new Uint8Array(derived))}`;
+  const derived = await derivePassword(password, salt, PBKDF2_ITERATIONS, PBKDF2_STAGES);
+  return `pbkdf2_sha256_2x$${PBKDF2_ITERATIONS}$${toBase64Url(salt)}$${toBase64Url(derived)}`;
+}
+
+async function derivePassword(password: string, salt: Uint8Array, iterations: number, stages: number) {
+  const cryptoApi = webCrypto();
+  let input = encoder.encode(password);
+  for (let stage = 0; stage < stages; stage += 1) {
+    const key = await cryptoApi.subtle.importKey("raw", input, "PBKDF2", false, ["deriveBits"]);
+    input = new Uint8Array(await cryptoApi.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+      key,
+      256,
+    ));
+  }
+  return input;
 }
 
 function constantTimeEqual(left: Uint8Array, right: Uint8Array) {
@@ -49,16 +62,10 @@ export async function verifyPassword(password: string, encoded: string | null | 
   if (!encoded || typeof password !== "string") return false;
   const [algorithm, iterationsText, saltText, digestText] = encoded.split("$");
   const iterations = Number(iterationsText);
-  if (algorithm !== "pbkdf2_sha256" || !Number.isSafeInteger(iterations) || iterations < 100_000 || !saltText || !digestText) return false;
+  const stages = algorithm === "pbkdf2_sha256_2x" ? PBKDF2_STAGES : algorithm === "pbkdf2_sha256" ? 1 : 0;
+  if (!stages || !Number.isSafeInteger(iterations) || iterations < 100_000 || !saltText || !digestText) return false;
   try {
-    const cryptoApi = webCrypto();
-    const key = await cryptoApi.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-    const derived = await cryptoApi.subtle.deriveBits(
-      { name: "PBKDF2", salt: fromBase64Url(saltText), iterations, hash: "SHA-256" },
-      key,
-      256,
-    );
-    return constantTimeEqual(new Uint8Array(derived), fromBase64Url(digestText));
+    return constantTimeEqual(await derivePassword(password, fromBase64Url(saltText), iterations, stages), fromBase64Url(digestText));
   } catch {
     return false;
   }
