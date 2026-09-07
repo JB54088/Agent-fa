@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { getAppUser } from "../../../chatgpt-auth";
 import { getDb, schema } from "../../../../db";
 
 async function currentAdmin(userEmail: string) {
@@ -15,12 +15,12 @@ async function currentAdmin(userEmail: string) {
 
 export async function GET() {
   try {
-    const user = await getChatGPTUser();
+    const user = await getAppUser();
     if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
     const db = getDb();
     const admin = await currentAdmin(user.email);
     const anyAdmin = await db.select({ userId: schema.adminUsers.userId }).from(schema.adminUsers).limit(1);
-    return NextResponse.json({ ok: true, isAdmin: Boolean(admin), role: admin?.role ?? null, canBootstrap: false });
+    return NextResponse.json({ ok: true, isAdmin: Boolean(admin), role: admin ? "admin" : null, canBootstrap: false });
   } catch (error) {
     const message = error instanceof Error ? error.message : "管理员初始化检查失败";
     return NextResponse.json({ ok: false, error: message }, { status: 503 });

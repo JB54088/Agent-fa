@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { getAppUser } from "../../../chatgpt-auth";
 import { getReminderStore } from "../../../../lib/reminders/store";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ notificationId: string }> }) {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
   const { notificationId } = await context.params;
   try {

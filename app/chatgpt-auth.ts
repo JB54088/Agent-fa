@@ -23,16 +23,8 @@ const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
-  const sessionUserId = await getSessionUserId();
-  if (sessionUserId) {
-    const db = getDb();
-    const rows = await db.select({ id: schema.users.id, email: schema.users.email, phone: schema.users.phone, name: schema.users.name, role: schema.users.role })
-      .from(schema.users)
-      .where(and(eq(schema.users.id, sessionUserId), eq(schema.users.status, "active")))
-      .limit(1);
-    const account = rows[0];
-    if (account) return { id: account.id, displayName: account.name ?? account.phone ?? account.email, email: account.email, fullName: account.name, phone: account.phone, role: account.role };
-  }
+  const appUser = await getAppUser();
+  if (appUser) return appUser;
   const requestHeaders = await headers();
   const email = requestHeaders.get(USER_EMAIL_HEADER);
   if (!email) return null;
@@ -49,6 +41,28 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
     email,
     fullName,
   };
+}
+
+/**
+ * Returns only the user authenticated by the app-owned phone/password session.
+ * Business pages and APIs use this helper so a platform-provided identity
+ * header can never grant access to recruitment data or admin operations.
+ */
+export async function getAppUser(): Promise<ChatGPTUser | null> {
+  const sessionUserId = await getSessionUserId();
+  if (!sessionUserId) return null;
+  try {
+    const db = getDb();
+    const rows = await db.select({ id: schema.users.id, email: schema.users.email, phone: schema.users.phone, name: schema.users.name, role: schema.users.role })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, sessionUserId), eq(schema.users.status, "active")))
+      .limit(1);
+    const account = rows[0];
+    if (!account) return null;
+    return { id: account.id, displayName: account.name ?? account.phone ?? account.email, email: account.email, fullName: account.name, phone: account.phone, role: account.role };
+  } catch {
+    return null;
+  }
 }
 
 export async function requireChatGPTUser(

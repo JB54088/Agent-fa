@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { getAppUser } from "../../../chatgpt-auth";
 import { getDb, schema } from "../../../../db";
 import { runIncrementalSync } from "../../../../lib/collection/incremental-sync";
 
 async function requireAdmin() {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id })

@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { dataSourcesSeed } from "../../../../db/seeds/data-sources";
 import { nationalSourceDirectory } from "../../../../db/seeds/national-source-directory";
@@ -35,7 +35,7 @@ async function stableUuid(value: string) {
 }
 
 async function requireAdmin() {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id })

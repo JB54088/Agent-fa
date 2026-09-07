@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { getAppUser } from "../../chatgpt-auth";
 import { officialMajorDirectories, searchMajorDirectory } from "../../major-directory";
 
 export async function GET(request: Request) {
+  if (!(await getAppUser())) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
   const url = new URL(request.url);
   const query = url.searchParams.get("q") ?? "";
   const educationLevel = url.searchParams.get("educationLevel") === "graduate" ? "graduate" : "undergraduate";

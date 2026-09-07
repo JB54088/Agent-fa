@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { getAppUser } from "../../chatgpt-auth";
 import { getReminderStore } from "../../../lib/reminders/store";
 
 function persistenceError(error: unknown) {
@@ -8,7 +8,7 @@ function persistenceError(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
   const opportunityId = new URL(request.url).searchParams.get("opportunityId");
   if (!opportunityId) return NextResponse.json({ ok: false, error: "opportunity_id_required" }, { status: 400 });
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
   try {
     const body = await request.json() as { opportunityId?: string; patch?: Record<string, unknown> };

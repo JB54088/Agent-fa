@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { getAppUser } from "../../chatgpt-auth";
 import { getDatabaseUrl } from "../../../db";
 
 const CORRECTION_TYPES = ["时间错误", "官方链接失效", "招聘已截止", "专业要求错误", "招聘信息重复", "其他问题"] as const;
@@ -37,6 +37,8 @@ async function ensureCorrectionTable(sql: ReturnType<typeof neon>) {
 
 export async function POST(request: Request) {
   try {
+    const user = await getAppUser();
+    if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
     const body = await request.json().catch(() => ({})) as { opportunityId?: string; type?: string; content?: string };
     const opportunityId = normalize(body.opportunityId);
     const type = normalize(body.type);
@@ -51,7 +53,6 @@ export async function POST(request: Request) {
     const opportunity = await sql`SELECT id::text AS id FROM opportunities WHERE id = ${opportunityId} AND is_demo = false LIMIT 1`;
     if (!opportunity.length) return NextResponse.json({ ok: false, error: "opportunity_not_found" }, { status: 404 });
 
-    const user = await getChatGPTUser();
     const reporterEmail = user?.email ? normalize(user.email) : null;
     const inserted = await sql`
       INSERT INTO user_correction_reports (opportunity_id, reporter_email, type, content)

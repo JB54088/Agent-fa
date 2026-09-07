@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 
 type SqlClient = ReturnType<typeof neon>;
@@ -10,7 +10,7 @@ const OFFLINE_REASONS = ["招聘已结束", "官网链接失效", "页面不存�
 const PERMANENT_DELETE_REASONS = new Set(["重复招聘", "测试数据", "明显错误数据"]);
 
 async function requireAdmin() {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id, email: schema.users.email })

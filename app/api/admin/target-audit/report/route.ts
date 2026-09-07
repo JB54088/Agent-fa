@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm";
 import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../../../chatgpt-auth";
+import { getAppUser } from "../../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../../db";
 import { getInitialSyncProgress, targetAuditRows } from "../../../../../lib/collection/initial-sync";
 import { ensureOfficialUrlLifecycle } from "../../../../../lib/official-url-lifecycle";
 
 async function requireAdmin() {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id })

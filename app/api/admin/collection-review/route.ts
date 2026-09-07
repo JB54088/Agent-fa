@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { syncFavoriteOpportunityReminders } from "../../../../lib/reminders/store";
 import { getReviewErrorMessage, isReviewValidationError } from "../../../../lib/review-errors";
@@ -108,7 +108,7 @@ async function promoteReviewedItem(rawId: string, adminId: string, note: string 
 }
 
 async function requireAdmin() {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (!user) return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id })
