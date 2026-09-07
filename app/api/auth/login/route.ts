@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "../../../../db";
-import { verifyPassword } from "../../../../lib/auth/password";
+import { hashPassword, verifyPassword } from "../../../../lib/auth/password";
 import { setSessionCookie } from "../../../../lib/auth/session";
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
@@ -12,6 +12,28 @@ function configuredAdminPhones() {
     .filter(Boolean);
 }
 
+async function initializeConfiguredAdmin(db: ReturnType<typeof getDb>, phone: string, password: string) {
+  const configuredPhone = (process.env.ADMIN_PHONE_1 ?? "").replace(/\s+/g, "");
+  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD_1 ?? "";
+  if (!configuredPhone || configuredPhone !== phone || !initialPassword || password !== initialPassword) return;
+
+  const passwordHash = await hashPassword(initialPassword);
+  const inserted = await db.insert(schema.users).values({
+    email: `${phone}@accounts.school-recruitment-radar.invalid`,
+    phone,
+    passwordHash,
+    role: "admin",
+    name: process.env.ADMIN_NAME_1?.trim().slice(0, 80) || "校招雷达管理员",
+    status: "active",
+  }).onConflictDoUpdate({
+    target: schema.users.phone,
+    set: { passwordHash, role: "admin", name: process.env.ADMIN_NAME_1?.trim().slice(0, 80) || "校招雷达管理员", status: "active", updatedAt: new Date() },
+  }).returning({ id: schema.users.id });
+  const userId = inserted[0]?.id;
+  if (!userId) return;
+  await db.insert(schema.adminUsers).values({ userId, role: "admin" }).onConflictDoUpdate({ target: schema.adminUsers.userId, set: { role: "admin", updatedAt: new Date() } });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({})) as { phone?: unknown; password?: unknown };
@@ -19,6 +41,7 @@ export async function POST(request: Request) {
     const password = typeof body.password === "string" ? body.password : "";
     if (!PHONE_PATTERN.test(phone)) return NextResponse.json({ ok: false, error: "invalid_mainland_phone" }, { status: 400 });
     const db = getDb();
+    await initializeConfiguredAdmin(db, phone, password);
     const rows = await db.select({ id: schema.users.id, phone: schema.users.phone, name: schema.users.name, email: schema.users.email, role: schema.users.role, status: schema.users.status, passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
     const account = rows[0];
     if (!account || account.status !== "active" || !(await verifyPassword(password, account.passwordHash))) return NextResponse.json({ ok: false, error: "invalid_credentials" }, { status: 401 });
