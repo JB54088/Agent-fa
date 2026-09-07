@@ -653,7 +653,7 @@ function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminde
         <header className="job-detail-modal-header">
           <div className={`company-mark large ${project.logoTone}`}>{project.shortName.slice(0, 1)}</div>
           <div className="job-detail-modal-heading">
-            <div className="company-name-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div>
+            <div className="job-detail-company-line"><strong>{project.company}</strong><span className="official-tag">真实数据</span><span className="official-tag">{project.sourceLevel}来源</span></div>
             <h2 id="job-detail-title">{project.title}</h2>
             <div className="project-tags"><span className={`status-tag ${statusClass[project.status]}`}><i />{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口" : statusLabel[project.status]}</span><span className="plain-tag">{recruitmentTypeLabel}</span><span className="plain-tag">{batchLabel}</span></div>
           </div>
@@ -671,37 +671,35 @@ function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminde
               <div><span>学历要求</span><strong>{project.degrees.join(" / ") || "以官方公告为准"}</strong></div>
               <div><span>发布时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDate(project.publishedAt)}</strong></div>
               <div><span>截止时间</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "以官方公告为准" : formatDateWithWeekday(project.deadline)}</strong></div>
-              <div><span>信息状态</span><strong>{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口，人工核验" : statusLabel[project.status]}</strong></div>
+              <div><span>信息状态</span><strong className="job-detail-status-value">{project.displayType === "OFFICIAL_RECRUITMENT_ENTRY" ? "官方入口，人工核验" : statusLabel[project.status]}</strong></div>
             </div>
           </section>
 
           <section className="job-detail-section">
             <div className="detail-title"><span>02</span><h3>招聘简介</h3></div>
-            <p className="job-detail-description">{project.intro || "招聘单位暂未提供完整简介，请以官方公告内容为准。"}</p>
+            <div className="job-detail-copy-card"><p className="job-detail-description">{project.intro || "暂无详细招聘简介，请查看官方公告获取完整招聘内容。"}</p></div>
           </section>
 
           <section className="job-detail-section">
             <div className="detail-title"><span>03</span><h3>专业要求</h3></div>
-            <p className="job-detail-description">{project.originalMajors || "以官方公告为准"}</p>
-            {project.majors.length > 0 && <div className="job-detail-major-tags">{project.majors.map((major) => <span key={major}>{major}</span>)}</div>}
+            <div className="job-detail-major-card"><p className="job-detail-description">{project.originalMajors || "专业要求以官方招聘公告及岗位详情为准。"}</p>{project.majors.length > 0 ? <div className="job-detail-major-tags">{project.majors.map((major) => <span key={major}>{major}</span>)}</div> : <span className="job-detail-major-empty">暂未获取完整专业原文</span>}</div>
           </section>
 
           <section className="job-detail-section match-result">
             <div className="detail-title"><span>04</span><h3>我的专业匹配</h3></div>
-            <div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div><strong>{match}</strong><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据专业大类和招聘原文整理，仅供筛选参考。"}</p></div></div>
-            <small className="match-disclaimer">专业匹配结果仅供信息筛选参考，是否符合报名条件请以招聘单位官方审核结果为准。</small>
+            <div className={`match-result-box ${match === "不限专业" ? "any" : ""}`}><span className="match-result-icon">✦</span><div className="match-result-content"><div className="match-result-heading"><span>匹配结果</span><strong>{match}</strong></div><p>{match === "明确匹配" ? "你的专业出现在招聘标准专业标签中。" : match === "不限专业" ? "该项目未限制专业，值得直接查看具体岗位。" : "根据你的专业大类与招聘原文进行匹配，仅供筛选参考。"}</p><small>最终报名资格以招聘单位官方审核结果为准。</small></div></div>
           </section>
 
           <section className="job-detail-section">
             <div className="detail-title"><span>05</span><h3>我的跟进</h3></div>
-            <div className="tracker-editor"><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加一条个人备注，例如：周日前完成网申" /><button onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div>
+            <div className="job-detail-tracker-card"><label className="job-detail-control-field"><span>当前状态</span><select value={tracker?.status ?? "暂未处理"} onChange={(event) => onUpdateTracker(event.target.value as ApplicationStatus)} aria-label="报名状态"><option>暂未处理</option><option>准备报名</option><option>已报名</option><option>已完成测评</option><option>已参加笔试</option><option>已进入面试</option><option>已结束</option></select></label><label className="job-detail-note-field"><span>个人备注</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="添加个人备注，例如投递时间、笔试时间、岗位偏好" /></label><button className="job-detail-save-note" onClick={() => { onUpdateTracker(tracker?.status ?? "准备报名", note); onNotify("个人备注已保存"); }}>保存备注</button></div>
           </section>
 
           <ReminderControls project={project} isFavorite={isFavorite} settings={reminderSettings} onUpdate={onUpdateReminderSettings} />
         </main>
 
         <footer className="job-detail-modal-footer">
-          <div className="job-detail-source"><span>来源：{project.sourceName || "官方招聘来源"}</span><span>最近核验：{formatDate(project.verifiedAt)}</span></div>
+          <div className="job-detail-source"><strong>数据来源</strong><span>{project.sourceName || "官方招聘来源"}</span><small>最近核验：{formatDate(project.verifiedAt)}</small></div>
           <div className="job-detail-modal-actions">
             <button className="text-button correction-button" onClick={onOpenCorrection}>提交纠错</button>
             <button className={`secondary-button favorite-action ${isFavorite ? "active" : ""}`} onClick={onToggleFavorite}>{isFavorite ? "♥ 已收藏" : "♡ 收藏"}</button>
@@ -717,9 +715,9 @@ function CenteredProjectModal({ project, userMajor, isFavorite, tracker, reminde
 
 function ReminderControls({ project, isFavorite, settings, onUpdate }: { project: Project; isFavorite: boolean; settings?: ReminderSettings; onUpdate: (patch: Partial<ReminderSettings>) => void }) {
   const eligible = hasExplicitDeadline(project);
-  if (!eligible) return <div className="reminder-note"><span>◷</span><div><strong>{project.deadline ? "截止时间需要人工复核" : "暂未公布明确截止日期"}</strong><small>{project.deadline ? "当前不会生成固定日期倒计时提醒。" : "收藏后，时间更新并核验后才会生成截止提醒。"}</small></div></div>;
+  if (!eligible) return <section className="job-detail-section job-detail-reminder-section"><div className="detail-title"><span>06</span><h3>报名截止提醒</h3></div><div className="reminder-note"><span>◷</span><div><strong>{project.deadline ? "截止时间需要人工复核" : "暂未公布明确截止日期"}</strong><small>{project.deadline ? "当前不会生成固定日期倒计时提醒。" : "收藏后，时间更新并核验后才会生成截止提醒。"}</small></div></div></section>;
   const current = settings ?? DEFAULT_REMINDER_SETTINGS;
-  return <section className="reminder-controls"><div className="detail-title"><span>04</span><h3>报名截止提醒</h3><span className={isFavorite && current.enabled ? "reminder-enabled" : "reminder-disabled"}>{isFavorite && current.enabled ? "已开启提醒" : "收藏后自动开启"}</span></div><div className="reminder-options"><label><input type="checkbox" checked={current.remind7Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind7Days: event.target.checked })} /><span>截止前7天</span></label><label><input type="checkbox" checked={current.remind3Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind3Days: event.target.checked })} /><span>截止前3天</span></label><label><input type="checkbox" checked={current.remind1Day} disabled={!isFavorite} onChange={(event) => onUpdate({ remind1Day: event.target.checked })} /><span>截止前1天</span></label><label><input type="checkbox" checked={current.remindSameDay} disabled={!isFavorite} onChange={(event) => onUpdate({ remindSameDay: event.target.checked })} /><span>当天提醒</span></label><label><input type="checkbox" checked={current.changeNotificationEnabled} disabled={!isFavorite} onChange={(event) => onUpdate({ changeNotificationEnabled: event.target.checked })} /><span>招聘信息变更</span></label></div><small className="reminder-footnote">{isFavorite ? "站内消息会在这里展示；取消收藏后，未来未发送提醒会被取消。" : "收藏这个项目后，系统会按选中的时间点创建站内提醒。"}</small></section>;
+  return <section className="job-detail-section job-detail-reminder-section reminder-controls"><div className="detail-title"><span>06</span><h3>报名截止提醒</h3><span className={isFavorite && current.enabled ? "reminder-enabled" : "reminder-disabled"}>{isFavorite && current.enabled ? "已开启提醒" : "收藏后自动开启"}</span></div><div className="reminder-options"><label><input type="checkbox" checked={current.remind7Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind7Days: event.target.checked })} /><span>截止前7天</span></label><label><input type="checkbox" checked={current.remind3Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind3Days: event.target.checked })} /><span>截止前3天</span></label><label><input type="checkbox" checked={current.remind1Day} disabled={!isFavorite} onChange={(event) => onUpdate({ remind1Day: event.target.checked })} /><span>截止前1天</span></label><label><input type="checkbox" checked={current.remindSameDay} disabled={!isFavorite} onChange={(event) => onUpdate({ remindSameDay: event.target.checked })} /><span>当天提醒</span></label><label><input type="checkbox" checked={current.changeNotificationEnabled} disabled={!isFavorite} onChange={(event) => onUpdate({ changeNotificationEnabled: event.target.checked })} /><span>招聘信息变更</span></label></div><small className="reminder-footnote">{isFavorite ? "站内消息会在这里展示；取消收藏后，未来未发送提醒会被取消。" : "收藏这个项目后，系统会按选中的时间点创建站内提醒。"}</small></section>;
 }
 
 function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: (type: string, content: string) => void }) {
