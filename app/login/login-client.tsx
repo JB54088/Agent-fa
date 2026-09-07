@@ -17,8 +17,8 @@ function safeReturnTo(value: string | null) {
   return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
-export default function LoginPageClient() {
-  const [mode, setMode] = useState<Mode>("login");
+export default function LoginPageClient({ initialMode = "login" }: { initialMode?: Mode }) {
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

@@ -4,7 +4,13 @@ import LoginPageClient from "./login-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage() {
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function LoginPage({ searchParams }: PageProps) {
   if (await getAppUser()) redirect("/");
-  return <LoginPageClient />;
+  const params = searchParams ? await searchParams : {};
+  const initialMode = params.mode === "register" ? "register" : "login";
+  return <LoginPageClient initialMode={initialMode} />;
 }
