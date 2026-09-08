@@ -122,7 +122,9 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
         official_application_url = EXCLUDED.official_application_url,
         source_level = EXCLUDED.source_level, verification_status = 'verified',
         last_verified_at = now(), official_page_status = 'accessible',
-        publication_status = 'published', display_type = 'OFFICIAL_RECRUITMENT_ENTRY',
+        -- Manual publication state is authoritative. A source refresh may update
+        -- content, but it must never re-publish an opportunity taken offline by an admin.
+        publication_status = opportunities.publication_status, display_type = 'OFFICIAL_RECRUITMENT_ENTRY',
         opportunity_relevance_status = 'PUBLIC_NOTICE', data_credibility = '已核验',
         updated_at = now()
       RETURNING (xmax = 0) AS inserted

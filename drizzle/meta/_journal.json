@@ -64,6 +64,13 @@
       "when": 1786430400000,
       "tag": "0008_national_opportunity_model",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788843656000,
+      "tag": "0017_moderation_schema_repair",
+      "breakpoints": true
     }
   ]
 }

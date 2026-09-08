@@ -6,6 +6,9 @@ import { getDatabaseUrl, getDb, schema } from "../../../../db";
 
 type SqlClient = ReturnType<typeof neon>;
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const OFFLINE_REASONS = ["招聘已结束", "官网链接失效", "页面不存在 / 404", "重复招聘", "信息错误", "非官方来源", "其他"] as const;
 const PERMANENT_DELETE_REASONS = new Set(["重复招聘", "测试数据", "明显错误数据"]);
 
@@ -27,6 +30,10 @@ async function requireAdmin() {
     .values({ userId: account.userId, role: "admin" })
     .onConflictDoUpdate({ target: schema.adminUsers.userId, set: { role: "admin", updatedAt: new Date() } });
   return account;
+}
+
+function moderationLog(action: string, details: Record<string, unknown>) {
+  console.info(`[Recruitment ${action}]`, details);
 }
 
 function text(value: unknown) {
@@ -158,9 +165,10 @@ export async function GET(request: Request) {
     const sql = neon(getDatabaseUrl());
     const status = new URL(request.url).searchParams.get("status") ?? "published";
     const items = await listOpportunities(sql, status);
-    return NextResponse.json({ ok: true, status, items, offlineReasons: OFFLINE_REASONS, permanentDeleteReasons: [...PERMANENT_DELETE_REASONS] });
+    return NextResponse.json({ ok: true, status, items, offlineReasons: OFFLINE_REASONS, permanentDeleteReasons: [...PERMANENT_DELETE_REASONS] }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "正式招聘读取失败" }, { status: 503 });
+    console.error("[Recruitment Moderation Read Failed]", error);
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "正式招聘读取失败" }, { status: 500 });
   }
 }
 
@@ -186,6 +194,14 @@ export async function POST(request: Request) {
       const row = current[0];
       if (!row) { skippedCount += 1; skipped.push(`${id}:记录不存在`); continue; }
 
+      moderationLog(action === "offline" ? "Offline" : action === "restore" ? "Restore" : action === "reverify" ? "Reverify" : "Delete", {
+        userId: admin.userId,
+        role: "admin",
+        opportunityId: id,
+        oldStatus: String(row.publication_status),
+        newStatus: action === "offline" ? "offline" : action === "restore" ? "published" : String(row.publication_status),
+      });
+
       if (action === "offline") {
         if (row.publication_status !== "published") { skippedCount += 1; skipped.push(`${id}:不是正式招聘`); continue; }
         const changed = await sql`
@@ -201,7 +217,7 @@ export async function POST(request: Request) {
           )
           SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
         `;
-        if (changed.length) { updatedCount += 1; updatedIds.push(id); }
+        if (changed.length) { updatedCount += 1; updatedIds.push(id); moderationLog("Offline Updated", { opportunityId: id, affectedRows: changed.length, newStatus: "offline" }); }
         else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "restore") {
         if (!["offline", "withdrawn"].includes(String(row.publication_status))) { skippedCount += 1; skipped.push(`${id}:不是已下架记录`); continue; }
@@ -218,7 +234,7 @@ export async function POST(request: Request) {
           )
           SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
         `;
-        if (changed.length) { updatedCount += 1; updatedIds.push(id); }
+        if (changed.length) { updatedCount += 1; updatedIds.push(id); moderationLog("Restore Updated", { opportunityId: id, affectedRows: changed.length, newStatus: "published" }); }
         else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "reverify") {
         if (row.publication_status !== "published") { skippedCount += 1; skipped.push(`${id}:不是正式招聘`); continue; }
@@ -235,7 +251,7 @@ export async function POST(request: Request) {
           )
           SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
         `;
-        if (changed.length) { updatedCount += 1; updatedIds.push(id); }
+        if (changed.length) { updatedCount += 1; updatedIds.push(id); moderationLog("Reverify Updated", { opportunityId: id, affectedRows: changed.length, newStatus: String(row.publication_status) }); }
         else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "delete") {
         if (!["offline", "withdrawn"].includes(String(row.publication_status))) { skippedCount += 1; skipped.push(`${id}:必须先下架`); continue; }
@@ -249,6 +265,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ ok: true, action, updatedCount, updatedIds, skippedCount, skipped });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "正式招聘操作失败" }, { status: 503 });
+    console.error("[Recruitment Moderation Failed]", error);
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "正式招聘操作失败" }, { status: 500 });
   }
 }
