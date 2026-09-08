@@ -43,6 +43,8 @@ function mapOpportunity(row: Record<string, unknown>) {
     company: text(row.organization_name) ?? "待匹配企业",
     shortName: text(row.organization_short_name) ?? text(row.organization_name) ?? "招聘单位",
     batch: text(row.batch_name) ?? "公开招聘",
+    opportunityType: text(row.opportunity_type),
+    recruitmentSeason: text(row.recruitment_season),
     displayType: text(row.display_type) === "OFFICIAL_RECRUITMENT_ENTRY" ? "OFFICIAL_RECRUITMENT_ENTRY" : "RECRUITMENT_PROJECT",
     sourceName: text(row.source_name) ?? "官方来源",
     sourceLevel: text(row.source_level) ?? "A级",
@@ -54,6 +56,7 @@ function mapOpportunity(row: Record<string, unknown>) {
     verificationStatus: text(row.verification_status) ?? "unverified",
     officialPageStatus: text(row.official_page_status) ?? "unknown",
     lastVerifiedAt: row.last_verified_at ? new Date(String(row.last_verified_at)).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(String(row.updated_at)).toISOString() : null,
     offlineReason: text(row.offline_reason),
     offlineAt: row.offline_at ? new Date(String(row.offline_at)).toISOString() : null,
     offlineBy: text(row.offline_by_email) ?? text(row.offline_by),
@@ -66,6 +69,7 @@ async function listOpportunities(sql: SqlClient, status: string) {
     ? await sql`
         SELECT o.id::text AS id, o.title, o.display_type, o.batch_name,
                o.official_announcement_url, o.official_application_url,
+               o.opportunity_type, o.recruitment_season, o.updated_at,
                o.publication_status, o.verification_status, o.official_page_status,
                o.last_verified_at, o.offline_reason, o.offline_at,
                o.offline_by::text AS offline_by,
@@ -84,6 +88,7 @@ async function listOpportunities(sql: SqlClient, status: string) {
       ? await sql`
           SELECT o.id::text AS id, o.title, o.display_type, o.batch_name,
                  o.official_announcement_url, o.official_application_url,
+                 o.opportunity_type, o.recruitment_season, o.updated_at,
                  o.publication_status, o.verification_status, o.official_page_status,
                  o.last_verified_at, o.offline_reason, o.offline_at,
                  o.offline_by::text AS offline_by,
@@ -95,12 +100,13 @@ async function listOpportunities(sql: SqlClient, status: string) {
           LEFT JOIN organizations org ON org.id = o.organization_id
           LEFT JOIN data_sources ds ON ds.id = o.source_id
           LEFT JOIN users u ON u.id = o.offline_by
-          WHERE o.publication_status IN ('published', 'offline', 'withdrawn')
+          WHERE o.publication_status IN ('draft', 'pending_review', 'approved', 'published', 'rejected', 'offline', 'withdrawn')
           ORDER BY o.updated_at DESC
         `
       : await sql`
           SELECT o.id::text AS id, o.title, o.display_type, o.batch_name,
                  o.official_announcement_url, o.official_application_url,
+                 o.opportunity_type, o.recruitment_season, o.updated_at,
                  o.publication_status, o.verification_status, o.official_page_status,
                  o.last_verified_at, o.offline_reason, o.offline_at,
                  o.offline_by::text AS offline_by,
@@ -173,6 +179,7 @@ export async function POST(request: Request) {
 
     let updatedCount = 0;
     let skippedCount = 0;
+    const updatedIds: string[] = [];
     const skipped: string[] = [];
     for (const id of ids) {
       const current = await sql`SELECT id::text AS id, publication_status, offline_reason FROM opportunities WHERE id = ${id} LIMIT 1`;
@@ -194,7 +201,7 @@ export async function POST(request: Request) {
           )
           SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
         `;
-        if (changed.length) updatedCount += 1;
+        if (changed.length) { updatedCount += 1; updatedIds.push(id); }
         else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "restore") {
         if (!["offline", "withdrawn"].includes(String(row.publication_status))) { skippedCount += 1; skipped.push(`${id}:不是已下架记录`); continue; }
@@ -211,7 +218,7 @@ export async function POST(request: Request) {
           )
           SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
         `;
-        if (changed.length) updatedCount += 1;
+        if (changed.length) { updatedCount += 1; updatedIds.push(id); }
         else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "reverify") {
         if (row.publication_status !== "published") { skippedCount += 1; skipped.push(`${id}:不是正式招聘`); continue; }
@@ -228,18 +235,19 @@ export async function POST(request: Request) {
           )
           SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
         `;
-        if (changed.length) updatedCount += 1;
+        if (changed.length) { updatedCount += 1; updatedIds.push(id); }
         else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "delete") {
         if (!["offline", "withdrawn"].includes(String(row.publication_status))) { skippedCount += 1; skipped.push(`${id}:必须先下架`); continue; }
         if (!PERMANENT_DELETE_REASONS.has(String(row.offline_reason))) { skippedCount += 1; skipped.push(`${id}:下架原因不允许永久删除`); continue; }
         await deleteOpportunityChildren(sql, id, admin.email, reason);
         updatedCount += 1;
+        updatedIds.push(id);
       } else {
         return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });
       }
     }
-    return NextResponse.json({ ok: true, action, updatedCount, skippedCount, skipped });
+    return NextResponse.json({ ok: true, action, updatedCount, updatedIds, skippedCount, skipped });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "正式招聘操作失败" }, { status: 503 });
   }
