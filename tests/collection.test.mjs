@@ -10,6 +10,7 @@ const { detectOpportunityChanges } = await import("../lib/collection/change-dete
 const { detectDeadlineType, parseDateFromText } = await import("../lib/collection/normalize.ts");
 const { extractHtmlListItems, parseCsvLine } = await import("../lib/collection/parsers.ts");
 const { canPublishCollectionItem, createReviewTask } = await import("../lib/collection/review.ts");
+const { shouldCreateOfficialEntry } = await import("../lib/source-opportunity-policy.ts");
 
 const source = {
   id: "source-1",
@@ -93,4 +94,11 @@ test("records changes and keeps new collection items behind review", async () =>
   assert.equal(canPublishCollectionItem("APPROVED"), true);
   assert.deepEqual(createReviewTask("raw-1", "NEW_ITEM"), { rawItemId: "raw-1", opportunityId: null, taskType: "NEW_ITEM", reviewStatus: "PENDING", automatedConfidence: null, reviewNotes: "所有采集结果必须经过管理员审核后才能发布。" });
   assert.equal(typeof await contentHash("校招雷达"), "string");
+});
+
+test("does not recreate a published official entry after a concrete opportunity is offline or pending review", () => {
+  assert.equal(shouldCreateOfficialEntry([]), true);
+  assert.equal(shouldCreateOfficialEntry([{ display_type: "OFFICIAL_RECRUITMENT_ENTRY", publication_status: "published" }]), true);
+  assert.equal(shouldCreateOfficialEntry([{ display_type: "RECRUITMENT_PROJECT", publication_status: "offline" }]), false);
+  assert.equal(shouldCreateOfficialEntry([{ display_type: "RECRUITMENT_PROJECT", publication_status: "pending_review" }]), false);
 });

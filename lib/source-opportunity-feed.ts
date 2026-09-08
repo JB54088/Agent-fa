@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { getDatabaseUrl } from "../db";
 import { ensureOfficialUrlLifecycle } from "./official-url-lifecycle";
+import { shouldCreateOfficialEntry } from "./source-opportunity-policy";
 
 type FeedSummary = {
   verifiedSources: number;
@@ -76,15 +77,17 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
   let entriesUpdated = 0;
 
   for (const source of sources) {
-    const current = await sql`
-      SELECT id::text AS id, opportunity_relevance_status
+    const existing = await sql`
+      SELECT display_type, publication_status, opportunity_relevance_status
       FROM opportunities
       WHERE source_id = ${source.id}
-        AND publication_status = 'published'
         AND is_demo = false
-        AND display_type = 'RECRUITMENT_PROJECT'
-        AND opportunity_relevance_status IN ('CURRENT_OPEN', 'UPCOMING')
     `;
+    const current = existing.filter((item) =>
+      item.publication_status === "published" &&
+      item.display_type === "RECRUITMENT_PROJECT" &&
+      ["CURRENT_OPEN", "UPCOMING"].includes(String(item.opportunity_relevance_status)),
+    );
     const linkStatus = current.some((item) => item.opportunity_relevance_status === "CURRENT_OPEN")
       ? "HAS_ACTIVE_RECRUITMENT"
       : current.length
@@ -95,6 +98,10 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
     else if (linkStatus === "UPCOMING_RECRUITMENT") upcomingRecruitment += 1;
     else officialEntryOnly += 1;
     if (current.length) continue;
+
+    // Do not create a replacement published entry for a concrete opportunity
+    // that an operator has taken offline or that is still in the review flow.
+    if (!shouldCreateOfficialEntry(existing)) continue;
 
     const entryId = await stableUuid(`official-recruitment-entry:${source.id}`);
     const entryUrl = source.list_page_url ?? source.source_url;
