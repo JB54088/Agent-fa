@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../../chatgpt-auth";
@@ -11,37 +11,22 @@ const PERMANENT_DELETE_REASONS = new Set(["重复招聘", "测试数据", "明�
 
 async function requireAdmin() {
   const user = await getAppUser();
-  if (!user || user.role !== "admin") return null;
+  if (!user?.id || user.role !== "admin") return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id, email: schema.users.email })
     .from(schema.users)
-    .innerJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
-    .where(eq(schema.users.email, user.email))
+    .where(and(eq(schema.users.id, user.id), eq(schema.users.status, "active"), eq(schema.users.role, "admin")))
     .limit(1);
-  return rows[0] ?? null;
-}
+  const account = rows[0];
+  if (!account) return null;
 
-async function ensureModerationSchema(sql: SqlClient) {
-  await sql`ALTER TYPE "publish_status" ADD VALUE IF NOT EXISTS 'offline'`;
-  await sql`
-    ALTER TABLE "opportunities"
-      ADD COLUMN IF NOT EXISTS "offline_reason" text,
-      ADD COLUMN IF NOT EXISTS "offline_at" timestamptz,
-      ADD COLUMN IF NOT EXISTS "offline_by" uuid REFERENCES "users"("id")
-  `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS "audit_logs" (
-      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      "action" text NOT NULL,
-      "opportunity_id" uuid,
-      "operator" text NOT NULL,
-      "reason" text,
-      "created_at" timestamptz NOT NULL DEFAULT now(),
-      "updated_at" timestamptz NOT NULL DEFAULT now()
-    )
-  `;
-  await sql`CREATE INDEX IF NOT EXISTS "audit_logs_opportunity_idx" ON "audit_logs" ("opportunity_id", "created_at")`;
-  await sql`CREATE INDEX IF NOT EXISTS "audit_logs_action_idx" ON "audit_logs" ("action", "created_at")`;
+  // users.role is the canonical authority. Keep admin_users as a compatibility
+  // mapping for older admin endpoints, but do not let a missing/stale mapping
+  // prevent the current admin from using moderation actions.
+  await db.insert(schema.adminUsers)
+    .values({ userId: account.userId, role: "admin" })
+    .onConflictDoUpdate({ target: schema.adminUsers.userId, set: { role: "admin", updatedAt: new Date() } });
+  return account;
 }
 
 function text(value: unknown) {
@@ -165,7 +150,6 @@ export async function GET(request: Request) {
     const admin = await requireAdmin();
     if (!admin) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
-    await ensureModerationSchema(sql);
     const status = new URL(request.url).searchParams.get("status") ?? "published";
     const items = await listOpportunities(sql, status);
     return NextResponse.json({ ok: true, status, items, offlineReasons: OFFLINE_REASONS, permanentDeleteReasons: [...PERMANENT_DELETE_REASONS] });
@@ -183,7 +167,6 @@ export async function POST(request: Request) {
     const ids = idsFromBody(body);
     if (!action || !ids.length) return NextResponse.json({ ok: false, error: "opportunity_ids_required" }, { status: 400 });
     const sql = neon(getDatabaseUrl());
-    await ensureModerationSchema(sql);
     const reason = body.reason?.trim() ?? "";
     if (action === "offline" && !OFFLINE_REASONS.includes(reason as (typeof OFFLINE_REASONS)[number])) return NextResponse.json({ ok: false, error: "offline_reason_required" }, { status: 400 });
     if (action === "delete" && !PERMANENT_DELETE_REASONS.has(reason)) return NextResponse.json({ ok: false, error: "permanent_delete_reason_not_allowed" }, { status: 400 });
@@ -198,25 +181,55 @@ export async function POST(request: Request) {
 
       if (action === "offline") {
         if (row.publication_status !== "published") { skippedCount += 1; skipped.push(`${id}:不是正式招聘`); continue; }
-        await sql.transaction([
-          sql`UPDATE opportunities SET publication_status = 'offline', offline_reason = ${reason}, offline_at = now(), offline_by = ${admin.userId}, updated_at = now() WHERE id = ${id} AND publication_status = 'published'`,
-          sql`INSERT INTO audit_logs (action, opportunity_id, operator, reason) VALUES ('offline', ${id}, ${admin.email}, ${reason})`,
-        ], { isolationLevel: "ReadCommitted" });
-        updatedCount += 1;
+        const changed = await sql`
+          WITH changed AS (
+            UPDATE opportunities
+            SET publication_status = 'offline', offline_reason = ${reason}, offline_at = now(), offline_by = ${admin.userId}, updated_at = now()
+            WHERE id = ${id} AND publication_status = 'published'
+            RETURNING id
+          ), logged AS (
+            INSERT INTO audit_logs (action, opportunity_id, operator, reason)
+            SELECT 'offline', id, ${admin.email}, ${reason} FROM changed
+            RETURNING opportunity_id
+          )
+          SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
+        `;
+        if (changed.length) updatedCount += 1;
+        else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "restore") {
         if (!["offline", "withdrawn"].includes(String(row.publication_status))) { skippedCount += 1; skipped.push(`${id}:不是已下架记录`); continue; }
-        await sql.transaction([
-          sql`UPDATE opportunities SET publication_status = 'published', offline_reason = NULL, offline_at = NULL, offline_by = NULL, updated_at = now() WHERE id = ${id} AND publication_status IN ('offline', 'withdrawn')`,
-          sql`INSERT INTO audit_logs (action, opportunity_id, operator, reason) VALUES ('restore', ${id}, ${admin.email}, '恢复上架')`,
-        ], { isolationLevel: "ReadCommitted" });
-        updatedCount += 1;
+        const changed = await sql`
+          WITH changed AS (
+            UPDATE opportunities
+            SET publication_status = 'published', offline_reason = NULL, offline_at = NULL, offline_by = NULL, updated_at = now()
+            WHERE id = ${id} AND publication_status IN ('offline', 'withdrawn')
+            RETURNING id
+          ), logged AS (
+            INSERT INTO audit_logs (action, opportunity_id, operator, reason)
+            SELECT 'restore', id, ${admin.email}, '恢复上架' FROM changed
+            RETURNING opportunity_id
+          )
+          SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
+        `;
+        if (changed.length) updatedCount += 1;
+        else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "reverify") {
         if (row.publication_status !== "published") { skippedCount += 1; skipped.push(`${id}:不是正式招聘`); continue; }
-        await sql.transaction([
-          sql`UPDATE opportunities SET verification_status = 'needs_review', official_page_status = 'unknown', next_verify_at = now(), updated_at = now() WHERE id = ${id} AND publication_status = 'published'`,
-          sql`INSERT INTO audit_logs (action, opportunity_id, operator, reason) VALUES ('mark_reverify', ${id}, ${admin.email}, '批量重新核验官方链接')`,
-        ], { isolationLevel: "ReadCommitted" });
-        updatedCount += 1;
+        const changed = await sql`
+          WITH changed AS (
+            UPDATE opportunities
+            SET verification_status = 'needs_review', official_page_status = 'unknown', next_verify_at = now(), updated_at = now()
+            WHERE id = ${id} AND publication_status = 'published'
+            RETURNING id
+          ), logged AS (
+            INSERT INTO audit_logs (action, opportunity_id, operator, reason)
+            SELECT 'mark_reverify', id, ${admin.email}, '批量重新核验官方链接' FROM changed
+            RETURNING opportunity_id
+          )
+          SELECT changed.id::text AS id FROM changed JOIN logged ON logged.opportunity_id = changed.id
+        `;
+        if (changed.length) updatedCount += 1;
+        else { skippedCount += 1; skipped.push(`${id}:状态已变化，请重新读取列表`); }
       } else if (action === "delete") {
         if (!["offline", "withdrawn"].includes(String(row.publication_status))) { skippedCount += 1; skipped.push(`${id}:必须先下架`); continue; }
         if (!PERMANENT_DELETE_REASONS.has(String(row.offline_reason))) { skippedCount += 1; skipped.push(`${id}:下架原因不允许永久删除`); continue; }

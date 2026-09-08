@@ -896,7 +896,24 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
     try {
       const response = await fetch("/api/admin/opportunities", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, opportunityIds: ids, reason }) });
       const payload = await response.json() as { ok?: boolean; error?: string; updatedCount?: number; skippedCount?: number; skipped?: string[] };
-      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "正式招聘操作失败");
+      if (!response.ok || !payload.ok) {
+        const messages: Record<string, string> = {
+          admin_authentication_required: "当前账号没有管理员权限，无法执行此操作。",
+          offline_reason_required: "请选择下架原因后再提交。",
+          permanent_delete_reason_not_allowed: "永久删除仅允许用于重复、测试或明显错误数据。",
+          opportunity_ids_required: "没有找到要操作的招聘记录。",
+        };
+        throw new Error(messages[payload.error ?? ""] ?? payload.error ?? "正式招聘操作失败，请稍后重试");
+      }
+
+      // Reflect a successful server mutation immediately. The following
+      // refresh reconciles timestamps and operator details from the database,
+      // so the list never depends on a full browser reload.
+      const idSet = new Set(ids);
+      if (action === "delete") setItems((current) => current.filter((item) => !idSet.has(item.id)));
+      if (action === "offline") setItems((current) => current.map((item) => idSet.has(item.id) ? { ...item, publicationStatus: "offline", offlineReason: reason ?? item.offlineReason, offlineAt: new Date().toISOString(), offlineBy: "当前管理员" } : item));
+      if (action === "restore") setItems((current) => current.map((item) => idSet.has(item.id) ? { ...item, publicationStatus: "published", offlineReason: null, offlineAt: null, offlineBy: null } : item));
+      if (action === "reverify") setItems((current) => current.map((item) => idSet.has(item.id) ? { ...item, verificationStatus: "needs_review", officialPageStatus: "unknown", lastVerifiedAt: null } : item));
       setModal(null);
       setOpenMenuId(null);
       setSelectedIds([]);
