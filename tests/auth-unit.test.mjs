@@ -2,6 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const { hashPassword, verifyPassword } = await import("../lib/auth/password.ts");
+const { hasAdminRole } = await import("../lib/auth/admin.ts");
+
+test("only an authenticated admin identity passes the admin authorization boundary", () => {
+  assert.equal(hasAdminRole({ id: "admin-id", role: "admin" }), true);
+  assert.equal(hasAdminRole({ id: "customer-id", role: "customer" }), false);
+  assert.equal(hasAdminRole({ id: "admin-id", role: "customer" }), false);
+  assert.equal(hasAdminRole({ role: "admin" }), false);
+  assert.equal(hasAdminRole(null), false);
+});
 
 test("passwords are stored as salted PBKDF2 hashes", async () => {
   const encoded = await hashPassword("Test-Password-2026!");

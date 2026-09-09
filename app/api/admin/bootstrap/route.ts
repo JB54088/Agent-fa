@@ -1,25 +1,21 @@
-import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../../chatgpt-auth";
+import { hasAdminRole } from "../../../../lib/auth/admin";
 import { getDb, schema } from "../../../../db";
-
-async function currentAdmin(userEmail: string) {
-  const db = getDb();
-  const rows = await db.select({ userId: schema.users.id, role: schema.adminUsers.role })
-    .from(schema.users)
-    .innerJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
-    .where(eq(schema.users.email, userEmail))
-    .limit(1);
-  return rows[0] ?? null;
-}
 
 export async function GET() {
   try {
     const user = await getAppUser();
     if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
-    if (user.role !== "admin") return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
-    const admin = await currentAdmin(user.email);
-    return NextResponse.json({ ok: true, isAdmin: Boolean(admin), role: admin ? "admin" : null, canBootstrap: false });
+    if (!hasAdminRole(user)) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
+
+    // users.role is the canonical authority. Recreate the legacy mapping so
+    // the remaining admin endpoints continue to work for this account too.
+    const db = getDb();
+    await db.insert(schema.adminUsers)
+      .values({ userId: user.id, role: "admin" })
+      .onConflictDoUpdate({ target: schema.adminUsers.userId, set: { role: "admin", updatedAt: new Date() } });
+    return NextResponse.json({ ok: true, isAdmin: true, role: "admin", canBootstrap: false });
   } catch (error) {
     const message = error instanceof Error ? error.message : "管理员初始化检查失败";
     return NextResponse.json({ ok: false, error: message }, { status: 503 });

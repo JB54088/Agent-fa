@@ -3,6 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
+import { hasAdminRole } from "../../../../lib/auth/admin";
 
 type SqlClient = ReturnType<typeof neon>;
 
@@ -14,7 +15,7 @@ const PERMANENT_DELETE_REASONS = new Set(["重复招聘", "测试数据", "明�
 
 async function requireAdmin() {
   const user = await getAppUser();
-  if (!user?.id || user.role !== "admin") return null;
+  if (!hasAdminRole(user)) return null;
   const db = getDb();
   const rows = await db.select({ userId: schema.users.id, email: schema.users.email })
     .from(schema.users)
