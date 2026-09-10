@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { formatDate, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
 import { dataSourcesSeed } from "../db/seeds/data-sources";
 import { organizationsSeed } from "../db/seeds/organizations";
@@ -844,7 +845,7 @@ type PublishedAdminOpportunity = {
   isDemo: boolean;
 };
 
-const OFFLINE_REASON_OPTIONS = ["招聘已结束", "官网链接失效", "页面不存在 / 404", "重复招聘", "信息错误", "非官方来源", "其他"];
+const OFFLINE_REASON_OPTIONS = ["招聘已结束", "官方链接失效", "招聘信息有误", "重复招聘", "企业撤回", "管理员手动下架", "其他"];
 const PERMANENT_DELETE_REASON_OPTIONS = ["重复招聘", "测试数据", "明显错误数据"];
 
 type PublicationFilter = "all" | "published" | "offline" | "pending_review" | "draft";
@@ -937,7 +938,8 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<{ kind: "offline" | "delete"; ids: string[]; title: string; reason: string } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [modal, setModal] = useState<{ kind: "offline" | "delete"; ids: string[]; title: string; opportunityTitle?: string; reason: string } | null>(null);
 
   const activeItems = items.filter((item) => item.publicationStatus === "published");
   const offlineItems = items.filter((item) => ["offline", "withdrawn"].includes(item.publicationStatus));
@@ -973,6 +975,15 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
 
   useEffect(() => { void refresh(); }, []);
 
+  useEffect(() => {
+    if (!modal) return;
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !actionLoading) setModal(null);
+    }
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [modal, actionLoading]);
+
   function toggleSelected(id: string) {
     setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
@@ -983,6 +994,8 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
   }
 
   async function submitAction(action: "offline" | "restore" | "delete" | "reverify", ids: string[], reason?: string) {
+    if (actionLoading) return;
+    setActionLoading(true);
     try {
       const response = await fetch("/api/admin/opportunities", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, opportunityIds: ids, reason }) });
       const payload = await response.json() as { ok?: boolean; error?: string; updatedCount?: number; updatedIds?: string[]; skippedCount?: number; skipped?: string[] };
@@ -1009,14 +1022,26 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
       setSelectedIds([]);
       await refresh();
       const suffix = payload.skippedCount ? `，${payload.skippedCount} 条未处理` : "";
-      onNotify(`${action === "offline" ? "下架" : action === "restore" ? "恢复上架" : action === "delete" ? "永久删除" : "已标记重新核验"}完成：${payload.updatedCount ?? 0} 条${suffix}`);
+      if (action === "offline") {
+        onNotify(payload.updatedCount === 1 ? "招聘已成功下架，普通用户前台已停止展示。" : `${payload.updatedCount ?? 0} 条招聘已成功下架，普通用户前台已停止展示。${suffix}`);
+      } else {
+        onNotify(`${action === "restore" ? "恢复上架" : action === "delete" ? "永久删除" : "已标记重新核验"}完成：${payload.updatedCount ?? 0} 条${suffix}`);
+      }
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "正式招聘操作失败");
+    } finally {
+      setActionLoading(false);
     }
   }
 
-  function openOffline(ids: string[]) {
-    setModal({ kind: "offline", ids, title: ids.length > 1 ? "批量下架招聘信息" : "下架招聘信息", reason: "" });
+  function openOffline(ids: string[], opportunityTitle?: string) {
+    setModal({ kind: "offline", ids, title: ids.length > 1 ? "批量下架招聘信息" : "确认下架招聘", opportunityTitle, reason: "管理员手动下架" });
+  }
+
+  function handleOfflineClick(event: MouseEvent<HTMLButtonElement>, item: PublishedAdminOpportunity) {
+    event.preventDefault();
+    event.stopPropagation();
+    openOffline([item.id], item.title);
   }
 
   function openDelete(item: PublishedAdminOpportunity) {
@@ -1036,15 +1061,29 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
   const allVisibleSelected = visible.length > 0 && visible.every((item) => selectedIds.includes(item.id));
   const selectedPublishedIds = selectedVisible.filter((item) => item.publicationStatus === "published").map((item) => item.id);
   const selectedOfflineIds = selectedVisible.filter((item) => ["offline", "withdrawn"].includes(item.publicationStatus)).map((item) => item.id);
+  const moderationModal = modal && typeof document !== "undefined" ? createPortal(
+    <div className="moderation-modal-backdrop" role="presentation" onMouseDown={() => { if (!actionLoading) setModal(null); }}>
+      <div className="small-modal moderation-modal" role="dialog" aria-modal="true" aria-labelledby="moderation-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="modal-close" type="button" onClick={() => { if (!actionLoading) setModal(null); }} aria-label="关闭">×</button>
+        <div className="external-icon">{modal.kind === "offline" ? "↓" : "!"}</div>
+        <h3 id="moderation-modal-title">{modal.kind === "offline" ? "确认下架招聘" : modal.title}</h3>
+        {modal.kind === "offline" && modal.opportunityTitle && <strong className="moderation-opportunity-title">{modal.opportunityTitle}</strong>}
+        <p>{modal.kind === "offline" ? "下架后，该招聘将立即从普通用户前台隐藏。后台仍然保留数据，可以重新发布。" : "该操作将永久删除此招聘记录，无法恢复，是否继续？"}</p>
+        <label className="moderation-reason-label">{modal.kind === "offline" ? "下架原因" : "请选择永久删除依据"}<select disabled={actionLoading} value={modal.reason} onChange={(event) => setModal((current) => current ? { ...current, reason: event.target.value } : current)}><option value="">请选择</option>{(modal.kind === "offline" ? OFFLINE_REASON_OPTIONS : PERMANENT_DELETE_REASON_OPTIONS).map((reason) => <option key={reason} value={reason}>{reason}</option>)}</select></label>
+        <div className="small-modal-actions"><button className="secondary-button" type="button" disabled={actionLoading} onClick={() => setModal(null)}>取消</button><button className={`primary-button ${modal.kind === "offline" ? "danger-button" : ""}`} type="button" disabled={actionLoading || (modal.kind === "delete" && !modal.reason)} onClick={() => void submitAction(modal.kind, modal.ids, modal.reason || "管理员手动下架")}>{actionLoading ? modal.kind === "offline" ? "下架中…" : "删除中…" : modal.kind === "offline" ? "确认下架" : "确认永久删除"}</button></div>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
 
   return <div className="admin-section">
     <div className="admin-panel-heading"><div><span className="section-kicker">PUBLISHED OPPORTUNITIES</span><h2>正式招聘</h2><p>查看会打开真实官方链接；下架只改变展示状态，数据库记录和操作日志都会保留。</p></div><span className="safe-collection-badge">{activeItems.length} 条前台可见</span></div>
     <div className="published-overview-strip"><span>全部 <b>{items.length}</b></span><span>已发布 <b>{activeItems.length}</b></span><span>已下架 <b>{offlineItems.length}</b></span><span>待审核 <b>{pendingItems.length}</b></span><span>草稿 <b>{draftItems.length}</b></span></div>
-    <div className="admin-filter-bar published-tabs">{PUBLICATION_FILTERS.map((filter) => <button key={filter.value} className={publicationFilter === filter.value ? "active" : ""} onClick={() => { setPublicationFilter(filter.value); setSelectedIds([]); }}>{filter.label} <b>{filter.value === "all" ? items.length : filter.value === "published" ? activeItems.length : filter.value === "offline" ? offlineItems.length : filter.value === "pending_review" ? pendingItems.length : draftItems.length}</b></button>)}</div>
+    <div className="admin-filter-bar published-tabs">{PUBLICATION_FILTERS.map((filter) => <button type="button" key={filter.value} className={publicationFilter === filter.value ? "active" : ""} onClick={() => { setPublicationFilter(filter.value); setSelectedIds([]); }}>{filter.label} <b>{filter.value === "all" ? items.length : filter.value === "published" ? activeItems.length : filter.value === "offline" ? offlineItems.length : filter.value === "pending_review" ? pendingItems.length : draftItems.length}</b></button>)}</div>
     <div className="admin-filter-bar published-search-bar"><div className="admin-search"><span>⌕</span><input aria-label="搜索正式招聘" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索企业或招聘标题" /></div><label className="published-select-filter">核验<select value={verificationFilter} onChange={(event) => setVerificationFilter(event.target.value as VerificationFilter)}><option value="all">全部</option><option value="verified">已核验</option><option value="pending">待核验</option><option value="failed">核验失败</option></select></label><label className="published-select-filter">来源<select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">全部来源</option><option value="A">A级</option><option value="B">B级</option><option value="C">C级</option><option value="D">D级</option></select></label><span className="published-search-result">显示 {visible.length} / {baseVisible.length} 条</span></div>
-    {selectedVisible.length > 0 && <div className="published-batch-toolbar"><span>已选 {selectedVisible.length} 条</span>{selectedPublishedIds.length > 0 && <><button className="secondary-button danger-button" onClick={() => openOffline(selectedPublishedIds)}>批量下架</button><button className="secondary-button" onClick={() => void submitAction("reverify", selectedPublishedIds)}>批量标记待核验</button></>}{selectedOfflineIds.length > 0 && <button className="secondary-button" onClick={() => void submitAction("restore", selectedOfflineIds)}>批量重新发布</button>}</div>}
-    {loading ? <div className="surface empty-state"><h3>正在读取招聘管理</h3><p>只显示数据库中的真实记录。</p></div> : visible.length ? <div className="surface verification-table published-table"><div className="published-admin-row published-admin-head"><span><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="全选当前列表" /></span><span>招聘信息</span><span>招聘类型</span><span>来源</span><span>核验状态</span><span>发布状态</span><span>更新时间</span><span>操作</span></div>{visible.map((item) => { const sourceHref = item.sourceUrl ?? item.officialUrl; const canDelete = item.offlineReason ? PERMANENT_DELETE_REASON_OPTIONS.includes(item.offlineReason) : false; const publication = publicationMeta(item.publicationStatus); const verification = verificationMeta(item); const sourceLevel = sourceLevelToken(item.sourceLevel); const sourceLevelClass = sourceLevel === "—" ? "unknown" : sourceLevel.toLowerCase(); return <div className="published-admin-row" key={item.id}><span className="published-row-check"><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`选择 ${item.title}`} /></span><span className="published-info-cell" data-label="招聘信息"><strong title={item.title}>{item.title}</strong><small>{item.company} · {item.batch || "未标注批次"}</small></span><span className="published-type-cell" data-label="招聘类型"><span className="published-type-badge">{recruitmentTypeLabel(item)}</span></span><span className="published-source-cell" data-label="来源">{sourceHref ? <a href={sourceHref} target="_blank" rel="noreferrer" title={sourceHref}>{sourceDisplayName(item)} ↗</a> : <span>暂无来源</span>}<small className={`source-level-chip level-${sourceLevelClass}`}>{sourceLevel === "—" ? "来源等级未标注" : `${sourceLevel}级来源`}</small></span><span className="published-verification-cell" data-label="核验状态"><span className={`published-status-chip ${verification.className}`}>{verification.label}</span><small>{compactDate(item.lastVerifiedAt)}</small></span><span className="published-publication-cell" data-label="发布状态"><span className={`published-status-chip ${publication.className}`}>{publication.label}</span>{item.offlineAt && <small>下架于 {compactDate(item.offlineAt)}</small>}</span><span className="published-updated-cell" data-label="更新时间"><span>{compactDateTime(item.updatedAt)}</span></span><span className="published-actions" data-label="操作"><span className="published-action-main">{sourceHref ? <a className="text-button" href={sourceHref} target="_blank" rel="noreferrer">查看</a> : <button className="text-button" disabled>链接缺失</button>}{item.publicationStatus === "published" ? <button className="text-button danger-copy" onClick={() => openOffline([item.id])}>下架</button> : ["offline", "withdrawn"].includes(item.publicationStatus) ? <button className="text-button restore-copy" onClick={() => void submitAction("restore", [item.id])}>重新发布</button> : <span className="text-button muted-action">暂无操作</span>}<button className="icon-button" onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)} aria-label={`打开 ${item.title} 的更多操作`}>•••</button></span>{openMenuId === item.id && <span className="published-more-menu"><button disabled={!item.officialUrl} onClick={() => void copyOfficialLink(item)}>复制官方链接</button>{item.publicationStatus === "published" && <button onClick={() => void submitAction("reverify", [item.id])}>重新核验链接</button>}{["offline", "withdrawn"].includes(item.publicationStatus) && (canDelete ? <button className="danger-copy" onClick={() => openDelete(item)}>永久删除</button> : <button disabled title="只有重复、测试或明显错误数据允许永久删除">永久删除（需合规原因）</button>)}</span>}</span></div>; })}</div> : <div className="surface empty-state"><h3>{publicationFilter === "offline" ? "暂无已下架招聘" : "暂无匹配招聘"}</h3><p>调整状态、核验或来源筛选后再试。</p></div>}
-    {modal && <div className="modal-backdrop" onMouseDown={() => setModal(null)}><div className="small-modal moderation-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setModal(null)} aria-label="关闭">×</button><div className="external-icon">{modal.kind === "offline" ? "↓" : "!"}</div><h3>{modal.title}</h3><p>{modal.kind === "offline" ? "确定将该招聘信息下架吗？下架后前台用户将无法看到，但后台仍保留记录。" : "该操作将永久删除此招聘记录，无法恢复，是否继续？"}</p><label className="moderation-reason-label">{modal.kind === "offline" ? "请选择下架原因" : "请选择永久删除依据"}<select value={modal.reason} onChange={(event) => setModal((current) => current ? { ...current, reason: event.target.value } : current)}><option value="">请选择</option>{(modal.kind === "offline" ? OFFLINE_REASON_OPTIONS : PERMANENT_DELETE_REASON_OPTIONS).map((reason) => <option key={reason} value={reason}>{reason}</option>)}</select></label><div className="small-modal-actions"><button className="secondary-button" onClick={() => setModal(null)}>取消</button><button className={`primary-button ${modal.kind === "offline" ? "danger-button" : ""}`} disabled={!modal.reason} onClick={() => void submitAction(modal.kind, modal.ids, modal.reason)}>{modal.kind === "offline" ? "确认下架" : "确认永久删除"}</button></div></div></div>}
+    {selectedVisible.length > 0 && <div className="published-batch-toolbar"><span>已选 {selectedVisible.length} 条</span>{selectedPublishedIds.length > 0 && <><button type="button" className="secondary-button danger-button" onClick={() => openOffline(selectedPublishedIds)}>批量下架</button><button type="button" className="secondary-button" onClick={() => void submitAction("reverify", selectedPublishedIds)}>批量标记待核验</button></>}{selectedOfflineIds.length > 0 && <button type="button" className="secondary-button" onClick={() => void submitAction("restore", selectedOfflineIds)}>批量重新发布</button>}</div>}
+    {loading ? <div className="surface empty-state"><h3>正在读取招聘管理</h3><p>只显示数据库中的真实记录。</p></div> : visible.length ? <div className="surface verification-table published-table"><div className="published-admin-row published-admin-head"><span><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="全选当前列表" /></span><span>招聘信息</span><span>招聘类型</span><span>来源</span><span>核验状态</span><span>发布状态</span><span>更新时间</span><span>操作</span></div>{visible.map((item) => { const sourceHref = item.sourceUrl ?? item.officialUrl; const canDelete = item.offlineReason ? PERMANENT_DELETE_REASON_OPTIONS.includes(item.offlineReason) : false; const publication = publicationMeta(item.publicationStatus); const verification = verificationMeta(item); const sourceLevel = sourceLevelToken(item.sourceLevel); const sourceLevelClass = sourceLevel === "—" ? "unknown" : sourceLevel.toLowerCase(); return <div className="published-admin-row" key={item.id}><span className="published-row-check"><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`选择 ${item.title}`} /></span><span className="published-info-cell" data-label="招聘信息"><strong title={item.title}>{item.title}</strong><small>{item.company} · {item.batch || "未标注批次"}</small></span><span className="published-type-cell" data-label="招聘类型"><span className="published-type-badge">{recruitmentTypeLabel(item)}</span></span><span className="published-source-cell" data-label="来源">{sourceHref ? <a href={sourceHref} target="_blank" rel="noreferrer" title={sourceHref}>{sourceDisplayName(item)} ↗</a> : <span>暂无来源</span>}<small className={`source-level-chip level-${sourceLevelClass}`}>{sourceLevel === "—" ? "来源等级未标注" : `${sourceLevel}级来源`}</small></span><span className="published-verification-cell" data-label="核验状态"><span className={`published-status-chip ${verification.className}`}>{verification.label}</span><small>{compactDate(item.lastVerifiedAt)}</small></span><span className="published-publication-cell" data-label="发布状态"><span className={`published-status-chip ${publication.className}`}>{publication.label}</span>{item.offlineAt && <small>下架于 {compactDate(item.offlineAt)}</small>}</span><span className="published-updated-cell" data-label="更新时间"><span>{compactDateTime(item.updatedAt)}</span></span><span className="published-actions" data-label="操作"><span className="published-action-main">{sourceHref ? <a className="text-button" href={sourceHref} target="_blank" rel="noreferrer">查看</a> : <button type="button" className="text-button" disabled>链接缺失</button>}{item.publicationStatus === "published" ? <button type="button" className="text-button danger-copy" data-action="offline" onClick={(event) => handleOfflineClick(event, item)}>下架</button> : ["offline", "withdrawn"].includes(item.publicationStatus) ? <button type="button" className="text-button restore-copy" onClick={() => void submitAction("restore", [item.id])}>重新发布</button> : <span className="text-button muted-action">暂无操作</span>}<button type="button" className="icon-button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setOpenMenuId(openMenuId === item.id ? null : item.id); }} aria-label={`打开 ${item.title} 的更多操作`}>•••</button></span>{openMenuId === item.id && <span className="published-more-menu"><button type="button" disabled={!item.officialUrl} onClick={() => void copyOfficialLink(item)}>复制官方链接</button>{item.publicationStatus === "published" && <button type="button" onClick={() => void submitAction("reverify", [item.id])}>重新核验链接</button>}{["offline", "withdrawn"].includes(item.publicationStatus) && (canDelete ? <button type="button" className="danger-copy" onClick={() => openDelete(item)}>永久删除</button> : <button type="button" disabled title="只有重复、测试或明显错误数据允许永久删除">永久删除（需合规原因）</button>)}</span>}</span></div>; })}</div> : <div className="surface empty-state"><h3>{publicationFilter === "offline" ? "暂无已下架招聘" : "暂无匹配招聘"}</h3><p>调整状态、核验或来源筛选后再试。</p></div>}
+    {moderationModal}
   </div>;
 }
 

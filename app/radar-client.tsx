@@ -116,12 +116,13 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   const [catalog, setCatalog] = useState<Project[]>([]);
   const [catalogState, setCatalogState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [view, setView] = useState<View>(initialView);
-  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => readLocalStorage("radar-favorites", []));
-  const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(() => readLocalStorage("radar-trackers", trackerDefaults));
-  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(() => readLocalStorage(personalTaskStorageKey, personalTaskDefaults));
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [trackers, setTrackers] = useState<Record<string, { status: ApplicationStatus; note: string }>>(trackerDefaults);
+  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>(personalTaskDefaults);
   const [reminderSettings, setReminderSettings] = useState<Record<string, ReminderSettings>>({});
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [brand, setBrand] = useState<BrandConfig>(() => readLocalStorage("radar-brand-config", siteConfig));
+  const [brand, setBrand] = useState<BrandConfig>(siteConfig);
+  const [storageReady, setStorageReady] = useState(false);
   const [search, setSearch] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [projectScope, setProjectScope] = useState("全部");
@@ -144,6 +145,17 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   });
 
   useEffect(() => {
+    const loadStoredPreferences = window.setTimeout(() => {
+      setFavoriteIds(readLocalStorage("radar-favorites", []));
+      setTrackers(readLocalStorage("radar-trackers", trackerDefaults));
+      setPersonalTasks(readLocalStorage(personalTaskStorageKey, personalTaskDefaults));
+      setBrand(readLocalStorage("radar-brand-config", siteConfig));
+      setStorageReady(true);
+    }, 0);
+    return () => window.clearTimeout(loadStoredPreferences);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     fetch("/api/opportunities")
       .then((response) => response.json() as Promise<{ ok?: boolean; projects?: Project[] }>)
@@ -164,6 +176,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   }, []);
 
   useEffect(() => {
+    if (!storageReady) return;
     try {
       window.localStorage.setItem("radar-favorites", JSON.stringify(favoriteIds));
       window.localStorage.setItem("radar-trackers", JSON.stringify(trackers));
@@ -172,7 +185,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
     } catch {
       // Local storage is limited to non-authoritative UI preferences until account APIs are connected.
     }
-  }, [favoriteIds, trackers, personalTasks, brand]);
+  }, [favoriteIds, trackers, personalTasks, brand, storageReady]);
 
   useEffect(() => {
     let active = true;

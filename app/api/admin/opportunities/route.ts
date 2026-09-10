@@ -10,7 +10,7 @@ type SqlClient = ReturnType<typeof neon>;
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const OFFLINE_REASONS = ["招聘已结束", "官网链接失效", "页面不存在 / 404", "重复招聘", "信息错误", "非官方来源", "其他"] as const;
+const OFFLINE_REASONS = ["招聘已结束", "官网链接失效", "页面不存在 / 404", "重复招聘", "信息错误", "非官方来源", "官方链接失效", "招聘信息有误", "企业撤回", "管理员手动下架", "其他"] as const;
 const PERMANENT_DELETE_REASONS = new Set(["重复招聘", "测试数据", "明显错误数据"]);
 
 async function requireAdmin() {
