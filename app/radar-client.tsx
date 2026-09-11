@@ -395,7 +395,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
           {catalogState === "loading" && <div className="surface empty-state catalog-unavailable"><h3>正在读取正式招聘数据</h3><p>招聘信息来源于公开渠道；真实数据只在数据库查询成功后显示，正在加载最新已审核信息。</p></div>}
           {catalogState === "unavailable" && <div className="surface empty-state catalog-unavailable"><h3>正式招聘数据暂时不可用</h3><p>数据库尚未连接或当前查询失败。平台不会用前端样例数据替代正式招聘信息。</p></div>}
           {view === "home" && catalogState === "ready" && <Dashboard brand={brand} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
-          {view === "projects" && catalogState === "ready" && <ProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} />}
+          {view === "projects" && catalogState === "ready" && <ProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} onNavigateProfile={() => navigate("profile")} />}
           {view === "calendar" && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
           {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
           {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
@@ -471,32 +471,95 @@ function StatCard({ label, value, suffix, trend, icon, accent }: { label: string
   return <div className="stat-card"><div className={`stat-icon ${accent}`}>{icon}</div><span className="stat-label">{label}</span><div className="stat-value">{value}<small>{suffix}</small></div><span className="stat-trend">{trend}</span></div>;
 }
 
-function ProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOpen, onOpen, onToggleFavorite, favoriteIds, profile }: { initialScope: string; search: string; setSearch: (value: string) => void; filterOpen: boolean; setFilterOpen: (value: boolean) => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { major: string } }) {
+function ProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOpen, onOpen, onToggleFavorite, favoriteIds, profile, onNavigateProfile }: { initialScope: string; search: string; setSearch: (value: string) => void; filterOpen: boolean; setFilterOpen: (value: boolean) => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { major: string }; onNavigateProfile: () => void }) {
   const [status, setStatus] = useState<"全部" | ProjectStatus>("全部");
   const [type, setType] = useState("全部类型");
   const [region, setRegion] = useState("全部地区");
   const [matchOnly, setMatchOnly] = useState(false);
   const [scope, setScope] = useState(initialScope);
+  const [matchPromptOpen, setMatchPromptOpen] = useState(false);
   const filtered = useMemo(() => projects.filter((project) => {
     const query = search.trim().toLowerCase();
     const textMatch = !query || `${project.company} ${project.title} ${project.originalMajors} ${project.regions.join(" ")}`.toLowerCase().includes(query);
     const scopeMatch = matchesOpportunityScope(project, scope, profile.major);
     return textMatch && scopeMatch && (status === "全部" || project.status === status) && (type === "全部类型" || project.companyType === type) && (region === "全部地区" || project.regions.includes(region)) && (!matchOnly || ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major)));
   }), [search, scope, status, type, region, matchOnly, profile.major]);
-  const scopes = ["全部", "秋招", "春招", "央企", "国企", "国考", "省考", "选调生", "事业单位/事业编", "军队文职", "官方招聘入口", "大厂", "即将截止", "不限专业", "与我匹配"];
+  const recruitmentTypes = [
+    { value: "全部", label: "全部" },
+    { value: "秋招", label: "秋招" },
+    { value: "春招", label: "春招" },
+    { value: "央企", label: "央企" },
+    { value: "国企", label: "国企" },
+    { value: "国考", label: "国考" },
+    { value: "省考", label: "省考" },
+    { value: "选调生", label: "选调生" },
+    { value: "事业单位/事业编", label: "事业单位" },
+    { value: "军队文职", label: "军队文职" },
+  ];
+  const quickFilters = [
+    { value: "官方招聘入口", label: "官方入口", key: "official" },
+    { value: "大厂", label: "大厂", key: "big-company" },
+    { value: "即将截止", label: "即将截止", key: "deadline", tone: "deadline" },
+    { value: "不限专业", label: "不限专业", key: "any-major" },
+    { value: "与我匹配", label: "与我匹配", key: "match", tone: "match", icon: "✦" },
+  ];
+  const scopeOptions = [...recruitmentTypes, ...quickFilters];
+  const activeScopeLabel = scopeOptions.find((item) => item.value === scope)?.label ?? scope;
+  const selectedFilters: { key: string; label: string; onClear: () => void }[] = [];
+  if (scope !== "全部") selectedFilters.push({ key: "scope", label: activeScopeLabel, onClear: () => setScope("全部") });
+  if (status !== "全部") selectedFilters.push({ key: "status", label: statusLabel[status], onClear: () => setStatus("全部") });
+  if (type !== "全部类型") selectedFilters.push({ key: "type", label: type, onClear: () => setType("全部类型") });
+  if (region !== "全部地区") selectedFilters.push({ key: "region", label: region, onClear: () => setRegion("全部地区") });
+  if (matchOnly && scope !== "与我匹配") selectedFilters.push({ key: "match", label: "与我匹配", onClear: () => setMatchOnly(false) });
+
+  function selectScope(value: string) {
+    if (value === "与我匹配" && !profile.major.trim()) {
+      setMatchPromptOpen(true);
+      setFilterOpen(false);
+      return;
+    }
+    setMatchPromptOpen(false);
+    setScope(value);
+  }
+
+  function toggleMatchOnly(next: boolean) {
+    if (next && !profile.major.trim()) {
+      setMatchPromptOpen(true);
+      setFilterOpen(false);
+      return;
+    }
+    setMatchPromptOpen(false);
+    setMatchOnly(next);
+  }
+
   function resetFilters() {
     setScope("全部");
     setStatus("全部");
     setType("全部类型");
     setRegion("全部地区");
     setMatchOnly(false);
+    setMatchPromptOpen(false);
   }
   return <>
-    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>校招机会</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button className={`filter-button ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 筛选 <b>{[scope !== "全部", status !== "全部", type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
-    <div className="opportunity-scope-tabs" aria-label="机会专区">{scopes.map((item) => <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>{item}</button>)}</div>
-    <div className="list-caption"><span>批次口径</span><span className="caption-divider" /><span className="soft-text">春招 = 官方标注春季/春招批次；秋招 = 官方标注秋季/秋招批次；实习与专项招聘单独展示，不混入春秋招统计。</span></div>
+    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>校招机会</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button type="button" className={`filter-button filter-trigger-desktop ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 更多筛选 <b>{[scope !== "全部", status !== "全部", type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
+    <div className="opportunity-filters" aria-label="机会筛选">
+      <section className="filter-group filter-group-types">
+        <div className="filter-group-heading"><strong>招聘类型</strong><span>按官方招聘批次与机构类型浏览</span></div>
+        <div className="opportunity-type-tabs" aria-label="招聘类型筛选">{recruitmentTypes.map((item) => <button type="button" key={item.value} className={scope === item.value ? "active" : ""} aria-pressed={scope === item.value} onClick={() => selectScope(item.value)}>{item.label}</button>)}</div>
+      </section>
+      <section className="filter-group filter-group-quick">
+        <div className="filter-group-heading"><strong>快捷筛选</strong><span>快速缩小结果范围</span></div>
+        <div className="quick-filter-tabs">
+          <button type="button" className={`filter-button filter-trigger-mobile ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 筛选 <b>{[scope !== "全部", status !== "全部", type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button>
+          {quickFilters.map((item) => <button type="button" key={item.value} title={item.value === "官方招聘入口" ? "仅展示可直接进入企业或官方招聘页面的岗位" : undefined} className={`quick-filter quick-filter-${item.key} ${item.tone ? `quick-filter-${item.tone}` : ""} ${scope === item.value ? "active" : ""}`} aria-pressed={scope === item.value} onClick={() => selectScope(item.value)}>{item.icon && <span aria-hidden="true">{item.icon}</span>}{item.label}</button>)}
+        </div>
+        {matchPromptOpen && <div className="match-filter-prompt" role="status"><span><strong>完善专业信息后</strong>，可查看与你更匹配的招聘机会。</span><button type="button" onClick={onNavigateProfile}>去完善资料</button><button type="button" className="match-filter-prompt-close" aria-label="关闭提示" onClick={() => setMatchPromptOpen(false)}>×</button></div>}
+      </section>
+    </div>
+    {selectedFilters.length > 0 && <div className="selected-filters" aria-label="已选筛选条件"><strong>已选</strong>{selectedFilters.map((item) => <button type="button" className="selected-filter-chip" key={item.key} onClick={item.onClear}>{item.label}<span aria-hidden="true">×</span></button>)}<button type="button" className="clear-filters-button" onClick={resetFilters}>清除全部</button></div>}
+    <div className="batch-caption"><span className="batch-caption-icon" aria-hidden="true">ⓘ</span><strong>批次说明</strong><span className="soft-text">春招、秋招仅按官方明确标注进行分类，实习及专项招聘单独统计。</span></div>
     <div className="list-toolbar"><div className="list-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索企业、招聘项目、专业关键词" /></div><div className="result-count">共 <strong>{filtered.length}</strong> 个项目</div></div>
-    {filterOpen && <><div className="mobile-filter-backdrop" onClick={() => setFilterOpen(false)} /><div className="filter-panel"><div className="mobile-filter-sheet-heading"><strong>筛选条件</strong><button onClick={() => setFilterOpen(false)} aria-label="关闭筛选">×</button></div><FilterSelect label="机会分类" value={scope} onChange={setScope} options={scopes} /><FilterSelect label="招聘状态" value={status === "全部" ? "全部状态" : statusLabel[status]} onChange={(value) => setStatus(value === "全部状态" ? "全部" : (Object.entries(statusLabel).find(([, label]) => label === value)?.[0] as ProjectStatus))} options={["全部状态", "招聘中", "即将开始", "即将截止", "已截止"]} /><FilterSelect label="企业类型" value={type} onChange={setType} options={["全部类型", "央企", "地方国企", "互联网公司", "科技企业", "制造业企业", "金融企业", "知名企业"]} /><FilterSelect label="工作地区" value={region} onChange={setRegion} options={["全部地区", ...regionOptions]} /><label className="match-filter"><input type="checkbox" checked={matchOnly} onChange={(event) => setMatchOnly(event.target.checked)} /><span className="fake-checkbox">✓</span>只看与我匹配</label><button className="reset-button" onClick={resetFilters}>重置</button><button className="mobile-filter-apply" onClick={() => setFilterOpen(false)}>查看结果</button></div></>}
+    {filterOpen && <><div className="mobile-filter-backdrop" onClick={() => setFilterOpen(false)} /><div className="filter-panel"><div className="mobile-filter-sheet-heading"><strong>更多筛选</strong><button type="button" onClick={() => setFilterOpen(false)} aria-label="关闭筛选">×</button></div><FilterSelect label="招聘类型 / 快捷筛选" value={activeScopeLabel} onChange={(value) => selectScope(scopeOptions.find((item) => item.label === value)?.value ?? "全部")} options={scopeOptions.map((item) => item.label)} /><FilterSelect label="招聘状态" value={status === "全部" ? "全部状态" : statusLabel[status]} onChange={(value) => setStatus(value === "全部状态" ? "全部" : (Object.entries(statusLabel).find(([, label]) => label === value)?.[0] as ProjectStatus))} options={["全部状态", "招聘中", "即将开始", "即将截止", "已截止"]} /><FilterSelect label="企业类型" value={type} onChange={setType} options={["全部类型", "央企", "地方国企", "互联网公司", "科技企业", "制造业企业", "金融企业", "知名企业"]} /><FilterSelect label="工作地区" value={region} onChange={setRegion} options={["全部地区", ...regionOptions]} /><label className="match-filter"><input type="checkbox" checked={matchOnly} onChange={(event) => toggleMatchOnly(event.target.checked)} /><span className="fake-checkbox">✓</span>只看与我匹配</label><button type="button" className="reset-button" onClick={resetFilters}>重置</button><button type="button" className="mobile-filter-apply" onClick={() => setFilterOpen(false)}>查看结果</button></div></>}
     <div className="list-caption"><span>推荐排序</span><span className="caption-divider" /><span className="soft-text">优先展示与你专业匹配、近期截止的项目</span></div>
     <div className="project-list">{filtered.length ? filtered.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpen} onToggleFavorite={onToggleFavorite} isFavorite={favoriteIds.includes(project.id)} profileMajor={profile.major} />) : <EmptyState onReset={() => { setSearch(""); resetFilters(); }} />}</div>
   </>;

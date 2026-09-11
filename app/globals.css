@@ -18,6 +18,64 @@
   --shadow: 0 12px 32px rgba(40, 65, 71, 0.06);
 }
 
+/* Recruitment filters: separate category choices from lightweight shortcuts. */
+.opportunity-filters { display: grid; gap: 10px; margin-bottom: 13px; }
+.filter-group { padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 5px 18px rgba(39, 61, 68, .035); }
+.filter-group-quick { background: #fbfdfd; }
+.filter-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.filter-group-heading strong { color: #4e696d; font-size: 12px; font-weight: 750; }
+.filter-group-heading span { color: #a0afb0; font-size: 10px; }
+.opportunity-type-tabs, .quick-filter-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.opportunity-type-tabs button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 16px; color: #718486; background: #fff; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; transition: .16s ease; }
+.opportunity-type-tabs button:hover { color: var(--teal-dark); background: #f0faf8; border-color: #b9ddd8; }
+.opportunity-type-tabs button.active { color: #fff; background: #0f766e; border-color: #0f766e; box-shadow: 0 4px 10px rgba(15, 118, 110, .14); }
+.quick-filter { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 0 12px; color: #718486; background: #f8fafb; border: 1px solid #e2e9e8; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; transition: .16s ease; }
+.quick-filter:hover { color: var(--teal-dark); background: #f1faf8; border-color: #c6e2de; }
+.quick-filter.active { color: #0f766e; background: #effaf7; border-color: #b9ddd8; }
+.quick-filter-deadline.active { color: #b45309; background: #fffbeb; border-color: #f5d48b; }
+.quick-filter-match > span { color: #0f766e; font-size: 12px; }
+.filter-trigger-mobile { display: none; }
+.selected-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 8px 10px; margin: -2px 0 13px; color: #718486; background: #f8fbfb; border: 1px solid #edf2f1; border-radius: 10px; font-size: 10px; }
+.selected-filters > strong { color: #597477; font-size: 10px; }
+.selected-filter-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 25px; padding: 0 8px; color: #176c72; background: #fff; border: 1px solid #cfe5e2; border-radius: 999px; font-size: 10px; }
+.selected-filter-chip:hover { background: #effaf7; border-color: #a8d2cd; }
+.selected-filter-chip span { color: #7a9a9b; font-size: 12px; line-height: 1; }
+.clear-filters-button { min-height: 25px; padding: 0 4px; margin-left: auto; color: #9aa8aa; background: transparent; font-size: 10px; }
+.clear-filters-button:hover { color: var(--teal-dark); }
+.match-filter-prompt { display: flex; align-items: center; gap: 9px; padding: 9px 10px; margin-top: 10px; color: #628083; background: #effaf7; border: 1px solid #d7ece8; border-radius: 9px; font-size: 10px; line-height: 1.5; }
+.match-filter-prompt > span { flex: 1; min-width: 0; }
+.match-filter-prompt strong { color: #176c72; }
+.match-filter-prompt button { flex: 0 0 auto; color: #176c72; background: transparent; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.match-filter-prompt-close { width: 20px; height: 20px; color: #8ca3a3 !important; font-size: 16px !important; font-weight: 400 !important; }
+.batch-caption { display: flex; align-items: center; padding: 8px 11px; margin-bottom: 13px; color: #718486; background: #f8fafb; border: 1px solid #edf2f1; border-radius: 10px; line-height: 1.5; }
+.batch-caption strong { color: #6b8587; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.batch-caption .soft-text { color: #899b9d; font-size: 10px; }
+.batch-caption-icon { color: #7da3a0; font-size: 12px; line-height: 1; }
+
+@media (max-width: 767px) {
+  .filter-trigger-desktop { display: none; }
+  .opportunity-filters { gap: 8px; margin-bottom: 11px; }
+  .filter-group { padding: 11px 12px; border-radius: 13px; }
+  .filter-group-heading { margin-bottom: 8px; }
+  .filter-group-heading span { display: none; }
+  .opportunity-type-tabs { flex-wrap: nowrap; gap: 6px; margin: 0 -2px; padding: 0 2px 2px; overflow-x: auto; scrollbar-width: none; }
+  .opportunity-type-tabs::-webkit-scrollbar { display: none; }
+  .opportunity-type-tabs button { flex: 0 0 auto; min-height: 36px; padding: 0 14px; font-size: 12px; }
+  .opportunity-type-tabs button:nth-child(n + 6) { display: none; }
+  .filter-group-quick { padding: 0; background: transparent; border: 0; box-shadow: none; }
+  .filter-group-quick .filter-group-heading { padding: 0 2px; }
+  .quick-filter-tabs { flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .quick-filter-tabs::-webkit-scrollbar { display: none; }
+  .filter-trigger-mobile { display: inline-flex; flex: 0 0 auto; min-height: 34px; padding: 0 12px; border-radius: 999px; }
+  .quick-filter { display: none; flex: 0 0 auto; min-height: 34px; padding: 0 11px; }
+  .quick-filter-deadline, .quick-filter-match { display: inline-flex; }
+  .selected-filters { margin: 0 0 11px; }
+  .clear-filters-button { margin-left: 0; }
+  .match-filter-prompt { align-items: flex-start; }
+  .batch-caption { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 11px; }
+  .batch-caption .soft-text { flex: 1; }
+}
+
 @theme inline {
   --color-background: var(--paper);
   --color-foreground: var(--ink);
@@ -466,4 +524,11 @@ kbd { padding: 4px 6px; color: #a5b1b3; background: #f6f8f8; border: 1px solid #
   .moderation-modal { width: 100%; padding: 24px 20px 20px; }
   .moderation-modal .small-modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .moderation-modal .small-modal-actions > * { width: 100%; }
+}
+
+/* Keep the desktop and mobile filter triggers in their intended locations. */
+.filter-trigger-mobile { display: none; }
+@media (max-width: 767px) {
+  .filter-trigger-desktop { display: none; }
+  .filter-trigger-mobile { display: inline-flex; }
 }
