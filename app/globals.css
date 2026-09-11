@@ -423,6 +423,18 @@ kbd { padding: 4px 6px; color: #a5b1b3; background: #f6f8f8; border: 1px solid #
 .moderation-modal .primary-button:disabled, .moderation-modal .secondary-button:disabled { opacity: .65; cursor: not-allowed; transform: none; }
 @keyframes moderation-modal-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
+/* Keep recruitment row actions on one optical baseline without changing their handlers. */
+.published-actions { display: flex; align-self: center; align-items: center; justify-content: flex-start; min-width: 0; white-space: nowrap; }
+.published-action-main { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-height: 32px; white-space: nowrap; }
+.published-action-main .text-button { display: inline-flex; align-items: center; justify-content: center; height: 32px; min-height: 32px; margin: 0; padding: 0 4px; color: var(--teal-dark); font-size: 11px; font-weight: 600; line-height: 1; text-decoration: none; vertical-align: middle; transition: color .18s ease; }
+.published-action-main .text-button:hover { color: #166a6e; }
+.published-action-main .danger-copy { color: #b36758; }
+.published-action-main .danger-copy:hover { color: #a45043; }
+.published-action-main .restore-copy { color: #32837c !important; }
+.published-action-main .muted-action { color: #a7b1b2; }
+.published-action-main .icon-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; padding: 0; color: #718487; background: #fff; border: 1px solid #e1eae8; border-radius: 8px; font-size: 13px; line-height: 1; letter-spacing: 1px; transition: color .18s ease, background-color .18s ease, border-color .18s ease; }
+.published-action-main .icon-button:hover { color: #315f64; background: #f7fbfa; border-color: #cddfdb; }
+
 @media (max-width: 680px) {
   .published-overview-strip { gap: 6px; }
   .published-overview-strip span { flex: 1 1 calc(33.33% - 6px); min-width: 86px; }
@@ -445,7 +457,7 @@ kbd { padding: 4px 6px; color: #a5b1b3; background: #f6f8f8; border: 1px solid #
   .published-publication-cell { grid-row: 5; margin-top: 13px; }
   .published-updated-cell { grid-row: 6; margin-top: 13px; }
   .published-actions { grid-column: 1 / -1; grid-row: 7; padding-top: 14px; margin-top: 14px; border-top: 1px solid #edf2f1; }
-  .published-action-main { justify-content: flex-start; gap: 17px; }
+  .published-action-main { justify-content: flex-start; gap: 8px; }
   .published-action-main .text-button { font-size: 11px; }
   .published-more-menu { right: 0; bottom: 35px; }
   .published-batch-toolbar { align-items: flex-start; flex-wrap: wrap; }
