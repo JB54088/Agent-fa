@@ -66,6 +66,16 @@ function readLocalStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function getAvatarText(user: { nickname?: string | null; name?: string | null; displayName?: string | null; phone?: string | null } | null | undefined): string {
+  const phone = user?.phone?.trim() ?? "";
+  const displayName = user?.nickname?.trim() || user?.name?.trim() || user?.displayName?.trim() || "";
+  if (displayName && displayName !== phone) {
+    const firstCharacter = displayName.charAt(0);
+    return /^[a-z]$/i.test(firstCharacter) ? firstCharacter.toUpperCase() : firstCharacter;
+  }
+  return phone ? phone.slice(-1) : "用";
+}
+
 function safeExternalUrl(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   try {
@@ -134,6 +144,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   const [toast, setToast] = useState<Toast>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserPhone, setCurrentUserPhone] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile>({
     name: "",
     major: "",
@@ -195,6 +206,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
         if (!active || !payload?.authenticated) return;
         setLoggedIn(true);
         setIsAdmin(payload.user?.role === "admin");
+        setCurrentUserPhone(payload.user?.phone ?? null);
         if (payload.user?.displayName) setProfile((current) => ({ ...current, name: payload.user!.displayName! }));
       })
       .catch(() => undefined);
@@ -316,6 +328,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   }
 
   const favoriteProjects = projects.filter((project) => favoriteIds.includes(project.id));
+  const avatarText = getAvatarText({ name: profile.name, phone: currentUserPhone });
 
   return (
     <div className="app-shell">
@@ -352,7 +365,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
             <div><strong>把机会留给准备好的人</strong><span>完善资料，匹配更精准</span></div>
           </div>
           <button className="user-mini" onClick={() => setProfileOpen(true)}>
-            <span className="avatar">林</span>
+            <span className="avatar">{avatarText}</span>
             <span className="user-mini-text"><strong>{loggedIn ? profile.name : "未登录"}</strong><small>{loggedIn ? `${profile.graduation}届 · ${profile.degree}` : "登录后保存机会、报名进度和提醒"}</small></span>
             <span className="user-more">•••</span>
           </button>
@@ -374,7 +387,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
             <button className="icon-button" aria-label="帮助" onClick={() => navigate("about")}>?</button>
             <button className="icon-button notification-button" aria-label="提醒中心" onClick={() => navigate("messages")}>♧{notifications.some((notification) => !notification.readAt) && <span />}</button>
             {isAdmin && <button className="icon-button mobile-admin-button" aria-label="运营后台" onClick={() => navigate("admin")}>▦</button>}
-            <button className="top-avatar" onClick={() => setProfileOpen(true)} aria-haspopup="dialog" aria-expanded={profileOpen} aria-label="打开账号菜单">林</button>
+            <button className="top-avatar" onClick={() => setProfileOpen(true)} aria-haspopup="dialog" aria-expanded={profileOpen} aria-label="打开账号菜单">{avatarText}</button>
           </div>
         </header>
 
@@ -402,8 +415,8 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
 
       {selectedProject && <CenteredProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
       {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={(type, content) => void submitCorrection(correctionProject, type, content)} />}
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={(user) => { setLoggedIn(true); setIsAdmin(user.role === "admin"); setProfile((current) => ({ ...current, name: user.name ?? user.phone ?? "当前账号" })); setLoginOpen(false); notify(user.role === "admin" ? "管理员登录成功" : "登录成功"); }} />}
-      {profileOpen && <ProfileQuickPanel profile={profile} isAdmin={isAdmin} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onAdmin={() => { setProfileOpen(false); navigate("admin"); }} onLogout={() => { setLoggedIn(false); setIsAdmin(false); setProfileOpen(false); void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/login")); }} />}
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={(user) => { setLoggedIn(true); setIsAdmin(user.role === "admin"); setCurrentUserPhone(user.phone); setProfile((current) => ({ ...current, name: user.name ?? user.phone ?? "当前账号" })); setLoginOpen(false); notify(user.role === "admin" ? "管理员登录成功" : "登录成功"); }} />}
+      {profileOpen && <ProfileQuickPanel profile={profile} phone={currentUserPhone} isAdmin={isAdmin} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onAdmin={() => { setProfileOpen(false); navigate("admin"); }} onLogout={() => { setLoggedIn(false); setIsAdmin(false); setCurrentUserPhone(null); setProfileOpen(false); void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/login")); }} />}
       {toast && <div className={`toast ${toast.tone === "info" ? "toast-info" : ""}`}><span>{toast.tone === "info" ? "i" : "✓"}</span>{toast.message}</div>}
     </div>
   );
@@ -789,7 +802,7 @@ function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (user:
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>{mode === "login" ? "欢迎回到校招雷达" : "注册校招雷达"}</h2><p>{mode === "login" ? "使用手机号和密码登录，继续管理你的求职机会。" : "手机号注册后默认为普通客户账号。"}</p><div className="login-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>手机号登录</button><button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>注册账号</button></div><form onSubmit={submit}><label className="login-field"><span>手机号</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></label>{mode === "register" && <label className="login-field"><span>姓名/昵称（可选）</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" /></label>}<label className="login-field"><span>密码</span><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入密码" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>{mode === "register" && <label className="login-field"><span>确认密码</span><input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="请再次输入密码" type="password" autoComplete="new-password" required /></label>}{error && <p className="login-error" role="alert">{error}</p>}<button className="primary-button login-submit" type="submit" disabled={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button></form><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
 }
 
-function ProfileQuickPanel({ profile, isAdmin, onClose, onEdit, onAdmin, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; isAdmin: boolean; onClose: () => void; onEdit: () => void; onAdmin: () => void; onLogout: () => void }) {
+function ProfileQuickPanel({ profile, phone, isAdmin, onClose, onEdit, onAdmin, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; phone: string | null; isAdmin: boolean; onClose: () => void; onEdit: () => void; onAdmin: () => void; onLogout: () => void }) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -798,5 +811,5 @@ function ProfileQuickPanel({ profile, isAdmin, onClose, onEdit, onAdmin, onLogou
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  return <div className="user-popover-layer" onMouseDown={onClose} role="presentation"><aside className="user-popover" role="dialog" aria-label="账号菜单" onMouseDown={(event) => event.stopPropagation()}><div className="user-popover-header"><div className="user-popover-avatar">{profile.name.slice(0, 1) || "·"}</div><div className="user-popover-identity"><strong>{profile.name || "当前账号"}</strong><span>{profile.graduation}届 · {profile.degree}</span><small>{profile.major || "尚未选择专业"}</small></div><button className="user-popover-close" onClick={onClose} aria-label="关闭账号菜单">×</button></div>{!profile.major ? <button className="user-popover-complete" onClick={onEdit}><span>尚未选择专业</span><b>去完善 <i>›</i></b></button> : <div className="user-popover-major"><span>专业方向</span><strong>{profile.major}</strong></div>}<div className="user-popover-divider" /><div className="user-popover-section"><span className="user-popover-section-label">个人账户</span><div className="user-popover-links"><button className="user-menu-item" onClick={onEdit}><span className="user-menu-icon">◎</span><span>求职资料</span><b>›</b></button><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◌</span><span>提醒设置</span><b>›</b></button></div></div>{isAdmin && <div className="user-popover-admin"><span className="user-popover-section-label">管理员</span><button className="user-menu-item user-menu-item-admin" onClick={onAdmin}><span className="user-menu-icon">▦</span><span>运营后台</span><b>管理员</b></button></div>}<div className="user-popover-divider" /><div className="user-popover-links user-popover-account-links"><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◫</span><span>隐私与账号</span><b>›</b></button><button className="user-menu-item user-menu-item-logout" onClick={onLogout}><span className="user-menu-icon">↪</span><span>退出当前账号</span></button></div></aside></div>;
+  return <div className="user-popover-layer" onMouseDown={onClose} role="presentation"><aside className="user-popover" role="dialog" aria-label="账号菜单" onMouseDown={(event) => event.stopPropagation()}><div className="user-popover-header"><div className="user-popover-avatar">{getAvatarText({ name: profile.name, phone })}</div><div className="user-popover-identity"><strong>{profile.name || "当前账号"}</strong><span>{profile.graduation}届 · {profile.degree}</span><small>{profile.major || "尚未选择专业"}</small></div><button className="user-popover-close" onClick={onClose} aria-label="关闭账号菜单">×</button></div>{!profile.major ? <button className="user-popover-complete" onClick={onEdit}><span>尚未选择专业</span><b>去完善 <i>›</i></b></button> : <div className="user-popover-major"><span>专业方向</span><strong>{profile.major}</strong></div>}<div className="user-popover-divider" /><div className="user-popover-section"><span className="user-popover-section-label">个人账户</span><div className="user-popover-links"><button className="user-menu-item" onClick={onEdit}><span className="user-menu-icon">◎</span><span>求职资料</span><b>›</b></button><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◌</span><span>提醒设置</span><b>›</b></button></div></div>{isAdmin && <div className="user-popover-admin"><span className="user-popover-section-label">管理员</span><button className="user-menu-item user-menu-item-admin" onClick={onAdmin}><span className="user-menu-icon">▦</span><span>运营后台</span><b>管理员</b></button></div>}<div className="user-popover-divider" /><div className="user-popover-links user-popover-account-links"><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◫</span><span>隐私与账号</span><b>›</b></button><button className="user-menu-item user-menu-item-logout" onClick={onLogout}><span className="user-menu-icon">↪</span><span>退出当前账号</span></button></div></aside></div>;
 }
