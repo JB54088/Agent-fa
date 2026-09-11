@@ -1005,6 +1005,7 @@ function PublishedCenter({ onNotify }: { onNotify: (message: string) => void }) 
           offline_reason_required: "请选择下架原因后再提交。",
           permanent_delete_reason_not_allowed: "永久删除仅允许用于重复、测试或明显错误数据。",
           opportunity_ids_required: "没有找到要操作的招聘记录。",
+          moderation_no_effect: action === "offline" ? "下架未生效，未找到可更新的招聘记录，请刷新后重试。" : "招聘状态未更新，请检查当前记录状态。",
         };
         throw new Error(messages[payload.error ?? ""] ?? payload.error ?? "正式招聘操作失败，请稍后重试");
       }

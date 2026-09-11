@@ -17,7 +17,7 @@ async function requireAdmin() {
   return rows[0]?.userId ?? null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });

@@ -1,6 +1,12 @@
 import * as schema from "./schema.ts";
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
+
+// Local development only: point the HTTP driver at a local PostgreSQL bridge
+// (dev-tools/neon-local-proxy.mjs) instead of a hosted Neon endpoint.
+if (process.env.NODE_ENV !== "production" && process.env.NEON_LOCAL_ENDPOINT) {
+  neonConfig.fetchEndpoint = process.env.NEON_LOCAL_ENDPOINT;
+}
 
 /** Database boundary for server-side adapters. Client components must not import this module. */
 export { schema };

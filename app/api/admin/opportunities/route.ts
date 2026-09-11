@@ -260,9 +260,15 @@ export async function POST(request: Request) {
         await deleteOpportunityChildren(sql, id, admin.email, reason);
         updatedCount += 1;
         updatedIds.push(id);
-      } else {
+    } else {
         return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });
       }
+    }
+    if (!updatedCount) {
+      // A request that changed nothing must not answer 200. The console treats 200 as success, so a
+      // refused 下架/删除 used to close the dialog and toast "…完成：0 条" — indistinguishable from
+      // working. Report the concrete per-record reasons instead.
+      return NextResponse.json({ ok: false, error: "moderation_no_effect", action, updatedCount, updatedIds, skippedCount, skipped }, { status: 409 });
     }
     return NextResponse.json({ ok: true, action, updatedCount, updatedIds, skippedCount, skipped });
   } catch (error) {
