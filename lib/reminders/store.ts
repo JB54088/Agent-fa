@@ -22,14 +22,6 @@ export type ReminderStore = {
 
 type SqlClient = ReturnType<typeof neon<false, false>>;
 
-let ensured = false;
-
-async function ensureReminderColumns(sql: SqlClient) {
-  if (ensured) return;
-  await sql`ALTER TABLE notification_deliveries ADD COLUMN IF NOT EXISTS claimed_at timestamptz`;
-  ensured = true;
-}
-
 async function userIdForEmail(sql: SqlClient, email: string) {
   const rows = await sql`SELECT id::text AS id FROM users WHERE email = ${email} LIMIT 1`;
   if (!rows[0]?.id) throw new Error("user_not_found");
@@ -99,7 +91,6 @@ async function scheduleForFavorite(sql: SqlClient, userId: string, opportunityId
 /** Rebuilds future deadline deliveries for every active favorite of an opportunity. */
 export async function syncFavoriteOpportunityReminders(opportunityId: string) {
   const sql = neon(getDatabaseUrl());
-  await ensureReminderColumns(sql);
   const rows = await sql`
     SELECT f.user_id::text AS user_id, s.remind_7_days, s.remind_3_days, s.remind_1_day,
            s.remind_same_day, s.change_notification_enabled, s.enabled
@@ -119,7 +110,6 @@ function makeStore(): ReminderStore {
   const sql = neon(getDatabaseUrl());
 
   async function favoriteOpportunity({ userEmail, opportunityId }: { userEmail: string; opportunityId: string }) {
-    await ensureReminderColumns(sql);
     const userId = await userIdForEmail(sql, userEmail);
     await readOpportunity(sql, opportunityId);
     await sql`
@@ -143,7 +133,6 @@ function makeStore(): ReminderStore {
   }
 
   async function unfavoriteOpportunity({ userEmail, opportunityId }: { userEmail: string; opportunityId: string }) {
-    await ensureReminderColumns(sql);
     const userId = await userIdForEmail(sql, userEmail);
     await sql`UPDATE opportunity_favorites SET deleted_at = now(), updated_at = now() WHERE user_id = ${userId} AND opportunity_id = ${opportunityId}`;
     const result = await sql`
@@ -161,7 +150,6 @@ function makeStore(): ReminderStore {
   }
 
   async function updateReminderSettings({ userEmail, opportunityId, patch }: { userEmail: string; opportunityId: string; patch: Partial<ReminderSettings> }) {
-    await ensureReminderColumns(sql);
     const userId = await userIdForEmail(sql, userEmail);
     await readOpportunity(sql, opportunityId);
     const current = await readSettings(sql, userId, opportunityId);
@@ -204,7 +192,6 @@ function makeStore(): ReminderStore {
 
   const reminderJobRepository: ReminderJobRepository = {
     async listDueDeliveries(now) {
-      await ensureReminderColumns(sql);
       const rows = await sql`
         SELECT d.id::text AS id, d.user_id::text AS user_id, d.opportunity_id::text AS opportunity_id,
                o.title AS opportunity_title, o.deadline_at, d.reminder_type,

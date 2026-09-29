@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import { getAppUser } from "../../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../../db";
 import { syncVerifiedSourcesToOpportunities } from "../../../../../lib/source-opportunity-feed";
-import { ensureOfficialUrlLifecycle } from "../../../../../lib/official-url-lifecycle";
 
 async function requireAdmin() {
   const user = await getAppUser();
@@ -29,8 +28,6 @@ export async function POST(request: Request) {
     }
     if (!body.sourceId || !body.action) return NextResponse.json({ ok: false, error: "source_id_and_action_required" }, { status: 400 });
     const sql = neon(getDatabaseUrl());
-    await ensureOfficialUrlLifecycle(sql);
-    await sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`;
     const source = await sql`SELECT id::text AS id, organization_id::text AS organization_id, source_url, official_url_status, discovery_status, status FROM data_sources WHERE id = ${body.sourceId} LIMIT 1`;
     if (!source[0]) return NextResponse.json({ ok: false, error: "source_not_found" }, { status: 404 });
 

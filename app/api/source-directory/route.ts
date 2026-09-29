@@ -1,9 +1,7 @@
 import { and, eq, isNull, like, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../chatgpt-auth";
-import { neon } from "@neondatabase/serverless";
-import { getDatabaseUrl, getDb, schema } from "../../../db";
-import { ensureOfficialUrlLifecycle } from "../../../lib/official-url-lifecycle";
+import { getDb, schema } from "../../../db";
 
 async function requireAdmin() {
   const user = await getAppUser();
@@ -31,8 +29,6 @@ const categoryLabels = {
 export async function GET() {
   try {
     if (!(await requireAdmin())) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
-    const sql = neon(getDatabaseUrl());
-    await ensureOfficialUrlLifecycle(sql);
     const db = getDb();
     const rows = await db
       .select({

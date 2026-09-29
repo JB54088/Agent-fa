@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { hasAdminRole } from "../../../../lib/auth/admin";
+import { clearPublishedProjectsCache } from "../../../../lib/opportunities";
 
 type SqlClient = ReturnType<typeof neon>;
 
@@ -270,6 +271,7 @@ export async function POST(request: Request) {
       // working. Report the concrete per-record reasons instead.
       return NextResponse.json({ ok: false, error: "moderation_no_effect", action, updatedCount, updatedIds, skippedCount, skipped }, { status: 409 });
     }
+    clearPublishedProjectsCache();
     return NextResponse.json({ ok: true, action, updatedCount, updatedIds, skippedCount, skipped });
   } catch (error) {
     console.error("[Recruitment Moderation Failed]", error);

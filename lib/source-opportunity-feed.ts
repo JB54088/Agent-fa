@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { getDatabaseUrl } from "../db";
-import { ensureOfficialUrlLifecycle } from "./official-url-lifecycle";
 import { shouldCreateOfficialEntry } from "./source-opportunity-policy";
+import { clearPublishedProjectsCache } from "./opportunities";
 
 type FeedSummary = {
   verifiedSources: number;
@@ -38,11 +38,6 @@ function opportunityType(category: string | null, organizationType: string | nul
  */
 export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Promise<FeedSummary> {
   const sql = neon(getDatabaseUrl());
-  await ensureOfficialUrlLifecycle(sql);
-  await Promise.all([
-    sql`ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS recruitment_link_status text NOT NULL DEFAULT 'NEEDS_REVIEW'`,
-    sql`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS display_type text NOT NULL DEFAULT 'RECRUITMENT_PROJECT'`,
-  ]);
 
   const sources = sourceId
     ? await sql`
@@ -82,7 +77,7 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
       FROM opportunities
       WHERE source_id = ${source.id}
         AND is_demo = false
-    `;
+    ` as Array<{ display_type: string | null; publication_status: string | null; opportunity_relevance_status: string | null }>;
     const current = existing.filter((item) =>
       item.publication_status === "published" &&
       item.display_type === "RECRUITMENT_PROJECT" &&
@@ -140,5 +135,6 @@ export async function syncVerifiedSourcesToOpportunities(sourceId?: string): Pro
     else entriesUpdated += 1;
   }
 
+  clearPublishedProjectsCache();
   return { verifiedSources: sources.length, activeRecruitment, upcomingRecruitment, officialEntryOnly, entriesCreated, entriesUpdated };
 }

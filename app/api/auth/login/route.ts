@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb, schema } from "../../../../db";
 import { hashPassword, verifyPassword } from "../../../../lib/auth/password";
 import { setSessionCookie } from "../../../../lib/auth/session";
+import { checkLoginRateLimit, clearLoginFailures, recordLoginFailure } from "../../../../lib/auth/login-rate-limit";
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
@@ -39,12 +40,19 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({})) as { phone?: unknown; password?: unknown };
     const phone = String(body.phone ?? "").replace(/\s+/g, "");
     const password = typeof body.password === "string" ? body.password : "";
+    const rateLimit = checkLoginRateLimit(request, PHONE_PATTERN.test(phone) ? phone : "");
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ ok: false, error: "too_many_login_attempts" }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
+    }
     if (!PHONE_PATTERN.test(phone)) return NextResponse.json({ ok: false, error: "invalid_mainland_phone" }, { status: 400 });
     const db = getDb();
     await initializeConfiguredAdmin(db, phone, password);
     const rows = await db.select({ id: schema.users.id, phone: schema.users.phone, name: schema.users.name, email: schema.users.email, role: schema.users.role, status: schema.users.status, passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
     const account = rows[0];
-    if (!account || account.status !== "active" || !(await verifyPassword(password, account.passwordHash))) return NextResponse.json({ ok: false, error: "invalid_credentials" }, { status: 401 });
+    if (!account || account.status !== "active" || !(await verifyPassword(password, account.passwordHash))) {
+      recordLoginFailure(phone);
+      return NextResponse.json({ ok: false, error: "invalid_credentials" }, { status: 401 });
+    }
     const adminPhones = configuredAdminPhones();
     const hasCompleteAdminAllowlist = adminPhones.length === 3 && new Set(adminPhones).size === 3;
     const role = hasCompleteAdminAllowlist ? (adminPhones.includes(phone) ? "admin" : "customer") : account.role;
@@ -53,6 +61,7 @@ export async function POST(request: Request) {
     if (hasCompleteAdminAllowlist && role === "admin") {
       await db.insert(schema.adminUsers).values({ userId: account.id, role: "admin" }).onConflictDoUpdate({ target: schema.adminUsers.userId, set: { role: "admin", updatedAt: new Date() } });
     }
+    clearLoginFailures(phone);
     await setSessionCookie(account.id);
     return NextResponse.json({ ok: true, user: { id: account.id, phone: account.phone, name: account.name, role } });
   } catch (error) {

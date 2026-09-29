@@ -4,6 +4,7 @@ import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { eq } from "drizzle-orm";
 import { batch1Records, batch1SourceAudits } from "../../../../data/collection/batch-1-real";
+import { clearPublishedProjectsCache } from "../../../../lib/opportunities";
 
 type SqlClient = ReturnType<typeof neon>;
 
@@ -409,7 +410,9 @@ export async function POST() {
   try {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
-    return NextResponse.json(await runBatch1(adminId));
+    const result = await runBatch1(adminId);
+    clearPublishedProjectsCache();
+    return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "BATCH 1 执行失败";
     return NextResponse.json({ ok: false, error: message }, { status: 503 });

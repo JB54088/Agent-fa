@@ -178,8 +178,6 @@ export async function GET() {
     const adminId = await requireAdmin();
     if (!adminId) return NextResponse.json({ ok: false, error: "admin_authentication_required" }, { status: 403 });
     const sql = neon(getDatabaseUrl());
-    await ensureOfficialUrlLifecycle(sql);
-    await ensureFeedColumns(sql);
     const directory = await listDirectory(sql);
     return NextResponse.json({ ok: true, database: await countDirectory(sql), stats: directory.stats, sourceRows: directory.sourceRows, catalog: { enterprises: dataSourcesSeed.length, nationalSources: nationalSourceDirectory.length } });
   } catch (error) {

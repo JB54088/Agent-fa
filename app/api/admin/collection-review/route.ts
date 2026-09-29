@@ -5,6 +5,7 @@ import { getAppUser } from "../../../chatgpt-auth";
 import { getDatabaseUrl, getDb, schema } from "../../../../db";
 import { syncFavoriteOpportunityReminders } from "../../../../lib/reminders/store";
 import { getReviewErrorMessage, isReviewValidationError } from "../../../../lib/review-errors";
+import { clearPublishedProjectsCache } from "../../../../lib/opportunities";
 
 const uiStatusToDb = {
   "待审核": "pending",
@@ -242,6 +243,7 @@ export async function POST(request: Request) {
     const db = getDb();
     if (body.status === "已转正式") {
       const promotion = await promoteReviewedItem(body.id, adminId, body.note);
+      clearPublishedProjectsCache();
       return NextResponse.json({ ok: true, id: body.id, status: body.status, promotion });
     }
     const updated = await db.update(schema.rawSourceItems).set({

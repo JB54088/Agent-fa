@@ -43,6 +43,7 @@ type UserProfile = {
 type PersonalTaskStatus = "待处理" | "进行中" | "已完成" | "已取消";
 type PersonalTask = { id: string; projectId?: string; title: string; status: PersonalTaskStatus; due?: string; suggested?: boolean };
 type AppNotification = { id: string; opportunityId: string | null; type: string; title: string; body: string; actionUrl: string | null; readAt: string | null; createdAt: string };
+type CatalogSummary = { total: number; recruiting: number; upcoming: number; ending: number; closed: number };
 
 const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
   { id: "home", label: "总览", icon: "⌂" },
@@ -124,6 +125,7 @@ function matchesOpportunityScope(project: Project, scope: string, profileMajor =
 
 export default function Home({ initialView = "home" }: { initialView?: RadarView } = {}) {
   const [catalog, setCatalog] = useState<Project[]>([]);
+  const [catalogSummary, setCatalogSummary] = useState<CatalogSummary | null>(null);
   const [catalogState, setCatalogState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [view, setView] = useState<View>(initialView);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
@@ -168,23 +170,47 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
 
   useEffect(() => {
     let active = true;
-    fetch("/api/opportunities")
-      .then((response) => response.json() as Promise<{ ok?: boolean; projects?: Project[] }>)
+    fetch("/api/opportunities?page=1&pageSize=50&summary=1")
+      .then((response) => response.json() as Promise<{ ok?: boolean; items?: Project[]; projects?: Project[]; summary?: CatalogSummary }>)
       .then((payload) => {
         if (!active) return;
-        const next = payload.ok && Array.isArray(payload.projects) ? payload.projects : [];
+        const next = payload.ok && Array.isArray(payload.items ?? payload.projects) ? (payload.items ?? payload.projects ?? []) : [];
         projects = next;
         setCatalog(next);
+        setCatalogSummary(payload.summary ?? null);
         setCatalogState(payload.ok ? "ready" : "unavailable");
       })
       .catch(() => {
         if (!active) return;
         projects = [];
         setCatalog([]);
+        setCatalogSummary(null);
         setCatalogState("unavailable");
       });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!storageReady || !favoriteIds.length) return;
+    let active = true;
+    const query = encodeURIComponent(favoriteIds.join(","));
+    fetch(`/api/opportunities?ids=${query}&page=1&pageSize=50`)
+      .then((response) => response.json() as Promise<{ ok?: boolean; items?: Project[]; projects?: Project[] }>)
+      .then((payload) => {
+        if (!active || !payload.ok) return;
+        const favoriteItems = payload.items ?? payload.projects ?? [];
+        if (!favoriteItems.length) return;
+        setCatalog((current) => {
+          const merged = new Map(current.map((item) => [item.id, item]));
+          favoriteItems.forEach((item) => merged.set(item.id, item));
+          const next = Array.from(merged.values());
+          projects = next;
+          return next;
+        });
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [storageReady, favoriteIds]);
 
   useEffect(() => {
     if (!storageReady) return;
@@ -394,8 +420,8 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
         <div className="page-content">
           {catalogState === "loading" && <div className="surface empty-state catalog-unavailable"><h3>正在读取正式招聘数据</h3><p>招聘信息来源于公开渠道；真实数据只在数据库查询成功后显示，正在加载最新已审核信息。</p></div>}
           {catalogState === "unavailable" && <div className="surface empty-state catalog-unavailable"><h3>正式招聘数据暂时不可用</h3><p>数据库尚未连接或当前查询失败。平台不会用前端样例数据替代正式招聘信息。</p></div>}
-          {view === "home" && catalogState === "ready" && <Dashboard brand={brand} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
-          {view === "projects" && catalogState === "ready" && <ProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} onNavigateProfile={() => navigate("profile")} />}
+          {view === "home" && catalogState === "ready" && <Dashboard brand={brand} summary={catalogSummary} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
+          {view === "projects" && catalogState === "ready" && <PaginatedProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} onNavigateProfile={() => navigate("profile")} />}
           {view === "calendar" && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
           {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
           {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
@@ -422,7 +448,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   );
 }
 
-function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onToggleFavorite, favoriteIds, profile, loggedIn, tasks }: { brand: BrandConfig; onNavigate: (view: View) => void; onBrowseProjects: (scope: string) => void; onLogin: () => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { name: string; major: string; degree: string; graduation: string }; loggedIn: boolean; tasks: PersonalTask[] }) {
+function Dashboard({ brand, summary, onNavigate, onBrowseProjects, onLogin, onOpen, onToggleFavorite, favoriteIds, profile, loggedIn, tasks }: { brand: BrandConfig; summary: CatalogSummary | null; onNavigate: (view: View) => void; onBrowseProjects: (scope: string) => void; onLogin: () => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { name: string; major: string; degree: string; graduation: string }; loggedIn: boolean; tasks: PersonalTask[] }) {
   const focusProjects = projects.filter((project) => project.status === "ending" || project.recommended).slice(0, 4);
   const hotCompanies = Array.from(new Map(projects.map((project) => [project.company, project])).values()).slice(0, 4);
   const matchedCount = projects.filter((project) => ["明确匹配", "专业大类匹配", "不限专业"].includes(getMatch(project, profile.major))).length;
@@ -448,9 +474,9 @@ function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onTog
       <OpportunityHub onBrowse={onBrowseProjects} />
 
       <div className="stats-grid">
-        <StatCard label="真实数据" value={String(projects.length).padStart(2, "0")} suffix="条" trend="官方来源已核验" icon="✦" accent="orange" />
-        <StatCard label="正在招聘" value={String(projects.filter((project) => project.status === "recruiting").length).padStart(2, "0")} suffix="个" trend="以官方页面为准" icon="◒" accent="teal" />
-        <StatCard label="7天内截止" value={String(projects.filter((project) => project.status === "ending").length).padStart(2, "0")} suffix="个" trend="未确认不补写日期" icon="◷" accent="coral" />
+        <StatCard label="真实数据" value={String(summary?.total ?? projects.length).padStart(2, "0")} suffix="条" trend="官方来源已核验" icon="✦" accent="orange" />
+        <StatCard label="正在招聘" value={String(summary?.recruiting ?? projects.filter((project) => project.status === "recruiting").length).padStart(2, "0")} suffix="个" trend="以官方页面为准" icon="◒" accent="teal" />
+        <StatCard label="7天内截止" value={String(summary?.ending ?? projects.filter((project) => project.status === "ending").length).padStart(2, "0")} suffix="个" trend="未确认不补写日期" icon="◷" accent="coral" />
         <StatCard label="与我匹配" value={String(matchedCount).padStart(2, "0")} suffix="个" trend="基于你的资料" icon="✧" accent="violet" />
       </div>
 
@@ -469,6 +495,81 @@ function Dashboard({ brand, onNavigate, onBrowseProjects, onLogin, onOpen, onTog
 
 function StatCard({ label, value, suffix, trend, icon, accent }: { label: string; value: string; suffix: string; trend: string; icon: string; accent: string }) {
   return <div className="stat-card"><div className={`stat-icon ${accent}`}>{icon}</div><span className="stat-label">{label}</span><div className="stat-value">{value}<small>{suffix}</small></div><span className="stat-trend">{trend}</span></div>;
+}
+
+function PaginatedProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOpen, onOpen, onToggleFavorite, favoriteIds, profile, onNavigateProfile }: { initialScope: string; search: string; setSearch: (value: string) => void; filterOpen: boolean; setFilterOpen: (value: boolean) => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { major: string }; onNavigateProfile: () => void }) {
+  const [status, setStatus] = useState<"全部" | ProjectStatus>("全部");
+  const [type, setType] = useState("全部类型");
+  const [region, setRegion] = useState("全部地区");
+  const [matchOnly, setMatchOnly] = useState(false);
+  const [scope, setScope] = useState(initialScope);
+  const [page, setPage] = useState(1);
+  const [items, setItems] = useState<Project[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [matchPromptOpen, setMatchPromptOpen] = useState(false);
+  const query = useMemo(() => {
+    const params = new URLSearchParams({ pageSize: "20", q: search.trim(), scope, status, companyType: type, region, matchOnly: String(matchOnly), major: profile.major.trim() });
+    return params.toString();
+  }, [search, scope, status, type, region, matchOnly, profile.major]);
+  useEffect(() => { setPage(1); }, [query]);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetch(`/api/opportunities?page=${page}&${query}`)
+      .then((response) => response.json() as Promise<{ ok?: boolean; items?: Project[]; total?: number; totalPages?: number }>)
+      .then((payload) => {
+        if (!active) return;
+        setItems(payload.ok && Array.isArray(payload.items) ? payload.items : []);
+        setTotal(payload.ok ? Number(payload.total ?? 0) : 0);
+        setTotalPages(payload.ok ? Number(payload.totalPages ?? 0) : 0);
+      })
+      .catch(() => { if (active) { setItems([]); setTotal(0); setTotalPages(0); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [page, query]);
+  const recruitmentTypes = [
+    { value: "全部", label: "全部" }, { value: "秋招", label: "秋招" }, { value: "春招", label: "春招" },
+    { value: "央企", label: "央企" }, { value: "国企", label: "国企" }, { value: "国考", label: "国考" },
+    { value: "省考", label: "省考" }, { value: "选调生", label: "选调生" }, { value: "事业单位/事业编", label: "事业单位" }, { value: "军队文职", label: "军队文职" },
+  ];
+  const quickFilters = [
+    { value: "官方招聘入口", label: "官方入口" }, { value: "大厂", label: "大厂" }, { value: "即将截止", label: "即将截止" }, { value: "不限专业", label: "不限专业" }, { value: "与我匹配", label: "与我匹配" },
+  ];
+  const scopeOptions = [...recruitmentTypes, ...quickFilters];
+  const activeScopeLabel = scopeOptions.find((item) => item.value === scope)?.label ?? scope;
+  const selectedFilters: { key: string; label: string; onClear: () => void }[] = [];
+  if (scope !== "全部") selectedFilters.push({ key: "scope", label: activeScopeLabel, onClear: () => setScope("全部") });
+  if (status !== "全部") selectedFilters.push({ key: "status", label: statusLabel[status], onClear: () => setStatus("全部") });
+  if (type !== "全部类型") selectedFilters.push({ key: "type", label: type, onClear: () => setType("全部类型") });
+  if (region !== "全部地区") selectedFilters.push({ key: "region", label: region, onClear: () => setRegion("全部地区") });
+  if (matchOnly && scope !== "与我匹配") selectedFilters.push({ key: "match", label: "与我匹配", onClear: () => setMatchOnly(false) });
+  function selectScope(value: string) {
+    if (value === "与我匹配" && !profile.major.trim()) { setMatchPromptOpen(true); setFilterOpen(false); return; }
+    setMatchPromptOpen(false);
+    setScope(value);
+  }
+  function toggleMatchOnly(next: boolean) {
+    if (next && !profile.major.trim()) { setMatchPromptOpen(true); setFilterOpen(false); return; }
+    setMatchPromptOpen(false);
+    setMatchOnly(next);
+  }
+  function resetFilters() {
+    setScope("全部"); setStatus("全部"); setType("全部类型"); setRegion("全部地区"); setMatchOnly(false); setMatchPromptOpen(false);
+  }
+  return <>
+    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />RECRUITMENT RADAR</span><h1>校招机会</h1><p>把分散的校招机会，整理成一张清晰的清单。</p></div><button type="button" className={`filter-button ${filterOpen ? "selected" : ""}`} onClick={() => setFilterOpen(!filterOpen)}><span>☷</span> 更多筛选 <b>{[scope !== "全部", status !== "全部", type !== "全部类型", region !== "全部地区", matchOnly].filter(Boolean).length || ""}</b></button></div>
+    <div className="opportunity-filters" aria-label="机会筛选"><section className="filter-group filter-group-types"><div className="filter-group-heading"><strong>招聘类型</strong><span>按官方招聘批次与机构类型浏览</span></div><div className="opportunity-type-tabs" aria-label="招聘类型筛选">{recruitmentTypes.map((item) => <button type="button" key={item.value} className={scope === item.value ? "active" : ""} aria-pressed={scope === item.value} onClick={() => selectScope(item.value)}>{item.label}</button>)}</div></section></div>
+    {matchPromptOpen && <div className="match-filter-prompt" role="status"><span><strong>完善专业信息后</strong>，可查看与你更匹配的招聘机会。</span><button type="button" onClick={onNavigateProfile}>去完善资料</button><button type="button" className="match-filter-prompt-close" aria-label="关闭提示" onClick={() => setMatchPromptOpen(false)}>×</button></div>}
+    {selectedFilters.length > 0 && <div className="selected-filters" aria-label="已选筛选条件"><strong>已选</strong>{selectedFilters.map((item) => <button type="button" className="selected-filter-chip" key={item.key} onClick={item.onClear}>{item.label}<span aria-hidden="true">×</span></button>)}<button type="button" className="clear-filters-button" onClick={resetFilters}>清除全部</button></div>}
+    <div className="batch-caption"><span className="batch-caption-icon" aria-hidden="true">ⓘ</span><strong>批次说明</strong><span className="soft-text">春招、秋招仅按官方明确标注进行分类，实习及专项招聘单独统计。</span></div>
+    <div className="list-toolbar"><div className="list-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索企业、招聘项目、专业关键词" /></div><div className="result-count">共 <strong>{total}</strong> 个项目</div></div>
+    {filterOpen && <><div className="mobile-filter-backdrop" onClick={() => setFilterOpen(false)} /><div className="filter-panel"><div className="mobile-filter-sheet-heading"><strong>更多筛选</strong><button type="button" onClick={() => setFilterOpen(false)} aria-label="关闭筛选">×</button></div><FilterSelect label="招聘类型 / 条件" value={activeScopeLabel} onChange={(value) => selectScope(scopeOptions.find((item) => item.label === value)?.value ?? "全部")} options={scopeOptions.map((item) => item.label)} /><FilterSelect label="招聘状态" value={status === "全部" ? "全部状态" : statusLabel[status]} onChange={(value) => setStatus(value === "全部状态" ? "全部" : (Object.entries(statusLabel).find(([, label]) => label === value)?.[0] as ProjectStatus))} options={["全部状态", "招聘中", "即将开始", "即将截止", "已截止"]} /><FilterSelect label="企业类型" value={type} onChange={setType} options={["全部类型", "央企", "地方国企", "互联网公司", "科技企业", "制造业企业", "金融企业", "知名企业"]} /><FilterSelect label="工作地区" value={region} onChange={setRegion} options={["全部地区", ...regionOptions]} /><label className="match-filter"><input type="checkbox" checked={matchOnly} onChange={(event) => toggleMatchOnly(event.target.checked)} /><span className="fake-checkbox">✓</span>只看与我匹配</label><button type="button" className="reset-button" onClick={resetFilters}>重置</button><button type="button" className="mobile-filter-apply" onClick={() => setFilterOpen(false)}>查看结果</button></div></>}
+    <div className="list-caption"><span>推荐排序</span><span className="caption-divider" /><span className="soft-text">优先展示与你专业匹配、近期截止的项目</span></div>
+    {loading ? <div className="surface empty-state"><h3>正在读取招聘机会</h3><p>筛选条件将在数据库中处理。</p></div> : <div className="project-list">{items.length ? items.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpen} onToggleFavorite={onToggleFavorite} isFavorite={favoriteIds.includes(project.id)} profileMajor={profile.major} />) : <EmptyState onReset={() => { setSearch(""); resetFilters(); }} />}</div>}
+    {totalPages > 1 && <div className="pagination-bar"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button><span>第 {page} / {totalPages} 页</span><button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>下一页</button></div>}
+  </>;
 }
 
 function ProjectsView({ initialScope, search, setSearch, filterOpen, setFilterOpen, onOpen, onToggleFavorite, favoriteIds, profile, onNavigateProfile }: { initialScope: string; search: string; setSearch: (value: string) => void; filterOpen: boolean; setFilterOpen: (value: boolean) => void; onOpen: (project: Project) => void; onToggleFavorite: (project: Project) => void; favoriteIds: string[]; profile: { major: string }; onNavigateProfile: () => void }) {
