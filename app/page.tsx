@@ -4,7 +4,7 @@ import { getAppUser } from "./chatgpt-auth";
 
 export const dynamic = "force-dynamic";
 
-const allowedViews: RadarView[] = ["home", "projects", "calendar", "my-projects", "messages", "profile", "admin", "about"];
+const allowedViews: RadarView[] = ["home", "projects", "calendar", "my-projects", "messages", "profile", "membership", "admin", "about"];
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

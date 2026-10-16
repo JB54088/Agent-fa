@@ -21,12 +21,14 @@ import {
 import AdminConsole from "./admin-console";
 import OpportunityHub from "./opportunity-hub";
 import { DEFAULT_REMINDER_SETTINGS, type ReminderSettings } from "../lib/reminders/deadline";
+import { MEMBERSHIP_PLANS, type MembershipPlanKey } from "../lib/membership/plans";
+import type { MembershipStatus } from "../lib/membership/status";
 
 // The published catalog is populated only from /api/opportunities. The old
 // browser fixture is intentionally not used as a production fallback.
 let projects: Project[] = [];
 
-type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "profile" | "admin" | "about";
+type View = "home" | "projects" | "calendar" | "my-projects" | "messages" | "profile" | "membership" | "admin" | "about";
 export type RadarView = View;
 type ToastTone = "success" | "info";
 type Toast = { message: string; tone?: ToastTone } | null;
@@ -44,6 +46,7 @@ type PersonalTaskStatus = "待处理" | "进行中" | "已完成" | "已取消";
 type PersonalTask = { id: string; projectId?: string; title: string; status: PersonalTaskStatus; due?: string; suggested?: boolean };
 type AppNotification = { id: string; opportunityId: string | null; type: string; title: string; body: string; actionUrl: string | null; readAt: string | null; createdAt: string };
 type CatalogSummary = { total: number; recruiting: number; upcoming: number; ending: number; closed: number };
+type MembershipInfo = { status: MembershipStatus; trialStartedAt: string | null; trialEndsAt: string | null; membershipEndsAt: string | null; remaining?: { days: number; hours: number; minutes: number }; currentPlan?: string | null };
 
 const navItems: { id: View; label: string; icon: string; badge?: string }[] = [
   { id: "home", label: "总览", icon: "⌂" },
@@ -165,6 +168,9 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   const [loggedIn, setLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [currentUserPhone, setCurrentUserPhone] = useState<string | null>(null);
+  const [membership, setMembership] = useState<MembershipInfo | null>(null);
+  const [membershipEnforcementEnabled, setMembershipEnforcementEnabled] = useState(false);
+  const [expiryPromptDismissed, setExpiryPromptDismissed] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({
     name: "",
     major: "",
@@ -189,9 +195,15 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   useEffect(() => {
     let active = true;
     fetch("/api/opportunities?page=1&pageSize=50&summary=1")
-      .then((response) => response.json() as Promise<{ ok?: boolean; items?: Project[]; projects?: Project[]; summary?: CatalogSummary }>)
-      .then((payload) => {
+      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; error?: string; items?: Project[]; projects?: Project[]; summary?: CatalogSummary; membership?: MembershipInfo } }))
+      .then(({ response, payload }) => {
         if (!active) return;
+        if (response.status === 403 && payload.error === "MEMBERSHIP_REQUIRED") {
+          if (payload.membership) setMembership(payload.membership);
+          setMembershipEnforcementEnabled(true);
+          setCatalogState("unavailable");
+          return;
+        }
         const next = payload.ok && Array.isArray(payload.items ?? payload.projects) ? (payload.items ?? payload.projects ?? []) : [];
         projects = next;
         setCatalog(next);
@@ -245,17 +257,37 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
   useEffect(() => {
     let active = true;
     fetch("/api/auth/me")
-      .then((response) => response.ok ? response.json() as Promise<{ authenticated?: boolean; user?: { id?: string | null; displayName?: string; phone?: string | null; role?: "admin" | "customer" | null } }> : null)
+      .then((response) => response.ok ? response.json() as Promise<{ authenticated?: boolean; user?: { id?: string | null; displayName?: string; phone?: string | null; role?: "admin" | "customer" | null; membership?: MembershipInfo; membershipEnforcementEnabled?: boolean } }> : null)
       .then((payload) => {
         if (!active || !payload?.authenticated) return;
         setLoggedIn(true);
         setIsAdmin(payload.user?.role === "admin");
         setCurrentUserPhone(payload.user?.phone ?? null);
+        if (payload.user?.membership) setMembership(payload.user.membership);
+        setMembershipEnforcementEnabled(payload.user?.membershipEnforcementEnabled === true);
         if (payload.user?.displayName) setProfile((current) => ({ ...current, name: payload.user!.displayName! }));
       })
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!membership || !membershipEnforcementEnabled || isAdmin) return;
+    const expiresAt = membership.status === "active" ? membership.membershipEndsAt : membership.trialEndsAt;
+    if (!expiresAt) return;
+    const delay = Date.parse(expiresAt) - Date.now();
+    if (delay <= 0) return;
+    const timer = window.setTimeout(() => {
+      fetch("/api/membership")
+        .then((response) => response.ok ? response.json() as Promise<{ membership?: MembershipInfo; enforcementEnabled?: boolean }> : null)
+        .then((payload) => {
+          if (payload?.membership) setMembership(payload.membership);
+          if (payload?.enforcementEnabled && payload.membership?.status === "expired") setCatalogState("unavailable");
+        })
+        .catch(() => undefined);
+    }, Math.min(delay + 1000, 2_147_000_000));
+    return () => window.clearTimeout(timer);
+  }, [membership, membershipEnforcementEnabled, isAdmin]);
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -272,19 +304,30 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
     window.setTimeout(() => setToast(null), 2600);
   }
 
-  async function submitCorrection(project: Project, type: string, content: string) {
+  async function submitCorrection(project: Project, correctionType: string, description: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const response = await fetch("/api/corrections", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ opportunityId: project.id, type, content }),
+        body: JSON.stringify({ opportunityId: project.id, correctionType, description }),
       });
       const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "纠错提交失败");
-      setCorrectionProject(null);
-      notify("纠错已提交，管理员后台可以查看并处理");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "纠错提交失败，请稍后重试", "info");
+      if (response.ok && payload.ok) {
+        notify("纠错信息已提交");
+        return { ok: true };
+      }
+      const messages: Record<string, string> = {
+        authentication_required: "登录状态已失效，请重新登录",
+        opportunity_id_required: "这条招聘信息无效，请刷新后重试",
+        correction_type_required: "请选择纠错类型",
+        correction_content_required: "请填写补充说明",
+        correction_content_too_long: "补充说明不能超过500字",
+        opportunity_not_found: "这条招聘信息不存在或已不可用",
+        duplicate_correction: "你已经提交过这类问题，我们正在核验",
+      };
+      return { ok: false, error: messages[payload.error ?? ""] ?? "提交失败，请稍后重试" };
+    } catch {
+      return { ok: false, error: "网络暂不可用，请检查连接后重试" };
     }
   }
 
@@ -373,6 +416,8 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
 
   const favoriteProjects = projects.filter((project) => favoriteIds.includes(project.id));
   const avatarText = getAvatarText({ name: profile.name, phone: currentUserPhone });
+  const membershipExpired = membershipEnforcementEnabled && membership?.status === "expired" && !isAdmin;
+  const membershipLocked = membershipExpired && !["membership", "profile", "about"].includes(view);
 
   return (
     <div className="app-shell">
@@ -399,6 +444,7 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
         <div className="sidebar-section-label side-secondary-label">更多</div>
         <nav className="side-nav" aria-label="更多导航">
           <button className={`nav-item ${view === "profile" ? "active" : ""}`} onClick={() => navigate("profile")}><span className="nav-icon">◎</span><span>求职资料</span></button>
+          <button className={`nav-item ${view === "membership" ? "active" : ""}`} onClick={() => navigate("membership")}><span className="nav-icon">◇</span><span>会员中心</span></button>
           {isAdmin && <button className={`nav-item ${view === "admin" ? "active" : ""}`} onClick={() => navigate("admin")}><span className="nav-icon">▦</span><span>运营后台</span></button>}
           <button className={`nav-item ${view === "about" ? "active" : ""}`} onClick={() => navigate("about")}><span className="nav-icon">i</span><span>关于平台</span></button>
         </nav>
@@ -437,13 +483,15 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
 
         <div className="page-content">
           {catalogState === "loading" && <div className="surface empty-state catalog-unavailable"><h3>正在读取正式招聘数据</h3><p>招聘信息来源于公开渠道；真实数据只在数据库查询成功后显示，正在加载最新已审核信息。</p></div>}
-          {catalogState === "unavailable" && <div className="surface empty-state catalog-unavailable"><h3>正式招聘数据暂时不可用</h3><p>数据库尚未连接或当前查询失败。平台不会用前端样例数据替代正式招聘信息。</p></div>}
-          {view === "home" && catalogState === "ready" && <Dashboard brand={brand} summary={catalogSummary} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
-          {view === "projects" && catalogState === "ready" && <PaginatedProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} onNavigateProfile={() => navigate("profile")} />}
-          {view === "calendar" && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
-          {view === "my-projects" && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
-          {view === "messages" && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
+          {membershipLocked && <MembershipCenter onNotify={notify} onMembershipChange={setMembership} />}
+          {catalogState === "unavailable" && !membershipExpired && <div className="surface empty-state catalog-unavailable"><h3>正式招聘数据暂时不可用</h3><p>数据库尚未连接或当前查询失败。平台不会用前端样例数据替代正式招聘信息。</p></div>}
+          {view === "home" && !membershipLocked && catalogState === "ready" && <Dashboard brand={brand} summary={catalogSummary} onNavigate={navigate} onBrowseProjects={(scope) => { setProjectScope(scope); navigate("projects"); }} onLogin={() => setLoginOpen(true)} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} loggedIn={loggedIn} tasks={personalTasks} />}
+          {view === "projects" && !membershipLocked && catalogState === "ready" && <PaginatedProjectsView initialScope={projectScope} search={search} setSearch={setSearch} filterOpen={filterOpen} setFilterOpen={setFilterOpen} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} favoriteIds={favoriteIds} profile={profile} onNavigateProfile={() => navigate("profile")} />}
+          {view === "calendar" && !membershipLocked && catalogState === "ready" && <CalendarView onOpen={setSelectedProject} />}
+          {view === "my-projects" && !membershipLocked && <MyProjectsView projects={favoriteProjects} trackers={trackers} tasks={personalTasks} onOpen={setSelectedProject} onToggleFavorite={toggleFavorite} onUpdateTracker={updateTracker} onAddTask={addPersonalTask} onToggleTask={togglePersonalTask} />}
+          {view === "messages" && !membershipLocked && <MessagesView notifications={notifications} onRead={markNotificationRead} />}
           {view === "profile" && <ProfileView profile={profile} onChange={setProfile} onSave={() => notify("求职资料已保存")} />}
+          {view === "membership" && <MembershipCenter onNotify={notify} onMembershipChange={setMembership} />}
           {view === "admin" && <AdminConsole projects={catalog} brand={brand} onBrandChange={setBrand} onOpen={setSelectedProject} onNotify={notify} />}
           {view === "about" && <AboutView brand={brand} />}
         </div>
@@ -458,9 +506,10 @@ export default function Home({ initialView = "home" }: { initialView?: RadarView
       </nav>
 
       {selectedProject && <CenteredProjectModal project={selectedProject} userMajor={profile.major} isFavorite={favoriteIds.includes(selectedProject.id)} tracker={trackers[selectedProject.id]} reminderSettings={reminderSettings[selectedProject.id]} onClose={() => setSelectedProject(null)} onToggleFavorite={() => toggleFavorite(selectedProject)} onUpdateTracker={(status, note) => updateTracker(selectedProject, status, note)} onUpdateReminderSettings={(patch) => updateReminderSettings(selectedProject, patch)} onOpenCorrection={() => setCorrectionProject(selectedProject)} onNotify={notify} />}
-      {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={(type, content) => void submitCorrection(correctionProject, type, content)} />}
+      {correctionProject && <CorrectionModal project={correctionProject} onClose={() => setCorrectionProject(null)} onSubmit={(type, content) => submitCorrection(correctionProject, type, content)} />}
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={(user) => { setLoggedIn(true); setIsAdmin(user.role === "admin"); setCurrentUserPhone(user.phone); setProfile((current) => ({ ...current, name: user.name ?? user.phone ?? "当前账号" })); setLoginOpen(false); notify(user.role === "admin" ? "管理员登录成功" : "登录成功"); }} />}
-      {profileOpen && <ProfileQuickPanel profile={profile} phone={currentUserPhone} isAdmin={isAdmin} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onAdmin={() => { setProfileOpen(false); navigate("admin"); }} onLogout={() => { setLoggedIn(false); setIsAdmin(false); setCurrentUserPhone(null); setProfileOpen(false); void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/login")); }} />}
+      {profileOpen && <ProfileQuickPanel profile={profile} phone={currentUserPhone} isAdmin={isAdmin} onClose={() => setProfileOpen(false)} onEdit={() => { setProfileOpen(false); navigate("profile"); }} onMembership={() => { setProfileOpen(false); navigate("membership"); }} onAdmin={() => { setProfileOpen(false); navigate("admin"); }} onLogout={() => { setLoggedIn(false); setIsAdmin(false); setCurrentUserPhone(null); setProfileOpen(false); void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/login")); }} />}
+      {membershipExpired && view !== "membership" && !expiryPromptDismissed && <MembershipExpiryModal onClose={() => setExpiryPromptDismissed(true)} onOpenMembership={() => { setExpiryPromptDismissed(true); navigate("membership"); }} />}
       {toast && <div className={`toast ${toast.tone === "info" ? "toast-info" : ""}`}><span>{toast.tone === "info" ? "i" : "✓"}</span>{toast.message}</div>}
     </div>
   );
@@ -845,6 +894,104 @@ function ProfileView({ profile, onChange, onSave }: { profile: UserProfile; onCh
   return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />YOUR PROFILE</span><h1>求职资料</h1><p>告诉我们你的方向，校招雷达会用规则帮你找到值得关注的项目。</p></div><button className="primary-button" onClick={onSave}>保存资料 <span>✓</span></button></div><div className="profile-layout"><div className="surface form-surface"><div className="form-section"><div className="form-section-title"><span className="form-number">01</span><div><h3>基础信息</h3><p>用于计算毕业年份和学历匹配。</p></div></div><div className="form-grid"><label className="field"><span>称呼</span><input value={profile.name} onChange={(event) => onChange({ ...profile, name: event.target.value })} /></label><label className="field"><span>毕业年份</span><select value={profile.graduation} onChange={(event) => onChange({ ...profile, graduation: event.target.value })}><option>2027</option><option>2028</option><option>2026</option><option>2029</option></select></label><label className="field"><span>当前学历</span><select value={profile.degree} onChange={(event) => onChange({ ...profile, degree: event.target.value })}><option>本科</option><option>硕士</option><option>博士</option></select></label><label className="field"><span>意向招聘类型</span><select defaultValue="央企、国企、互联网公司"><option>央企、国企、互联网公司</option><option>央企、国企</option><option>互联网公司、知名企业</option><option>全部类型</option></select></label></div></div><div className="form-section"><div className="form-section-title"><span className="form-number">02</span><div><h3>专业方向</h3><p>匹配结果仅作筛选参考，以官方要求为准。</p></div></div><div className="form-grid"><label className="field"><span>学科门类</span><select value={majorOptions.find((group) => group.majors.includes(profile.major))?.category ?? ""} onChange={(event) => onChange({ ...profile, major: majorOptions.find((group) => group.category === event.target.value)?.majors[0] ?? profile.major })}><option value="">请选择学科门类</option>{majorOptions.map((group) => <option key={group.category}>{group.category}</option>)}</select></label><label className="field"><span>具体专业</span><select value={profile.major} onChange={(event) => onChange({ ...profile, major: event.target.value })}>{majorOptions.flatMap((group) => group.majors).map((major) => <option key={major}>{major}</option>)}<option>其他专业</option></select></label></div><label className="check-row"><input type="checkbox" checked={profile.acceptAnyMajor} onChange={(event) => onChange({ ...profile, acceptAnyMajor: event.target.checked })} /><span className="fake-checkbox">✓</span><span><strong>愿意查看不限专业的招聘</strong><small>在匹配结果中展示不限专业项目</small></span></label></div></div><aside className="profile-aside"><div className="profile-score"><span className="score-label">PROFILE SCORE</span><div className="score-ring"><strong>{profileCompletion.score}</strong><small>/ 100</small></div><h3>{isComplete ? "资料已完善" : "资料完成得不错"}</h3><p>{isComplete ? "你的资料已经完整，可以获得更精准的岗位匹配。" : "继续补充基础信息和专业方向，匹配会更贴近你的节奏。"}</p><button onClick={onSave}>保存并更新雷达 <span>→</span></button></div><div className="tip-list"><h4>填写小提示</h4><div><span>01</span>专业选择越具体，匹配结果越有参考价值</div><div><span>02</span>信息仅用于筛选，不代表最终报名资格</div></div></aside></div></>;
 }
 
+function MembershipCenter({ onNotify, onMembershipChange }: { onNotify: (message: string) => void; onMembershipChange: (membership: MembershipInfo) => void }) {
+  const [snapshot, setSnapshot] = useState<{ membership: MembershipInfo; enforcementEnabled: boolean; customerService: { wechat: string | null; qrAvailable: boolean } } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+  const [error, setError] = useState("");
+  const [serviceOpen, setServiceOpen] = useState(false);
+  const [clock, setClock] = useState(Date.now());
+
+  async function refresh() {
+    const response = await fetch("/api/membership");
+    const payload = await response.json().catch(() => ({})) as { ok?: boolean; membership?: MembershipInfo; enforcementEnabled?: boolean; customerService?: { wechat: string | null; qrAvailable: boolean } };
+    if (!response.ok || !payload.ok || !payload.membership) throw new Error("会员信息暂时无法读取");
+    const next = { membership: payload.membership, enforcementEnabled: payload.enforcementEnabled === true, customerService: payload.customerService ?? { wechat: null, qrAvailable: false } };
+    setSnapshot(next);
+    onMembershipChange(next.membership);
+  }
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/membership")
+      .then(async (response) => ({ response, payload: await response.json().catch(() => ({})) as { ok?: boolean; membership?: MembershipInfo; enforcementEnabled?: boolean; customerService?: { wechat: string | null; qrAvailable: boolean } } }))
+      .then(({ response, payload }) => {
+        if (!active) return;
+        if (!response.ok || !payload.ok || !payload.membership) throw new Error("会员信息暂时无法读取");
+        const next = { membership: payload.membership, enforcementEnabled: payload.enforcementEnabled === true, customerService: payload.customerService ?? { wechat: null, qrAvailable: false } };
+        setSnapshot(next);
+        onMembershipChange(next.membership);
+      })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "会员信息暂时无法读取"); })
+      .finally(() => { if (active) setLoading(false); });
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [onMembershipChange]);
+
+  async function redeem(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!code.trim()) return;
+    setRedeeming(true);
+    setError("");
+    try {
+      const response = await fetch("/api/membership/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; membership?: MembershipInfo; message?: string };
+      if (!response.ok || !payload.ok) {
+        const errors: Record<string, string> = {
+          activation_code_invalid: "激活码格式不正确，请检查后重试。",
+          activation_code_invalid_or_used: "激活码无效、已使用或已禁用，请联系购买渠道核实。",
+          admin_membership_exempt: "管理员账号无需兑换会员。",
+        };
+        throw new Error(errors[payload.error ?? ""] ?? "兑换暂时失败，请稍后重试。");
+      }
+      setCode("");
+      await refresh();
+      onNotify(payload.message ?? "会员已激活");
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "兑换暂时失败，请稍后重试。");
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
+  const member = snapshot?.membership;
+  const expiry = member?.status === "active" ? member.membershipEndsAt : member?.trialEndsAt;
+  const totalMinutes = expiry ? Math.max(0, Math.ceil((Date.parse(expiry) - clock) / 60_000)) : 0;
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const statusLabel = member?.status === "admin" ? "管理员永久豁免" : member?.status === "active" ? "会员有效" : member?.status === "trial" ? "免费试用中" : "免费试用已结束";
+  const service = snapshot?.customerService;
+
+  return <section className="membership-page">
+    <div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MEMBERSHIP</span><h1>会员中心</h1><p>管理试用状态、会员期限，或使用客服提供的激活码。</p></div></div>
+    {loading && <div className="surface membership-loading">正在读取会员状态…</div>}
+    {!loading && !member && <div className="surface membership-loading" role="alert">{error || "会员信息暂时无法读取，请稍后刷新。"}</div>}
+    {member && <>
+      <article className={`membership-hero membership-${member.status}`}>
+        <span className="membership-eyebrow">YOUR ACCESS</span>
+        <h2>{statusLabel}</h2>
+        {member.status === "admin" && <p>管理员账号永久拥有全部系统功能。</p>}
+        {member.status === "trial" && <><p>试用从注册时刻开始计算，共 72 小时。</p><div className="membership-countdown"><strong>{days}</strong><span>天</span><strong>{hours}</strong><span>小时</span><strong>{minutes}</strong><span>分钟</span><small>剩余试用时间</small></div><p className="membership-end-date">试用截止：{member.trialEndsAt ? new Date(member.trialEndsAt).toLocaleString("zh-CN", { hour12: false }) : "待初始化"}</p></>}
+        {member.status === "active" && <><p>当前套餐：{MEMBERSHIP_PLANS[member.currentPlan as MembershipPlanKey]?.label ?? "会员套餐"}</p><div className="membership-countdown"><strong>{days}</strong><span>天</span><strong>{hours}</strong><span>小时</span><strong>{minutes}</strong><span>分钟</span><small>剩余会员时间</small></div><p className="membership-end-date">会员截止：{member.membershipEndsAt ? new Date(member.membershipEndsAt).toLocaleString("zh-CN", { hour12: false }) : "—"}</p></>}
+        {member.status === "expired" && <p>账号仍可登录。添加客服微信购买后，输入激活码即可恢复招聘浏览、收藏与提醒等功能。</p>}
+        {snapshot?.enforcementEnabled === false && member.status !== "admin" && <div className="membership-observation">当前为观察模式：会员状态照常显示，但尚未启用功能拦截。</div>}
+      </article>
+      <div className="membership-plan-grid">
+        {(Object.values(MEMBERSHIP_PLANS)).map((plan) => <article className="surface membership-plan-card" key={plan.key}><span>{plan.label}</span><strong>¥{plan.price.toFixed(1)}</strong><small>{plan.durationDays} 天</small><button className="secondary-button" onClick={() => setServiceOpen(true)}>添加客服微信</button></article>)}
+      </div>
+      {member.status !== "admin" && <div className="surface membership-redeem"><div><h3>已有激活码？</h3><p>输入客服提供的激活码，会员时长会从当前有效期之后接续。</p></div><form onSubmit={redeem}><input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" placeholder="例如 M-ABCD-2345" aria-label="会员激活码" /><button className="primary-button" disabled={redeeming || !code.trim()}>{redeeming ? "正在兑换…" : "兑换激活码"}</button></form>{error && <p className="membership-error" role="alert">{error}</p>}</div>}
+    </>}
+    {serviceOpen && <div className="customer-service-backdrop" role="presentation" onMouseDown={() => setServiceOpen(false)}><section className="customer-service-modal" role="dialog" aria-modal="true" aria-labelledby="customer-service-title" onMouseDown={(event) => event.stopPropagation()}><button className="customer-service-close" onClick={() => setServiceOpen(false)} aria-label="关闭">×</button><span className="membership-eyebrow">CUSTOMER SERVICE</span><h2 id="customer-service-title">添加客服微信</h2>{service?.qrAvailable && <img src="/customer-service-wechat.png" alt="客服微信二维码" />}{service?.wechat ? <><p>客服微信号</p><code>{service.wechat}</code><button className="primary-button" onClick={() => { void navigator.clipboard?.writeText(service.wechat!).then(() => onNotify("客服微信号已复制")).catch(() => onNotify("请手动复制客服微信号")); }}>复制微信号</button></> : <p>客服微信暂未配置，请稍后再试。</p>}</section></div>}
+  </section>;
+}
+
+function MembershipExpiryModal({ onClose, onOpenMembership }: { onClose: () => void; onOpenMembership: () => void }) {
+  return <div className="membership-expiry-backdrop" role="presentation" onMouseDown={onClose}><section className="membership-expiry-modal" role="dialog" aria-modal="true" aria-labelledby="membership-expiry-title" onMouseDown={(event) => event.stopPropagation()}><span className="membership-expiry-mark">◇</span><span className="membership-eyebrow">TRIAL ENDED</span><h2 id="membership-expiry-title">免费试用已结束</h2><p>你的账号仍可登录。购买会员并兑换激活码后，即可继续查看招聘、收藏机会和使用提醒。</p><div><button className="secondary-button" onClick={onClose}>稍后再看</button><button className="primary-button" onClick={onOpenMembership}>查看套餐并兑换</button></div></section></div>;
+}
+
 function AboutView({ brand }: { brand: BrandConfig }) {
   return <><div className="page-heading"><div><span className="eyebrow"><span className="eyebrow-line" />ABOUT RADAR</span><h1>关于{brand.name}</h1><p>{brand.marketingCopy}</p></div></div><div className="about-layout"><div className="surface about-main"><div className="about-quote">“少一点错过，多一点准备。”</div><p>{brand.marketingCopy}平台聚合企业、央国企及后续招录模块的公开信息，帮助你按专业、学历、地区和时间筛选机会，也可以收藏、设置提醒和记录申请进度。</p><div className="about-points"><div><span>01</span><strong>公开来源</strong><small>信息来自企业官网、官方账号与高校就业渠道</small></div><div><span>02</span><strong>规则匹配</strong><small>匹配结果帮助筛选，不替代招聘方审核</small></div><div><span>03</span><strong>保持更新</strong><small>展示最近核验时间和信息变更记录</small></div></div></div><div className="surface disclaimer-card"><span className="notice-icon">i</span><h3>重要说明</h3><p>{brand.disclaimer}</p><div className="source-legend"><strong>信息来源级别</strong><span><b>A</b> 企业官方招聘网站或政府网站</span><span><b>B</b> 企业官方公众号、官方招聘账号</span><span><b>C</b> 高校就业网站转载</span><span><b>D</b> 第三方平台或用户提交</span></div></div></div></>;
 }
@@ -944,10 +1091,70 @@ function ReminderControls({ project, isFavorite, settings, onUpdate }: { project
   return <section className="job-detail-section job-detail-reminder-section reminder-controls"><div className="detail-title"><span>06</span><h3>报名截止提醒</h3><span className={isFavorite && current.enabled ? "reminder-enabled" : "reminder-disabled"}>{isFavorite && current.enabled ? "已开启提醒" : "收藏后自动开启"}</span></div><div className="reminder-options"><label><input type="checkbox" checked={current.remind7Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind7Days: event.target.checked })} /><span>截止前7天</span></label><label><input type="checkbox" checked={current.remind3Days} disabled={!isFavorite} onChange={(event) => onUpdate({ remind3Days: event.target.checked })} /><span>截止前3天</span></label><label><input type="checkbox" checked={current.remind1Day} disabled={!isFavorite} onChange={(event) => onUpdate({ remind1Day: event.target.checked })} /><span>截止前1天</span></label><label><input type="checkbox" checked={current.remindSameDay} disabled={!isFavorite} onChange={(event) => onUpdate({ remindSameDay: event.target.checked })} /><span>当天提醒</span></label><label><input type="checkbox" checked={current.changeNotificationEnabled} disabled={!isFavorite} onChange={(event) => onUpdate({ changeNotificationEnabled: event.target.checked })} /><span>招聘信息变更</span></label></div><small className="reminder-footnote">{isFavorite ? "站内消息会在这里展示；取消收藏后，未来未发送提醒会被取消。" : "收藏这个项目后，系统会按选中的时间点创建站内提醒。"}</small></section>;
 }
 
-function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: (type: string, content: string) => void }) {
-  const [type, setType] = useState("时间错误");
-  const [content, setContent] = useState("");
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="small-modal correction-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="external-icon">✎</div><h3>提交信息纠错</h3><p className="correction-project">{project.title}</p><label className="login-field"><span>纠错类型</span><select value={type} onChange={(event) => setType(event.target.value)}><option>时间错误</option><option>官方链接失效</option><option>招聘已截止</option><option>专业要求错误</option><option>招聘信息重复</option><option>其他问题</option></select></label><label className="login-field"><span>补充说明</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="请尽量提供可核验的线索" /></label><div className="small-modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!content.trim()} onClick={() => onSubmit(type, content.trim())}>提交纠错 <span>→</span></button></div></div></div>;
+function CorrectionModal({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: (type: string, description: string) => Promise<{ ok: boolean; error?: string }> }) {
+  const [type, setType] = useState("");
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, submitting]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (!type) {
+      setError("请选择纠错类型");
+      return;
+    }
+    const cleanDescription = description.trim();
+    if (!cleanDescription) {
+      setError("请填写补充说明");
+      return;
+    }
+    if (cleanDescription.length > 500) {
+      setError("补充说明不能超过500字");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await onSubmit(type, cleanDescription);
+    setSubmitting(false);
+    if (!result.ok) {
+      setError(result.error ?? "提交失败，请稍后重试");
+      return;
+    }
+    setSubmitted(true);
+    window.setTimeout(onClose, 1300);
+  }
+
+  const requestClose = () => { if (!submitting) onClose(); };
+  return <div className="correction-submit-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+    <section className="correction-submit-modal" role="dialog" aria-modal="true" aria-labelledby="correction-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="correction-submit-close" type="button" aria-label="关闭纠错弹窗" disabled={submitting} onClick={requestClose}>×</button>
+      {submitted ? <div className="correction-submit-success" role="status"><span>✓</span><h2>已提交</h2><p>感谢反馈，我们会尽快核验这条招聘信息。</p></div> : <>
+        <header className="correction-submit-header"><span className="correction-submit-icon">✎</span><h2 id="correction-modal-title">提交信息纠错</h2><p>帮助我们保持招聘信息准确</p></header>
+        <div className="correction-submit-opportunity"><span>当前招聘</span><strong title={project.title}>{project.title}</strong></div>
+        <form onSubmit={(event) => void submit(event)}>
+          <label className="correction-submit-field"><span>纠错类型 <b>*</b></span><select required value={type} disabled={submitting} onChange={(event) => setType(event.target.value)}><option value="">请选择纠错类型</option><option>官方链接失效</option><option>招聘已截止</option><option>招聘信息错误</option><option>招聘信息重复</option><option>招聘已取消</option><option>专业/岗位信息错误</option><option>时间信息错误</option><option>其他</option></select></label>
+          <label className="correction-submit-field"><span>补充说明 {type === "其他" && <b>*</b>}</span><textarea required maxLength={500} rows={4} disabled={submitting} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="请描述具体问题，例如官网链接已失效、截止时间有误、招聘已经结束等。" /><small>{description.length} / 500</small></label>
+          {error && <p className="correction-submit-error" role="alert">{error}</p>}
+          <footer className="correction-submit-actions"><button className="secondary-button" type="button" disabled={submitting} onClick={requestClose}>取消</button><button className="primary-button" type="submit" disabled={submitting || !type || !description.trim()}>{submitting ? "正在提交..." : <>提交纠错 <span>→</span></>}</button></footer>
+        </form>
+      </>}
+    </section>
+  </div>;
 }
 
 
@@ -978,10 +1185,10 @@ function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (user:
     }
   }
 
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>{mode === "login" ? "欢迎回到校招雷达" : "注册校招雷达"}</h2><p>{mode === "login" ? "使用手机号和密码登录，继续管理你的求职机会。" : "手机号注册后默认为普通客户账号。"}</p><div className="login-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>手机号登录</button><button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>注册账号</button></div><form onSubmit={submit}><label className="login-field"><span>手机号</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></label>{mode === "register" && <label className="login-field"><span>姓名/昵称（可选）</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" /></label>}<label className="login-field"><span>密码</span><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入密码" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>{mode === "register" && <label className="login-field"><span>确认密码</span><input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="请再次输入密码" type="password" autoComplete="new-password" required /></label>}{error && <p className="login-error" role="alert">{error}</p>}<button className="primary-button login-submit" type="submit" disabled={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button></form><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="login-mark">⌁</div><h2>{mode === "login" ? "欢迎回到校招雷达" : "注册校招雷达"}</h2><p>{mode === "login" ? "使用手机号和密码登录，继续管理你的求职机会。" : "手机号注册后默认为普通求职者账号，可免费试用 3 天。"}</p><div className="login-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>手机号登录</button><button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>注册账号</button></div><form onSubmit={submit}><label className="login-field"><span>手机号</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></label>{mode === "register" && <label className="login-field"><span>姓名/昵称（可选）</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" /></label>}<label className="login-field"><span>密码</span><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入密码" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>{mode === "register" && <label className="login-field"><span>确认密码</span><input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="请再次输入密码" type="password" autoComplete="new-password" required /></label>}{error && <p className="login-error" role="alert">{error}</p>}<button className="primary-button login-submit" type="submit" disabled={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button></form><small className="login-terms">登录即代表你同意《用户协议》和《隐私政策》</small></div></div>;
 }
 
-function ProfileQuickPanel({ profile, phone, isAdmin, onClose, onEdit, onAdmin, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; phone: string | null; isAdmin: boolean; onClose: () => void; onEdit: () => void; onAdmin: () => void; onLogout: () => void }) {
+function ProfileQuickPanel({ profile, phone, isAdmin, onClose, onEdit, onMembership, onAdmin, onLogout }: { profile: { name: string; major: string; degree: string; graduation: string }; phone: string | null; isAdmin: boolean; onClose: () => void; onEdit: () => void; onMembership: () => void; onAdmin: () => void; onLogout: () => void }) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -990,5 +1197,5 @@ function ProfileQuickPanel({ profile, phone, isAdmin, onClose, onEdit, onAdmin, 
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  return <div className="user-popover-layer" onMouseDown={onClose} role="presentation"><aside className="user-popover" role="dialog" aria-label="账号菜单" onMouseDown={(event) => event.stopPropagation()}><div className="user-popover-header"><div className="user-popover-avatar">{getAvatarText({ name: profile.name, phone })}</div><div className="user-popover-identity"><strong>{profile.name || "当前账号"}</strong><span>{profile.graduation}届 · {profile.degree}</span><small>{profile.major || "尚未选择专业"}</small></div><button className="user-popover-close" onClick={onClose} aria-label="关闭账号菜单">×</button></div>{!profile.major ? <button className="user-popover-complete" onClick={onEdit}><span>尚未选择专业</span><b>去完善 <i>›</i></b></button> : <div className="user-popover-major"><span>专业方向</span><strong>{profile.major}</strong></div>}<div className="user-popover-divider" /><div className="user-popover-section"><span className="user-popover-section-label">个人账户</span><div className="user-popover-links"><button className="user-menu-item" onClick={onEdit}><span className="user-menu-icon">◎</span><span>求职资料</span><b>›</b></button><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◌</span><span>提醒设置</span><b>›</b></button></div></div>{isAdmin && <div className="user-popover-admin"><span className="user-popover-section-label">管理员</span><button className="user-menu-item user-menu-item-admin" onClick={onAdmin}><span className="user-menu-icon">▦</span><span>运营后台</span><b>管理员</b></button></div>}<div className="user-popover-divider" /><div className="user-popover-links user-popover-account-links"><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◫</span><span>隐私与账号</span><b>›</b></button><button className="user-menu-item user-menu-item-logout" onClick={onLogout}><span className="user-menu-icon">↪</span><span>退出当前账号</span></button></div></aside></div>;
+  return <div className="user-popover-layer" onMouseDown={onClose} role="presentation"><aside className="user-popover" role="dialog" aria-label="账号菜单" onMouseDown={(event) => event.stopPropagation()}><div className="user-popover-header"><div className="user-popover-avatar">{getAvatarText({ name: profile.name, phone })}</div><div className="user-popover-identity"><strong>{profile.name || "当前账号"}</strong><span>{profile.graduation}届 · {profile.degree}</span><small>{profile.major || "尚未选择专业"}</small></div><button className="user-popover-close" onClick={onClose} aria-label="关闭账号菜单">×</button></div>{!profile.major ? <button className="user-popover-complete" onClick={onEdit}><span>尚未选择专业</span><b>去完善 <i>›</i></b></button> : <div className="user-popover-major"><span>专业方向</span><strong>{profile.major}</strong></div>}<div className="user-popover-divider" /><div className="user-popover-section"><span className="user-popover-section-label">个人账户</span><div className="user-popover-links"><button className="user-menu-item" onClick={onEdit}><span className="user-menu-icon">◎</span><span>求职资料</span><b>›</b></button><button className="user-menu-item" onClick={onMembership}><span className="user-menu-icon">◇</span><span>会员中心</span><b>›</b></button><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◌</span><span>提醒设置</span><b>›</b></button></div></div>{isAdmin && <div className="user-popover-admin"><span className="user-popover-section-label">管理员</span><button className="user-menu-item user-menu-item-admin" onClick={onAdmin}><span className="user-menu-icon">▦</span><span>运营后台</span><b>管理员</b></button></div>}<div className="user-popover-divider" /><div className="user-popover-links user-popover-account-links"><button className="user-menu-item" onClick={onClose}><span className="user-menu-icon">◫</span><span>隐私与账号</span><b>›</b></button><button className="user-menu-item user-menu-item-logout" onClick={onLogout}><span className="user-menu-icon">↪</span><span>退出当前账号</span></button></div></aside></div>;
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../chatgpt-auth";
 import { getReminderStore } from "../../../lib/reminders/store";
+import { requireMembership } from "../../../lib/membership/guard";
 
 function persistenceError(error: unknown) {
   const configured = !(error instanceof Error) || !error.message.includes("not configured");
@@ -10,6 +11,8 @@ function persistenceError(error: unknown) {
 export async function GET(request: Request) {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
+  const membershipResponse = requireMembership(user);
+  if (membershipResponse) return membershipResponse;
   const opportunityId = new URL(request.url).searchParams.get("opportunityId");
   if (!opportunityId) return NextResponse.json({ ok: false, error: "opportunity_id_required" }, { status: 400 });
   try {
@@ -23,6 +26,8 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
+  const membershipResponse = requireMembership(user);
+  if (membershipResponse) return membershipResponse;
   try {
     const body = await request.json() as { opportunityId?: string; patch?: Record<string, unknown> };
     if (!body.opportunityId || !body.patch) return NextResponse.json({ ok: false, error: "opportunity_id_and_patch_required" }, { status: 400 });

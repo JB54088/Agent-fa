@@ -1,0 +1,33 @@
+.forgotLink {
+  color: #267a74;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.forgotLink:hover { color: #145f5b; text-decoration: underline; }
+
+.resetNotice {
+  margin: 12px 0 0;
+  padding: 10px 11px;
+  color: #26736c;
+  background: #eff8f5;
+  border: 1px solid #d7ebe4;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.resetCode { letter-spacing: .18em; font-variant-numeric: tabular-nums; }
+
+.resetResend {
+  padding: 0;
+  color: #267a74;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+
+.resetResend:disabled { color: #a0aeaf; cursor: not-allowed; }
+
+.resetSendButton { width: 100%; }

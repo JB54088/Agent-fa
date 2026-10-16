@@ -10,6 +10,11 @@ function sessionSecret() {
   return secret;
 }
 
+function cookieSecure() {
+  const configured = process.env.COOKIE_SECURE;
+  return configured === undefined ? process.env.NODE_ENV === "production" : configured === "true";
+}
+
 function toBase64Url(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -56,7 +61,7 @@ export async function getSessionUserId() {
 
 export async function setSessionCookie(userId: string) {
   const store = await cookies();
-  store.set({ name: SESSION_COOKIE_NAME, value: await createSessionToken(userId), httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: SESSION_MAX_AGE_SECONDS });
+  store.set({ name: SESSION_COOKIE_NAME, value: await createSessionToken(userId), httpOnly: true, sameSite: "lax", secure: cookieSecure(), path: "/", maxAge: SESSION_MAX_AGE_SECONDS });
 }
 
 export async function clearSessionCookie() {

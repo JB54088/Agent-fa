@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { formatDate, siteConfig, statusLabel, type BrandConfig, type Project } from "./data";
 import { dataSourcesSeed } from "../db/seeds/data-sources";
@@ -9,8 +9,9 @@ import { nationalSourceDirectory, nationalSourceDirectorySummary } from "../db/s
 import { parseExcelUpload } from "../lib/excel-file-parser";
 import { normalizeExcelImportRow, type ExcelImportInputRow } from "../lib/excel-import";
 import { getReviewErrorMessage } from "../lib/review-errors";
+import { MEMBERSHIP_PLANS, type MembershipPlanKey } from "../lib/membership/plans";
 
-type AdminTab = "overview" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "corrections" | "settings";
+type AdminTab = "overview" | "coverage" | "sources" | "pending-sources" | "collection" | "published" | "failures" | "review" | "imports" | "verifications" | "tasks" | "corrections" | "activation-codes" | "settings";
 type SourceStatus = "运行中" | "待检查" | "已暂停";
 type RawStatus = "待审核" | "审核中" | "已转正式" | "已驳回" | "暂不处理";
 type TaskStatus = "待处理" | "已认领" | "处理中" | "已完成";
@@ -89,12 +90,12 @@ const sourceSeed: SourceRecord[] = [];
 const rawSeed: RawItem[] = [];
 const taskSeed: AdminTask[] = [];
 
-const tabs: { id: AdminTab; label: string; icon: string }[] = [
-  { id: "overview", label: "运营总览", icon: "⌂" },
-  { id: "coverage", label: "全国覆盖", icon: "◎" },
-  { id: "sources", label: "来源管理", icon: "◎" },
-  { id: "pending-sources", label: "待人工核验", icon: "!" },
-  { id: "collection", label: "招聘采集", icon: "↗" },
+const tabs: { id: AdminTab; label: string; icon: string; visibleInNav?: boolean }[] = [
+  { id: "overview", label: "运营总览", icon: "⌂", visibleInNav: false },
+  { id: "coverage", label: "全国覆盖", icon: "◎", visibleInNav: false },
+  { id: "sources", label: "来源管理", icon: "◎", visibleInNav: false },
+  { id: "pending-sources", label: "待人工核验", icon: "!", visibleInNav: false },
+  { id: "collection", label: "招聘采集", icon: "↗", visibleInNav: false },
   { id: "review", label: "待审核", icon: "✓" },
   { id: "published", label: "正式招聘", icon: "▤" },
   { id: "failures", label: "失败来源", icon: "!" },
@@ -102,6 +103,7 @@ const tabs: { id: AdminTab; label: string; icon: string }[] = [
   { id: "verifications", label: "信息复核", icon: "◷" },
   { id: "tasks", label: "任务中心", icon: "⚑" },
   { id: "corrections", label: "用户纠错", icon: "✎" },
+  { id: "activation-codes", label: "激活码管理", icon: "◇" },
   { id: "settings", label: "站点配置", icon: "⚙" },
 ];
 
@@ -220,7 +222,7 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
       <div className="admin-heading-actions"><span className="safe-collection-badge">⌁ 仅访问公开内容</span><button className="primary-button" onClick={() => setTab("review")}>进入审核队列 <span>→</span></button></div>
     </div>
     <div className="admin-tabs" role="tablist" aria-label="管理员功能">
-      {tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "pending-sources" && pendingSourceCount !== null && pendingSourceCount > 0 && <b>{pendingSourceCount}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
+      {tabs.filter((item) => item.visibleInNav !== false).map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)} role="tab" aria-selected={tab === item.id}><span>{item.icon}</span>{item.label}{item.id === "review" && pendingReview > 0 && <b>{pendingReview}</b>}{item.id === "pending-sources" && pendingSourceCount !== null && pendingSourceCount > 0 && <b>{pendingSourceCount}</b>}{item.id === "tasks" && openTasks > 0 && <b>{openTasks}</b>}</button>)}
     </div>
 
     {tab === "overview" && <AdminOverview projects={catalogProjects} pendingReview={pendingReview} openTasks={openTasks} onTab={setTab} onOpen={onOpen} onNotify={onNotify} onReviewSources={() => setTab("pending-sources")} />}
@@ -235,8 +237,109 @@ export default function AdminConsole({ projects: catalogProjects, brand, onBrand
     {tab === "verifications" && <VerificationPanel projects={catalogProjects} onNotify={onNotify} onOpen={onOpen} />}
     {tab === "tasks" && <TaskCenter tasks={tasksState} onClaim={claimTask} onComplete={completeTask} />}
     {tab === "corrections" && <CorrectionsCenter onNotify={onNotify} />}
+    {tab === "activation-codes" && <ActivationCodesPanel onNotify={onNotify} />}
     {tab === "settings" && <BrandSettings brand={brand} onSave={(next) => { onBrandChange(next); onNotify("站点品牌配置已保存，前台已同步"); }} />}
   </>;
+}
+
+type ActivationCodeItem = { id: string; code: string; packageKey: string; priceCents: number; durationDays: number; status: "unused" | "used" | "disabled"; createdAt: string; activatedAt: string | null; activatedByPhone: string | null; note: string | null };
+
+function ActivationCodesPanel({ onNotify }: { onNotify: (message: string) => void }) {
+  const [items, setItems] = useState<ActivationCodeItem[]>([]);
+  const [stats, setStats] = useState({ unused: 0, used: 0, disabled: 0 });
+  const [packageKey, setPackageKey] = useState<MembershipPlanKey>("monthly");
+  const [count, setCount] = useState(1);
+  const [note, setNote] = useState("微信购买");
+  const [packageFilter, setPackageFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [generated, setGenerated] = useState<ActivationCodeItem[]>([]);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ status: statusFilter, package: packageFilter });
+      const response = await fetch(`/api/admin/activation-codes?${params}`);
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; items?: ActivationCodeItem[]; stats?: typeof stats };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "会员数据结构尚未准备好");
+      setItems(payload.items ?? []);
+      setStats(payload.stats ?? { unused: 0, used: 0, disabled: 0 });
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "激活码暂时无法读取");
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, packageFilter]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function generate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setGenerated([]);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/activation-codes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ packageKey, count, note }) });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; items?: ActivationCodeItem[] };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "激活码生成失败");
+      setGenerated(payload.items ?? []);
+      setGenerateOpen(false);
+      await refresh();
+      onNotify(`已生成 ${payload.items?.length ?? 0} 个激活码`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "激活码生成失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      onNotify(`${label}已复制`);
+    } catch {
+      onNotify("复制失败，请手动选择文本复制");
+    }
+  }
+
+  async function disable(item: ActivationCodeItem) {
+    if (!window.confirm(`确定禁用未使用的激活码 ${item.code} 吗？禁用后不能恢复。`)) return;
+    const response = await fetch(`/api/admin/activation-codes/${encodeURIComponent(item.id)}`, { method: "PATCH" });
+    const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (!response.ok || !payload.ok) {
+      onNotify(payload.error === "activation_code_not_unused" ? "该激活码已使用或已禁用" : "禁用失败，请刷新后重试");
+      return;
+    }
+    onNotify("激活码已禁用");
+    await refresh();
+  }
+
+  const visibleItems = items.filter((item) => !query || `${item.code} ${item.note ?? ""} ${item.activatedByPhone ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const planLabel = (key: string) => MEMBERSHIP_PLANS[key as MembershipPlanKey]?.label ?? key;
+  const statusLabel = (status: string) => status === "unused" ? "未使用" : status === "used" ? "已使用" : "已禁用";
+  const dateLabel = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
+
+  return <section className="admin-section activation-codes-panel">
+    <div className="admin-panel-heading"><div><span className="eyebrow"><span className="eyebrow-line" />MEMBERSHIP OPERATIONS</span><h2>激活码管理</h2><p>线下购买后由客服生成并发送激活码；已兑换的激活码不可重复使用或恢复。</p></div><button className="primary-button" onClick={() => setGenerateOpen(true)}>生成激活码 <span>＋</span></button></div>
+    <div className="admin-kpis activation-code-stats"><div><span>未使用</span><strong>{stats.unused}</strong></div><div><span>已使用</span><strong>{stats.used}</strong></div><div><span>已禁用</span><strong>{stats.disabled}</strong></div></div>
+    {generateOpen && <div className="activation-generate-backdrop" role="presentation" onMouseDown={() => !busy && setGenerateOpen(false)}><form className="surface activation-generate-form" onSubmit={generate} role="dialog" aria-modal="true" aria-labelledby="activation-generate-title" onMouseDown={(event) => event.stopPropagation()}>
+      <button type="button" className="activation-generate-close" aria-label="关闭" disabled={busy} onClick={() => setGenerateOpen(false)}>×</button>
+      <div className="activation-generate-title"><h3 id="activation-generate-title">生成激活码</h3><p>激活码采用随机字符生成，未使用时可在列表中再次复制。</p></div>
+      <label>套餐<select value={packageKey} onChange={(event) => setPackageKey(event.target.value as MembershipPlanKey)}>{Object.values(MEMBERSHIP_PLANS).map((plan) => <option key={plan.key} value={plan.key}>{plan.label} · ¥{plan.price.toFixed(1)} / {plan.durationDays}天</option>)}</select></label>
+      <label>数量<input type="number" min={1} max={100} value={count} onChange={(event) => setCount(Number(event.target.value))} /></label>
+      <label className="activation-note-field">备注<input value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} placeholder="如：微信购买" /></label>
+      <button className="primary-button" disabled={busy}>{busy ? "正在生成…" : "生成激活码"}</button>
+    </form></div>}
+    {error && <div className="membership-error activation-admin-error" role="alert">{error === "activation_code_encryption_key_required" ? "尚未配置激活码加密密钥，不能安全生成激活码。" : error === "membership_schema_unavailable" ? "会员数据库结构尚未完成核验和部署。" : error}</div>}
+    {generated.length > 0 && <div className="surface generated-codes"><div><h3>本次生成结果</h3><p>激活码不会出现在操作日志中，可随时从未使用列表重新复制。</p></div>{generated.map((item) => { const plan = MEMBERSHIP_PLANS[item.packageKey as MembershipPlanKey]; const message = `您的校招雷达${plan?.label ?? "会员"}激活码：${item.code}，有效期自兑换时起${item.durationDays}天。登录后到“会员中心”输入激活码即可开通。`; return <article key={item.id}><code>{item.code}</code><button type="button" onClick={() => void copy(item.code, "激活码")}>复制激活码</button><button type="button" onClick={() => void copy(message, "发送话术")}>复制发送话术</button></article>; })}</div>}
+    <div className="admin-filter-bar activation-code-filters"><label className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索激活码、备注或手机号" /></label><select aria-label="套餐筛选" value={packageFilter} onChange={(event) => setPackageFilter(event.target.value)}><option value="all">全部套餐</option>{Object.values(MEMBERSHIP_PLANS).map((plan) => <option key={plan.key} value={plan.key}>{plan.label}</option>)}</select><select aria-label="状态筛选" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">全部状态</option><option value="unused">未使用</option><option value="used">已使用</option><option value="disabled">已禁用</option></select><button type="button" onClick={() => void refresh()}>刷新</button></div>
+    {loading ? <div className="surface empty-state">正在读取激活码…</div> : visibleItems.length === 0 ? <div className="surface empty-state"><h3>暂无激活码记录</h3><p>生成后的激活码会显示在这里。</p></div> : <div className="surface activation-code-list"><div className="activation-code-list-head"><span>激活码 / 备注</span><span>套餐</span><span>状态</span><span>创建 / 使用</span><span>使用用户</span><span>操作</span></div>{visibleItems.map((item) => <article className="activation-code-row" key={item.id}><div className="activation-code-value"><code>{item.code}</code>{item.note && <small>{item.note}</small>}</div><span>{planLabel(item.packageKey)} · ¥{(item.priceCents / 100).toFixed(1)} · {item.durationDays}天</span><span className={`activation-status ${item.status}`}>{statusLabel(item.status)}</span><span>创建：{dateLabel(item.createdAt)}<small>使用：{dateLabel(item.activatedAt)}</small></span><span>{item.activatedByPhone ?? "—"}</span><div className="activation-row-actions"><button type="button" onClick={() => void copy(item.code, "激活码")}>复制</button><button type="button" disabled={item.status !== "unused"} onClick={() => void disable(item)}>禁用</button></div></article>)}</div>}
+  </section>;
 }
 
 function NationalCoverageDirectory({ onNotify }: { onNotify: (message: string) => void }) {
@@ -1239,25 +1342,39 @@ function CorrectionsCenter({ onNotify }: { onNotify: (message: string) => void }
   const [items, setItems] = useState<UserCorrectionItem[]>([]);
   const [filter, setFilter] = useState("全部");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const refreshInFlight = useRef(false);
+  const hasLoaded = useRef(false);
+  const onNotifyRef = useRef(onNotify);
 
-  async function refresh() {
-    setLoading(true);
+  useEffect(() => { onNotifyRef.current = onNotify; }, [onNotify]);
+
+  const refresh = useCallback(async (notifyOnError = true) => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshing(true);
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const response = await fetch("/api/admin/corrections");
+      const response = await fetch("/api/admin/corrections", { cache: "no-store" });
       const payload = await response.json() as { ok?: boolean; error?: string; items?: UserCorrectionItem[] };
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? "用户纠错读取失败");
       const next = Array.isArray(payload.items) ? payload.items : [];
       setItems(next);
-      setNotes(Object.fromEntries(next.map((item) => [item.id, item.adminNote ?? ""])));
+      setNotes((current) => Object.fromEntries(next.map((item) => [item.id, current[item.id] ?? item.adminNote ?? ""])));
+      hasLoaded.current = true;
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : "用户纠错读取失败");
+      if (notifyOnError) onNotifyRef.current(error instanceof Error ? error.message : "用户纠错读取失败");
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      refreshInFlight.current = false;
     }
-  }
+  }, []);
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   async function update(id: string, status: UserCorrectionItem["status"], note?: string) {
     try {
@@ -1278,5 +1395,5 @@ function CorrectionsCenter({ onNotify }: { onNotify: (message: string) => void }
   const visible = items.filter((item) => filter === "全部" || (filter === "待处理" && item.status === "pending") || (filter === "处理中" && item.status === "in_review") || (filter === "已处理" && item.status === "resolved") || (filter === "已驳回" && item.status === "rejected"));
   const openCount = items.filter((item) => ["pending", "in_review"].includes(item.status)).length;
   const statusLabel: Record<UserCorrectionItem["status"], string> = { pending: "待处理", in_review: "处理中", resolved: "已处理", rejected: "已驳回" };
-  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">USER CORRECTIONS</span><h2>用户纠错</h2><p>用户从招聘详情提交的纠错会进入这里，管理员核对官网后再记录处理结果。</p></div><span className="task-sla">待处理 · {openCount}</span></div><div className="task-toolbar">{["全部", "待处理", "处理中", "已处理", "已驳回"].map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div>{loading ? <div className="surface empty-state"><h3>正在读取用户纠错</h3><p>只显示数据库中的真实提交记录。</p></div> : visible.length ? <div className="correction-admin-list">{visible.map((item) => <article className="correction-admin-card" key={item.id}><div className="correction-admin-card-head"><div><span className="source-level-badge level-A">{statusLabel[item.status]}</span><h3>{item.title}</h3><p>{item.company} · {item.type}</p></div><small>{new Date(item.createdAt).toLocaleString("zh-CN", { hour12: false })}</small></div><p className="correction-admin-content">{item.content}</p><div className="correction-admin-meta"><span>提交人：{item.reporterEmail ?? "未登录用户"}</span>{item.officialUrl ? <a href={item.officialUrl} target="_blank" rel="noreferrer">打开官方链接 ↗</a> : <span>暂无官方链接</span>}</div><div className="correction-admin-actions"><input value={notes[item.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="管理员备注（可选）" /><button className="secondary-button" onClick={() => void update(item.id, item.status, notes[item.id])}>保存备注</button>{item.status === "pending" && <button className="secondary-button" onClick={() => void update(item.id, "in_review")}>开始处理</button>}{item.status === "in_review" && <><button className="primary-button" onClick={() => void update(item.id, "resolved")}>标记已处理</button><button className="secondary-button danger-button" onClick={() => void update(item.id, "rejected")}>驳回</button></>}{["resolved", "rejected"].includes(item.status) && <button className="secondary-button" onClick={() => void update(item.id, "pending")}>重新打开</button>}</div></article>)}</div> : <div className="surface empty-state"><h3>暂无用户纠错</h3><p>用户在招聘详情中提交纠错后，会在这里显示。</p></div>}</div>;
+  return <div className="admin-section"><div className="admin-panel-heading"><div><span className="section-kicker">USER CORRECTIONS</span><h2>用户纠错</h2><p>用户从招聘详情提交的纠错会进入这里，管理员核对官网后再记录处理结果。</p></div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="task-sla">待处理 · {openCount}</span><button className="secondary-button" disabled={refreshing} onClick={() => void refresh()}>{refreshing ? "刷新中…" : "刷新"}</button></div></div><div className="task-toolbar">{["全部", "待处理", "处理中", "已处理", "已驳回"].map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div>{loading ? <div className="surface empty-state"><h3>正在读取用户纠错</h3><p>只显示数据库中的真实提交记录。</p></div> : visible.length ? <div className="correction-admin-list">{visible.map((item) => <article className="correction-admin-card" key={item.id}><div className="correction-admin-card-head"><div><span className="source-level-badge level-A">{statusLabel[item.status]}</span><h3>{item.title}</h3><p>{item.company} · {item.type}</p></div><small>{new Date(item.createdAt).toLocaleString("zh-CN", { hour12: false })}</small></div><p className="correction-admin-content">{item.content}</p><div className="correction-admin-meta"><span>提交人：{item.reporterEmail ?? "未登录用户"}</span>{item.officialUrl ? <a href={item.officialUrl} target="_blank" rel="noreferrer">打开官方链接 ↗</a> : <span>暂无官方链接</span>}</div><div className="correction-admin-actions"><input value={notes[item.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="管理员备注（可选）" /><button className="secondary-button" onClick={() => void update(item.id, item.status, notes[item.id])}>保存备注</button>{item.status === "pending" && <button className="secondary-button" onClick={() => void update(item.id, "in_review")}>开始处理</button>}{item.status === "in_review" && <><button className="primary-button" onClick={() => void update(item.id, "resolved")}>标记已处理</button><button className="secondary-button danger-button" onClick={() => void update(item.id, "rejected")}>驳回</button></>}{["resolved", "rejected"].includes(item.status) && <button className="secondary-button" onClick={() => void update(item.id, "pending")}>重新打开</button>}</div></article>)}</div> : <div className="surface empty-state"><h3>暂无用户纠错</h3><p>用户在招聘详情中提交纠错后，会在这里显示。</p></div>}</div>;
 }

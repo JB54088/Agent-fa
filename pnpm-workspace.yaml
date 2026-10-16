@@ -1,0 +1,2 @@
+allowBuilds:
+  '@alicloud/openapi-core': false

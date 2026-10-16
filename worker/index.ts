@@ -30,7 +30,7 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    configureDatabase(env.DATABASE_URL);
+    configureDatabase(env?.DATABASE_URL ?? process.env.DATABASE_URL);
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {

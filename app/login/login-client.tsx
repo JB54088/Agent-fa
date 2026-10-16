@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
+import styles from "./login.module.css";
 
 type Mode = "login" | "register";
 
@@ -11,6 +13,9 @@ const errorMessages: Record<string, string> = {
   phone_already_registered: "该手机号已经注册，请直接登录",
   invalid_credentials: "手机号或密码错误",
   role_must_not_be_submitted: "注册请求不允许提交角色",
+  too_many_login_attempts: "尝试次数过多，请稍后再试。",
+  login_unavailable: "登录服务暂时不可用，请稍后重试。",
+  registration_unavailable: "注册服务暂时不可用，请稍后重试。",
 };
 
 function safeReturnTo(value: string | null) {
@@ -22,7 +27,6 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +40,7 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
       const response = await fetch(`/api/auth/${mode}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(mode === "register" ? { phone, password, confirmPassword, name } : { phone, password }),
+        body: JSON.stringify(mode === "register" ? { phone, password, confirmPassword } : { phone, password }),
       });
       const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? (mode === "register" ? "注册失败" : "登录失败"));
@@ -70,7 +74,7 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
         <div className="login-page-heading">
           <span className="eyebrow"><i />安全登录</span>
           <h1 id="login-page-title">{mode === "login" ? "欢迎回来" : "注册校招雷达"}</h1>
-          <p>{mode === "login" ? "登录校招雷达，继续查看你的招聘机会和求职进度。" : "注册后默认成为普通求职者账号，管理员权限由后台统一管理。"}</p>
+          <p>{mode === "login" ? "登录校招雷达，继续查看你的招聘机会和求职进度。" : "注册后默认成为普通求职者账号，可免费试用 3 天。管理员权限由后台统一管理。"}</p>
         </div>
         <div className="login-tabs" role="tablist" aria-label="账号操作">
           <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")}>手机号登录</button>
@@ -81,12 +85,8 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
             <div className="login-field-label"><label htmlFor="login-phone">手机号</label><span>中国大陆</span></div>
             <div className="login-input-wrap"><span className="login-input-prefix">+86</span><input id="login-phone" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入中国大陆手机号" inputMode="tel" autoComplete="tel" required /></div>
           </div>
-          {mode === "register" && <div className="login-field">
-            <div className="login-field-label"><label htmlFor="login-name">姓名 / 昵称</label><span>选填</span></div>
-            <input id="login-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入姓名或昵称" autoComplete="name" />
-          </div>}
           <div className="login-field">
-            <div className="login-field-label"><label htmlFor="login-password">密码</label>{mode === "register" && <span>至少 8 位</span>}</div>
+            <div className="login-field-label"><label htmlFor="login-password">密码</label>{mode === "register" ? <span>至少 8 位</span> : <Link className={styles.forgotLink} href="/forgot-password">忘记密码？</Link>}</div>
             <div className="login-input-wrap"><input id="login-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入登录密码" type={showPassword ? "text" : "password"} autoComplete={mode === "login" ? "current-password" : "new-password"} required /><button type="button" className="login-password-toggle" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "隐藏密码" : "显示密码"}>{showPassword ? "隐藏" : "显示"}</button></div>
             {mode === "register" && <small className="login-field-hint">建议使用字母、数字或符号组合。</small>}
           </div>

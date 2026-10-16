@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../../chatgpt-auth";
 import { getReminderStore } from "../../../../lib/reminders/store";
+import { requireMembership } from "../../../../lib/membership/guard";
 
 type RouteContext = { params: Promise<{ opportunityId: string }> };
 
 async function currentUser() {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
+  const membershipResponse = requireMembership(user);
+  if (membershipResponse) return membershipResponse;
   return user;
 }
 

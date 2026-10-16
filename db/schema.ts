@@ -1,6 +1,8 @@
 import {
   boolean,
+  check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -12,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -60,12 +63,34 @@ export const users = pgTable("users", {
   phone: text("phone"),
   passwordHash: text("password_hash"),
   role: userRoleEnum("role").default("customer").notNull(),
-  name: text("name"),
   status: text("status").default("active").notNull(),
+  trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  membershipStartedAt: timestamp("membership_started_at", { withTimezone: true }),
+  membershipEndsAt: timestamp("membership_ends_at", { withTimezone: true }),
+  membershipPlan: text("membership_plan"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   ...timestamps,
-}, (table) => [uniqueIndex("users_email_uidx").on(table.email), uniqueIndex("users_phone_uidx").on(table.phone), index("users_role_status_idx").on(table.role, table.status)]);
+}, (table) => [
+  uniqueIndex("users_email_key").on(table.email),
+  uniqueIndex("users_phone_key").on(table.phone),
+  index("users_role_status_idx").on(table.role, table.status),
+  check("users_membership_plan_check", sql`${table.membershipPlan} IS NULL OR ${table.membershipPlan} IN ('monthly', 'quarterly', 'yearly')`),
+]);
+
+export const passwordResetCodes = pgTable("password_reset_codes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  phone: text("phone").notNull(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  attempts: integer("attempts").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("password_reset_codes_phone_created_idx").on(table.phone, table.createdAt.desc()),
+  check("password_reset_codes_attempts_check", sql`${table.attempts} BETWEEN 0 AND 5`),
+]);
 
 export const majorCategories = pgTable("major_categories", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -953,6 +978,53 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   afterData: jsonb("after_data"),
   ...timestamps,
 }, (table) => [index("admin_audit_actor_idx").on(table.actorId, table.createdAt), index("admin_audit_entity_idx").on(table.entityType, table.entityId)]);
+
+export const activationCodes = pgTable("activation_codes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  codeHash: text("code_hash").notNull(),
+  codeCiphertext: text("code_ciphertext").notNull(),
+  plan: text("plan").notNull(),
+  durationDays: integer("duration_days").notNull(),
+  status: text("status").default("unused").notNull(),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+  activatedByUserId: uuid("activated_by_user_id"),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  disabledBy: uuid("disabled_by"),
+  note: text("note"),
+}, (table) => [
+  uniqueIndex("activation_codes_code_hash_uidx").on(table.codeHash),
+  index("activation_codes_status_created_idx").on(table.status, table.createdAt.desc()),
+  index("activation_codes_plan_status_idx").on(table.plan, table.status),
+  index("activation_codes_activated_by_idx").on(table.activatedByUserId),
+  foreignKey({ name: "activation_codes_created_by_users_fk", columns: [table.createdBy], foreignColumns: [users.id] }),
+  foreignKey({ name: "activation_codes_activated_by_users_fk", columns: [table.activatedByUserId], foreignColumns: [users.id] }),
+  foreignKey({ name: "activation_codes_disabled_by_users_fk", columns: [table.disabledBy], foreignColumns: [users.id] }),
+  check("activation_codes_plan_check", sql`${table.plan} IN ('monthly', 'quarterly', 'yearly')`),
+  check("activation_codes_duration_check", sql`${table.durationDays} IN (30, 90, 365)`),
+  check("activation_codes_plan_duration_check", sql`(${table.plan} = 'monthly' AND ${table.durationDays} = 30) OR (${table.plan} = 'quarterly' AND ${table.durationDays} = 90) OR (${table.plan} = 'yearly' AND ${table.durationDays} = 365)`),
+  check("activation_codes_status_check", sql`${table.status} IN ('unused', 'used', 'disabled')`),
+  check("activation_codes_state_check", sql`(${table.status} = 'unused' AND ${table.activatedAt} IS NULL AND ${table.activatedByUserId} IS NULL AND ${table.disabledAt} IS NULL AND ${table.disabledBy} IS NULL) OR (${table.status} = 'used' AND ${table.activatedAt} IS NOT NULL AND ${table.activatedByUserId} IS NOT NULL AND ${table.disabledAt} IS NULL AND ${table.disabledBy} IS NULL) OR (${table.status} = 'disabled' AND ${table.activatedAt} IS NULL AND ${table.activatedByUserId} IS NULL AND ${table.disabledAt} IS NOT NULL AND ${table.disabledBy} IS NOT NULL)`),
+]);
+
+export const membershipTransactions = pgTable("membership_transactions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull(),
+  activationCodeId: uuid("activation_code_id").notNull(),
+  plan: text("plan").notNull(),
+  durationDays: integer("duration_days").notNull(),
+  previousEndAt: timestamp("previous_end_at", { withTimezone: true }),
+  newEndAt: timestamp("new_end_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("membership_transactions_activation_code_uidx").on(table.activationCodeId),
+  index("membership_transactions_user_created_idx").on(table.userId, table.createdAt.desc()),
+  foreignKey({ name: "membership_transactions_user_users_fk", columns: [table.userId], foreignColumns: [users.id] }),
+  foreignKey({ name: "membership_transactions_code_fk", columns: [table.activationCodeId], foreignColumns: [activationCodes.id] }),
+  check("membership_transactions_plan_duration_check", sql`(${table.plan} = 'monthly' AND ${table.durationDays} = 30) OR (${table.plan} = 'quarterly' AND ${table.durationDays} = 90) OR (${table.plan} = 'yearly' AND ${table.durationDays} = 365)`),
+  check("membership_transactions_end_after_previous_check", sql`${table.previousEndAt} IS NULL OR ${table.newEndAt} > ${table.previousEndAt}`),
+]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").defaultRandom().primaryKey(),

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../chatgpt-auth";
 import { getReminderStore } from "../../../lib/reminders/store";
+import { requireMembership } from "../../../lib/membership/guard";
 
 export async function GET(request: Request) {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
+  const membershipResponse = requireMembership(user);
+  if (membershipResponse) return membershipResponse;
   try {
     const unreadOnly = new URL(request.url).searchParams.get("unread") === "1";
     const notifications = await getReminderStore().listNotifications({ userEmail: user.email, unreadOnly });

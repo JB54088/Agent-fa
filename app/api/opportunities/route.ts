@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../chatgpt-auth";
 import { getPublishedOpportunitySummary, listPublishedProjects } from "../../../lib/opportunities";
+import { requireMembership } from "../../../lib/membership/guard";
 
 const MAX_IDS = 100;
 
 export async function GET(request: Request) {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ ok: false, error: "authentication_required", projects: [] }, { status: 401 });
+  const membershipResponse = requireMembership(user);
+  if (membershipResponse) return membershipResponse;
   try {
     const params = new URL(request.url).searchParams;
     const ids = params.get("ids")?.split(",").map((id) => id.trim()).filter(Boolean).slice(0, MAX_IDS);

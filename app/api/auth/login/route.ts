@@ -24,11 +24,10 @@ async function initializeConfiguredAdmin(db: ReturnType<typeof getDb>, phone: st
     phone,
     passwordHash,
     role: "admin",
-    name: process.env.ADMIN_NAME_1?.trim().slice(0, 80) || "校招雷达管理员",
     status: "active",
   }).onConflictDoUpdate({
     target: schema.users.phone,
-    set: { passwordHash, role: "admin", name: process.env.ADMIN_NAME_1?.trim().slice(0, 80) || "校招雷达管理员", status: "active", updatedAt: new Date() },
+    set: { passwordHash, role: "admin", status: "active", updatedAt: new Date() },
   }).returning({ id: schema.users.id });
   const userId = inserted[0]?.id;
   if (!userId) return;
@@ -47,7 +46,7 @@ export async function POST(request: Request) {
     if (!PHONE_PATTERN.test(phone)) return NextResponse.json({ ok: false, error: "invalid_mainland_phone" }, { status: 400 });
     const db = getDb();
     await initializeConfiguredAdmin(db, phone, password);
-    const rows = await db.select({ id: schema.users.id, phone: schema.users.phone, name: schema.users.name, email: schema.users.email, role: schema.users.role, status: schema.users.status, passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
+    const rows = await db.select({ id: schema.users.id, phone: schema.users.phone, email: schema.users.email, role: schema.users.role, status: schema.users.status, passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
     const account = rows[0];
     if (!account || account.status !== "active" || !(await verifyPassword(password, account.passwordHash))) {
       recordLoginFailure(phone);
@@ -63,8 +62,15 @@ export async function POST(request: Request) {
     }
     clearLoginFailures(phone);
     await setSessionCookie(account.id);
-    return NextResponse.json({ ok: true, user: { id: account.id, phone: account.phone, name: account.name, role } });
+    const configuredName = role === "admin" && account.phone === (process.env.ADMIN_PHONE_1 ?? "").replace(/\s+/g, "")
+      ? process.env.ADMIN_NAME_1?.trim().slice(0, 80)
+      : null;
+    return NextResponse.json({ ok: true, user: { id: account.id, phone: account.phone, name: configuredName || account.phone || account.email, role } });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "登录失败" }, { status: 503 });
+    console.error("[auth/login] request failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorCode: error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined,
+    });
+    return NextResponse.json({ ok: false, error: "login_unavailable" }, { status: 503 });
   }
 }

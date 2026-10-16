@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { getAppUser } from "../../chatgpt-auth";
 import { officialMajorDirectories, searchMajorDirectory } from "../../major-directory";
+import { requireMembership } from "../../../lib/membership/guard";
 
 export async function GET(request: Request) {
-  if (!(await getAppUser())) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
+  const user = await getAppUser();
+  if (!user) return NextResponse.json({ ok: false, error: "authentication_required" }, { status: 401 });
+  const membershipResponse = requireMembership(user);
+  if (membershipResponse) return membershipResponse;
   const url = new URL(request.url);
   const query = url.searchParams.get("q") ?? "";
   const educationLevel = url.searchParams.get("educationLevel") === "graduate" ? "graduate" : "undergraduate";

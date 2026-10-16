@@ -11,6 +11,10 @@ export type ChatGPTUser = {
   fullName: string | null;
   phone?: string | null;
   role?: "admin" | "customer" | null;
+  trialStartedAt?: Date | null;
+  trialEndsAt?: Date | null;
+  membershipPlan?: string | null;
+  membershipEndsAt?: Date | null;
 };
 
 const USER_EMAIL_HEADER = "oai-authenticated-user-email";
@@ -53,13 +57,17 @@ export async function getAppUser(): Promise<ChatGPTUser | null> {
   if (!sessionUserId) return null;
   try {
     const db = getDb();
-    const rows = await db.select({ id: schema.users.id, email: schema.users.email, phone: schema.users.phone, name: schema.users.name, role: schema.users.role })
+    const rows = await db.select({ id: schema.users.id, email: schema.users.email, phone: schema.users.phone, role: schema.users.role, trialStartedAt: schema.users.trialStartedAt, trialEndsAt: schema.users.trialEndsAt, membershipPlan: schema.users.membershipPlan, membershipEndsAt: schema.users.membershipEndsAt })
       .from(schema.users)
       .where(and(eq(schema.users.id, sessionUserId), eq(schema.users.status, "active")))
       .limit(1);
     const account = rows[0];
     if (!account) return null;
-    return { id: account.id, displayName: account.name ?? account.phone ?? account.email, email: account.email, fullName: account.name, phone: account.phone, role: account.role };
+    const configuredName = account.role === "admin" && account.phone === (process.env.ADMIN_PHONE_1 ?? "").replace(/\s+/g, "")
+      ? process.env.ADMIN_NAME_1?.trim().slice(0, 80)
+      : null;
+    const displayName = configuredName || account.phone || account.email;
+    return { id: account.id, displayName, email: account.email, fullName: configuredName ?? null, phone: account.phone, role: account.role, trialStartedAt: account.trialStartedAt, trialEndsAt: account.trialEndsAt, membershipPlan: account.membershipPlan, membershipEndsAt: account.membershipEndsAt };
   } catch {
     return null;
   }
