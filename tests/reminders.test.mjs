@@ -6,8 +6,8 @@ import {
   buildDeadlineReminderMessage,
   isFixedConfirmedDeadline,
   scheduleDeadlineReminders,
-} from "../lib/reminders/deadline.ts";
-import { runDeadlineReminderJob } from "../lib/reminders/scheduler.ts";
+} from "../shared/deadline.ts";
+import { runDeadlineReminderJob } from "../backend/lib/reminders/scheduler.ts";
 
 const now = (date) => new Date(`${date}T00:00:00+08:00`);
 const deliveryInput = (deadlineAt, overrides = {}) => ({

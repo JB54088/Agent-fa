@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 调试用例：数据库边界与环境门控。
  *
  * 关注两件事：
@@ -22,7 +22,7 @@ const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
 const baselineFetchEndpoint = neonConfig.fetchEndpoint;
 
 let importCounter = 0;
-const freshDbModule = () => import(new URL(`../../db/index.ts?debug=${++importCounter}`, import.meta.url).href);
+const freshDbModule = () => import(new URL(`../../backend/db/index.ts?debug=${++importCounter}`, import.meta.url).href);
 
 /** 在指定的环境变量下执行，结束后恢复现场（含驱动全局端点，避免用例互相污染）。 */
 async function withEnv(vars, run) {
@@ -44,11 +44,11 @@ async function withEnv(vars, run) {
 
 /** 收集本仓库里所有按 "not configured" 判定"未连接"的路由文件。 */
 const NOT_CONFIGURED_ROUTES = [
-  "app/api/reminders/route.ts",
-  "app/api/favorites/[opportunityId]/route.ts",
-  "app/api/notifications/route.ts",
-  "app/api/notifications/[notificationId]/route.ts",
-  "app/api/cron/recruitment-deadline-reminders/route.ts",
+  "frontend/app/api/reminders/route.ts",
+  "frontend/app/api/favorites/[opportunityId]/route.ts",
+  "frontend/app/api/notifications/route.ts",
+  "frontend/app/api/notifications/[notificationId]/route.ts",
+  "frontend/app/api/cron/recruitment-deadline-reminders/route.ts",
 ];
 
 test("未设置 NEON_LOCAL_ENDPOINT 时，不得改写 Neon 驱动的全局端点", async () => {
@@ -123,7 +123,7 @@ test("NEON_LOCAL_ENDPOINT 必须记录在 .env.example 中（当前仅存在于�
   const example = await readFile(path.join(projectRoot, ".env.example"), "utf8");
   assert.ok(
     example.includes("NEON_LOCAL_ENDPOINT"),
-    "db/index.ts 会读取 NEON_LOCAL_ENDPOINT，但 .env.example 未记录该变量，其他开发者无法得知本地桥接的存在",
+    "backend/db/index.ts 会读取 NEON_LOCAL_ENDPOINT，但 .env.example 未记录该变量，其他开发者无法得知本地桥接的存在",
   );
 });
 

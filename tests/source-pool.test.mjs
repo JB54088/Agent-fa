@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSourcePoolImportPlan } from "../lib/source-pool/import-plan.ts";
-import { normalizeOrganizationName, normalizeUrl } from "../lib/source-pool/normalize.ts";
-import { extractDiscoveryCandidates } from "../lib/source-discovery/playwright-explorer.ts";
-import { discoveryQueueFingerprint } from "../lib/source-discovery/queue.ts";
+import { buildSourcePoolImportPlan } from "../backend/lib/source-pool/import-plan.ts";
+import { normalizeOrganizationName, normalizeUrl } from "../backend/lib/source-pool/normalize.ts";
+import { extractDiscoveryCandidates } from "../backend/lib/source-discovery/playwright-explorer.ts";
+import { discoveryQueueFingerprint } from "../backend/lib/source-discovery/queue.ts";
 
 test("source pool import preserves multiple URLs per organization and deduplicates exact sources", async () => {
   const plan = await buildSourcePoolImportPlan(process.cwd());

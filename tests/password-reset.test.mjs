@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { hashPasswordResetCode, passwordResetCodeHashMatches } = await import("../lib/auth/password-reset.ts");
+const { hashPasswordResetCode, passwordResetCodeHashMatches } = await import("../backend/lib/auth/password-reset.ts");
 
 test("password reset codes are keyed hashes bound to the phone", () => {
   process.env.AUTH_SESSION_SECRET = "test-session-secret-not-for-production";

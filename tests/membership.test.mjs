@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { createTrialWindow, getMembershipStatus, getMembershipRemaining, hasMembershipAccess, isMembershipEnforcementEnabled, MEMBERSHIP_TRIAL_HOURS } = await import("../lib/membership/status.ts");
-const { MEMBERSHIP_PLANS } = await import("../lib/membership/plans.ts");
-const { decryptActivationCode, encryptActivationCode, generateActivationCode, hashActivationCode, isActivationCodeFormatValid, normalizeActivationCode } = await import("../lib/membership/activation-code.ts");
+const { createTrialWindow, getMembershipStatus, getMembershipRemaining, hasMembershipAccess, isMembershipEnforcementEnabled, MEMBERSHIP_TRIAL_HOURS } = await import("../backend/lib/membership/status.ts");
+const { MEMBERSHIP_PLANS } = await import("../backend/lib/membership/plans.ts");
+const { decryptActivationCode, encryptActivationCode, generateActivationCode, hashActivationCode, isActivationCodeFormatValid, normalizeActivationCode } = await import("../backend/lib/membership/activation-code.ts");
 
 const now = new Date("2026-10-10T00:00:00.000Z");
 

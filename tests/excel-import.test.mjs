@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { parseExcelUpload } = await import("../lib/excel-file-parser.ts");
-const { excelImportDedupeKey, normalizeExcelDate, normalizeExcelImportRow } = await import("../lib/excel-import.ts");
+const { parseExcelUpload } = await import("../backend/lib/excel-file-parser.ts");
+const { excelImportDedupeKey, normalizeExcelDate, normalizeExcelImportRow } = await import("../backend/lib/excel-import.ts");
 
 test("实际读取CSV招聘文件并解析出数据行", async () => {
   const file = new File([

@@ -3,8 +3,8 @@ import fs from "node:fs";
 import test from "node:test";
 
 const directories = [
-  ["data/major-directory/undergraduate-2026.json", 883, "undergraduate"],
-  ["data/major-directory/graduate-2022.json", 181, "graduate"],
+  ["shared/data/major-directory/undergraduate-2026.json", 883, "undergraduate"],
+  ["shared/data/major-directory/graduate-2022.json", 181, "graduate"],
 ];
 
 for (const [file, expectedCount, type] of directories) {

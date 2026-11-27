@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 调试用例：未提交改动的回归守卫。
  *
  * 覆盖本轮 5 个未提交文件的契约面。仓库没有安装 React/DOM/浏览器测试工具，路由的行为验证
@@ -30,7 +30,7 @@ const sorted = (values) => [...values].sort();
 // ---------------------------------------------------------------------------
 
 test("源码契约：initial-sync progress 的 GET 必须声明 request 参数（旧代码 GET() 会 ReferenceError）", async () => {
-  const source = await readSource("app/api/admin/initial-sync/progress/route.ts");
+  const source = await readSource("frontend/app/api/admin/initial-sync/progress/route.ts");
 
   const handlers = [...source.matchAll(/export\s+async\s+function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/g)];
   assert.ok(handlers.length > 0, "未找到导出的路由处理函数");
@@ -47,7 +47,7 @@ test("源码契约：initial-sync progress 的 GET 必须声明 request 参数�
 });
 
 test("源码契约：progress 路由把 ?scope=target_100 映射到 TARGET_100_OFFICIAL_AUDIT", async () => {
-  const source = await readSource("app/api/admin/initial-sync/progress/route.ts");
+  const source = await readSource("frontend/app/api/admin/initial-sync/progress/route.ts");
   assert.match(source, /searchParams\.get\("scope"\)\s*===\s*"target_100"/, "scope 参数必须被解析");
   assert.match(source, /"TARGET_100_OFFICIAL_AUDIT"/, "target_100 作用域必须返回对应 mode");
   assert.match(source, /"INITIAL_SYNC"/, "默认作用域必须返回 INITIAL_SYNC");
@@ -58,7 +58,7 @@ test("源码契约：progress 路由把 ?scope=target_100 映射到 TARGET_100_O
 // ---------------------------------------------------------------------------
 
 test("globals.css：modal-backdrop / small-modal / login-modal 的定位规则必须存在（历史上被删过一次）", async () => {
-  const css = await readSource("app/globals.css");
+  const css = await readSource("frontend/app/globals.css");
   const required = [
     [".modal-backdrop { position: fixed", "缺少遮罩层定位，模态框会掉进正常文档流"],
     [".modal-close { position: absolute", "缺少关闭按钮定位"],
@@ -71,7 +71,7 @@ test("globals.css：modal-backdrop / small-modal / login-modal 的定位规则�
 });
 
 test("globals.css：发布表格操作列的吸顶规则与移动端取消规则必须成对存在", async () => {
-  const css = await readSource("app/globals.css");
+  const css = await readSource("frontend/app/globals.css");
   assert.ok(
     css.includes(".published-table .published-admin-row > span:last-child { position: sticky"),
     "缺少操作列吸顶规则，「下架」按钮会落在可视区之外",
@@ -84,7 +84,7 @@ test("globals.css：发布表格操作列的吸顶规则与移动端取消规则
 });
 
 test("跨文件契约：吸顶规则依赖「操作列是行内最后一个带 data-label 的 span」，且该 span 带 published-actions", async () => {
-  const source = await readSource("app/admin-console.tsx");
+  const source = await readSource("frontend/app/admin-console.tsx");
 
   const rowStart = source.indexOf('<div className="published-admin-row" key={item.id}>');
   assert.ok(rowStart > -1, "未找到发布表格的数据行模板");
@@ -109,8 +109,8 @@ test("跨文件契约：吸顶规则依赖「操作列是行内最后一个带 d
 
 test("跨文件契约：下架/永久删除原因清单在客户端与服务端必须一致", async () => {
   const [consoleSource, routeSource] = await Promise.all([
-    readSource("app/admin-console.tsx"),
-    readSource("app/api/admin/opportunities/route.ts"),
+    readSource("frontend/app/admin-console.tsx"),
+    readSource("frontend/app/api/admin/opportunities/route.ts"),
   ]);
 
   const pairs = [
@@ -123,12 +123,12 @@ test("跨文件契约：下架/永久删除原因清单在客户端与服务端�
     const server = extractStringArray(routeSource, serverName);
     assert.ok(client, `未能在客户端解析出 ${clientName}`);
     assert.ok(server, `未能在服务端解析出 ${serverName}`);
-    assert.deepEqual(sorted(client), sorted(server), `${label}清单在 app/admin-console.tsx 与 app/api/admin/opportunities/route.ts 之间已漂移`);
+    assert.deepEqual(sorted(client), sorted(server), `${label}清单在 frontend/app/admin-console.tsx 与 frontend/app/api/admin/opportunities/route.ts 之间已漂移`);
   }
 });
 
 test("跨文件契约：服务端已通过 API 下发权威原因清单，客户端无需硬编码副本", async () => {
-  const routeSource = await readSource("app/api/admin/opportunities/route.ts");
+  const routeSource = await readSource("frontend/app/api/admin/opportunities/route.ts");
   assert.match(routeSource, /offlineReasons:\s*OFFLINE_REASONS/, "服务端应下发 offlineReasons");
   assert.match(routeSource, /permanentDeleteReasons:\s*\[\.\.\.PERMANENT_DELETE_REASONS\]/, "服务端应下发 permanentDeleteReasons");
 });

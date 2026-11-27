@@ -1,4 +1,4 @@
-# 校招雷达第一版产品设计
+﻿# 校招雷达第一版产品设计
 
 ## 1. 产品信息架构
 
@@ -113,7 +113,7 @@ erDiagram
 
 ## 7. 核心数据表字段
 
-详尽 Drizzle 定义位于 `db/schema.ts`。核心表字段如下：
+详尽 Drizzle 定义位于 `backend/db/schema.ts`。核心表字段如下：
 
 | 表 | 关键字段 |
 | --- | --- |
@@ -190,21 +190,38 @@ erDiagram
 ## 9. 项目目录结构
 
 ```text
-app/
-├── data.ts                    # 可配置产品名、规则与已核验招聘项目
-├── page.tsx                   # 第一版前台与运营后台交互
-├── layout.tsx                 # metadata 与中文根布局
-├── globals.css                # 响应式视觉系统
-└── api/                       # 下一阶段按接口清单添加 Route Handlers
-db/
-├── schema.ts                  # PostgreSQL + Drizzle 核心表、索引、枚举
-└── seed.ts                    # 官方专业目录与正式招聘项目导入入口
-drizzle/
-└── 0000_initial_school_radar.sql
+frontend/                       # 前端工程（Next.js / vinext），可独立构建与部署
+├── app/
+│   ├── page.tsx                # 第一版前台与运营后台交互
+│   ├── layout.tsx              # metadata 与中文根布局
+│   ├── globals.css             # 响应式视觉系统
+│   └── api/                    # Route Handlers：前端调用的 HTTP 接口层
+├── public/                     # favicon 与静态资源
+├── build/                      # vite 构建插件
+├── next.config.ts              # Next 配置
+├── vite.config.ts              # vinext/vite 配置与 Cloudflare 绑定
+└── proxy.ts                    # 导航级会话守卫
+backend/                        # 后端工程：数据层、采集、调度与脚本
+├── db/
+│   ├── schema.ts               # PostgreSQL + Drizzle 核心表、索引、枚举
+│   └── seed.ts                 # 官方专业目录与正式招聘项目导入入口
+├── drizzle/                    # SQL 迁移与 meta journal
+├── lib/                        # 业务能力：采集、鉴权、提醒、来源池
+├── scripts/                    # 命令行脚本（迁移、导入、发现任务）
+├── worker/                     # Cloudflare Worker 入口（cron 与图片优化）
+├── config/                     # 采集配置
+├── dev-tools/                  # 本地 PostgreSQL 桥接
+└── drizzle.config.ts           # drizzle-kit 配置
+shared/                         # 前后端共享的领域类型与官方目录数据
+├── data.ts
+├── major-directory.ts
+├── real-projects.ts
+├── deadline.ts
+└── data/                       # 专业目录 JSON
 docs/
-└── product-design.md         # 信息架构、ER、API、规则和任务拆分
-public/                       # favicon 与静态资源
-.env.example                  # 本地/部署环境变量示例
+└── product-design.md           # 信息架构、ER、API、规则和任务拆分
+tests/                          # 跨端测试（node:test）
+.env.example                    # 本地/部署环境变量示例
 ```
 
 ## 10. 开发任务拆分

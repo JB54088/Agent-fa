@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { nationalSourceDirectory, nationalSourceDirectorySummary } = await import("../db/seeds/national-source-directory.ts");
+const { nationalSourceDirectory, nationalSourceDirectorySummary } = await import("../backend/db/seeds/national-source-directory.ts");
 
 test("全国来源目录覆盖国考、31省省考、央企和重点地方国企", () => {
   assert.equal(nationalSourceDirectorySummary.provincialCivilService, 31);

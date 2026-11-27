@@ -7,12 +7,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { isPrivateIp, isAllowedSourceHostname, validateSourceUrl, SourceRequestError } = await import("../../lib/collection/http-client.ts");
-const { normalizeUrl } = await import("../../lib/source-pool/normalize.ts");
-const { normalizeExcelDate, excelImportDedupeKey, normalizeExcelImportRow } = await import("../../lib/excel-import.ts");
-const { detectAttachmentKind, validateAttachment } = await import("../../lib/collection/attachments.ts");
-const { nextRetryDecision } = await import("../../lib/collection/retry-policy.ts");
-const { parseDateFromText, detectDeadlineType } = await import("../../lib/collection/normalize.ts");
+const { isPrivateIp, isAllowedSourceHostname, validateSourceUrl, SourceRequestError } = await import("../../backend/lib/collection/http-client.ts");
+const { normalizeUrl } = await import("../../backend/lib/source-pool/normalize.ts");
+const { normalizeExcelDate, excelImportDedupeKey, normalizeExcelImportRow } = await import("../../backend/lib/excel-import.ts");
+const { detectAttachmentKind, validateAttachment } = await import("../../backend/lib/collection/attachments.ts");
+const { nextRetryDecision } = await import("../../backend/lib/collection/retry-policy.ts");
+const { parseDateFromText, detectDeadlineType } = await import("../../backend/lib/collection/normalize.ts");
 
 const isValidIsoDate = (value) => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

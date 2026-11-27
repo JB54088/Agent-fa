@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 调试用例：仓库级一致性。
  *
  * 这些不是业务逻辑测试，而是"这个仓库现在的状态是否自洽"的断言——迁移清单、来源池计数、
@@ -10,12 +10,12 @@ import path from "node:path";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-const { buildSourcePoolImportPlan } = await import("../../lib/source-pool/import-plan.ts");
-const { getAgentFaBootstrapRecords } = await import("../../db/seeds/agent-fa-source-pool.ts");
+const { buildSourcePoolImportPlan } = await import("../../backend/lib/source-pool/import-plan.ts");
+const { getAgentFaBootstrapRecords } = await import("../../backend/db/seeds/agent-fa-source-pool.ts");
 
 const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-const SOURCE_DIRECTORIES = ["app", "lib", "db", "scripts", "worker"];
+const SOURCE_DIRECTORIES = ["frontend/app", "backend/lib", "backend/db", "backend/scripts", "backend/worker", "shared"];
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mjs", ".mts"];
 const ENV_ALLOWLIST = new Set(["NODE_ENV"]);
 
@@ -35,15 +35,15 @@ async function collectSourceFiles(relativeDirectory) {
 // ---------------------------------------------------------------------------
 
 test("drizzle：每个迁移文件都必须登记在 meta/_journal.json，否则 drizzle-kit migrate 会静默跳过", async () => {
-  const journal = JSON.parse(await readFile(path.join(projectRoot, "drizzle/meta/_journal.json"), "utf8"));
+  const journal = JSON.parse(await readFile(path.join(projectRoot, "backend/drizzle/meta/_journal.json"), "utf8"));
   const registeredTags = new Set(journal.entries.map((entry) => entry.tag));
 
-  const migrationTags = (await readdir(path.join(projectRoot, "drizzle")))
+  const migrationTags = (await readdir(path.join(projectRoot, "backend/drizzle")))
     .filter((name) => name.endsWith(".sql"))
     .map((name) => name.replace(/\.sql$/, ""))
     .sort();
 
-  assert.ok(migrationTags.length > 0, "drizzle/ 下没有迁移文件");
+  assert.ok(migrationTags.length > 0, "backend/drizzle/ 下没有迁移文件");
   const unregistered = migrationTags.filter((tag) => !registeredTags.has(tag));
   assert.deepEqual(
     unregistered,
@@ -53,7 +53,7 @@ test("drizzle：每个迁移文件都必须登记在 meta/_journal.json，否则
 });
 
 test("drizzle：journal 的 idx 必须连续，不连续说明清单被编辑过", () => {
-  return readFile(path.join(projectRoot, "drizzle/meta/_journal.json"), "utf8").then((raw) => {
+  return readFile(path.join(projectRoot, "backend/drizzle/meta/_journal.json"), "utf8").then((raw) => {
     const indexes = JSON.parse(raw).entries.map((entry) => entry.idx);
     assert.deepEqual(indexes, indexes.map((_, position) => position), `journal 的 idx 序列不连续：${indexes.join(", ")}`);
   });
@@ -131,8 +131,8 @@ test("环境变量：源码读取的每个变量都必须记录在 .env.example"
 // 死代码
 // ---------------------------------------------------------------------------
 
-test("lib/collection/retry-policy.ts 必须在生产代码中至少被引用一次，否则文档描述的重试策略并未生效", async () => {
-  const definitionFile = "lib/collection/retry-policy.ts";
+test("backend/lib/collection/retry-policy.ts 必须在生产代码中至少被引用一次，否则文档描述的重试策略并未生效", async () => {
+  const definitionFile = "backend/lib/collection/retry-policy.ts";
   const importers = [];
 
   for (const directory of SOURCE_DIRECTORIES) {

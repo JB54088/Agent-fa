@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { hashPassword, verifyPassword } = await import("../lib/auth/password.ts");
-const { hasAdminRole } = await import("../lib/auth/admin.ts");
+const { hashPassword, verifyPassword } = await import("../backend/lib/auth/password.ts");
+const { hasAdminRole } = await import("../backend/lib/auth/admin.ts");
 
 test("only an authenticated admin identity passes the admin authorization boundary", () => {
   assert.equal(hasAdminRole({ id: "admin-id", role: "admin" }), true);

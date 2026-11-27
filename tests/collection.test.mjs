@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-const { SafeSourceHttpClient, SourceRequestError, isPrivateIp, validateSourceUrl } = await import("../lib/collection/http-client.ts");
-const { detectAttachmentKind, validateAttachment } = await import("../lib/collection/attachments.ts");
-const { contentHash } = await import("../lib/collection/hash.ts");
-const { classifyDuplicate } = await import("../lib/collection/dedupe.ts");
-const { detectOpportunityChanges } = await import("../lib/collection/change-detection.ts");
-const { detectDeadlineType, parseDateFromText } = await import("../lib/collection/normalize.ts");
-const { extractHtmlListItems, parseCsvLine } = await import("../lib/collection/parsers.ts");
-const { canPublishCollectionItem, createReviewTask } = await import("../lib/collection/review.ts");
-const { shouldCreateOfficialEntry } = await import("../lib/source-opportunity-policy.ts");
+const { SafeSourceHttpClient, SourceRequestError, isPrivateIp, validateSourceUrl } = await import("../backend/lib/collection/http-client.ts");
+const { detectAttachmentKind, validateAttachment } = await import("../backend/lib/collection/attachments.ts");
+const { contentHash } = await import("../backend/lib/collection/hash.ts");
+const { classifyDuplicate } = await import("../backend/lib/collection/dedupe.ts");
+const { detectOpportunityChanges } = await import("../backend/lib/collection/change-detection.ts");
+const { detectDeadlineType, parseDateFromText } = await import("../backend/lib/collection/normalize.ts");
+const { extractHtmlListItems, parseCsvLine } = await import("../backend/lib/collection/parsers.ts");
+const { canPublishCollectionItem, createReviewTask } = await import("../backend/lib/collection/review.ts");
+const { shouldCreateOfficialEntry } = await import("../backend/lib/source-opportunity-policy.ts");
 
 const source = {
   id: "source-1",

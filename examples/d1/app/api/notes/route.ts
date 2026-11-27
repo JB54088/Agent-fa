@@ -1,5 +1,5 @@
 import { desc } from "drizzle-orm";
-import { getDb } from "../../../../../db";
+import { getDb } from "../../../../../backend/db";
 import { notes } from "../../../db/schema";
 
 function toRouteErrorMessage(error: unknown) {

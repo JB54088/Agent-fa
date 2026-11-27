@@ -1,4 +1,4 @@
-# 中国招聘/招考信息源池 Agent
+﻿# 中国招聘/招考信息源池 Agent
 
 这是在现有 TypeScript + Drizzle/PostgreSQL 项目内新增的长期 Source Pool 层，不是另一个项目，也不覆盖原有招聘数据。
 
@@ -47,30 +47,30 @@ Playwright 已核验目录：
 先检查迁移，不会写库：
 
 ```bash
-node --experimental-strip-types scripts/migrate-source-pool.ts --dry-run
+node --experimental-strip-types backend/scripts/migrate-source-pool.ts --dry-run
 ```
 
 配置 PostgreSQL 后执行安全迁移：
 
 ```bash
 export DATABASE_URL='postgresql://...'
-node --experimental-strip-types scripts/migrate-source-pool.ts
+node --experimental-strip-types backend/scripts/migrate-source-pool.ts
 ```
 
-迁移文件为 `drizzle/0013_source_pool_agent.sql`，只使用 `IF NOT EXISTS`，不会删除表、删除数据或重建数据库。
+迁移文件为 `backend/drizzle/0013_source_pool_agent.sql`，只使用 `IF NOT EXISTS`，不会删除表、删除数据或重建数据库。
 
 先做无写入导入检查：
 
 ```bash
-node --experimental-strip-types scripts/inspect-source-pool.ts
-node --experimental-strip-types scripts/import-source-pool.ts --dry-run
+node --experimental-strip-types backend/scripts/inspect-source-pool.ts
+node --experimental-strip-types backend/scripts/import-source-pool.ts --dry-run
 ```
 
 确认数据库迁移完成后，再增量导入：
 
 ```bash
-node --experimental-strip-types scripts/import-source-pool.ts
-node --experimental-strip-types scripts/seed-discovery-queries.ts
+node --experimental-strip-types backend/scripts/import-source-pool.ts
+node --experimental-strip-types backend/scripts/seed-discovery-queries.ts
 ```
 
 导入器会与已有机构和来源按名称、机构指纹、来源指纹和规范化 URL 合并；已存在的记录不重新插入，不删除旧记录，不覆盖首次发现时间。当前环境没有配置 `DATABASE_URL`，所以本轮只完成了迁移校验和无写入导入校验，没有伪造数据库写入成功。
@@ -88,7 +88,7 @@ node --experimental-strip-types scripts/seed-discovery-queries.ts
 
 ```bash
 PLAYWRIGHT_MODULE=playwright \
-node --experimental-strip-types scripts/run-source-discovery-daily.ts \
+node --experimental-strip-types backend/scripts/run-source-discovery-daily.ts \
   --seed-url https://www.cnpc.com.cn/cnpc/index.shtml \
   --organization 中国石油天然气集团有限公司 \
   --category central_soe \
@@ -98,7 +98,7 @@ node --experimental-strip-types scripts/run-source-discovery-daily.ts \
 正式每日运行需要数据库、已安装的 Node Playwright 包和已执行迁移：
 
 ```bash
-node --experimental-strip-types scripts/run-source-discovery-daily.ts
+node --experimental-strip-types backend/scripts/run-source-discovery-daily.ts
 ```
 
 默认不会每天重新访问全部旧来源；只处理待验证间隔到期的来源、待处理队列和 `discovery_queries`。确需人工扩大探索范围时才使用 `--force-frontier`。
@@ -117,7 +117,7 @@ reports/discovery/YYYY-MM-DD.md
 
 ```cron
 CRON_TZ=Asia/Shanghai
-0 7 * * * cd /absolute/path/to/2026.7.24 && /absolute/path/to/node --experimental-strip-types scripts/run-source-discovery-daily.ts >> logs/source-discovery-cron.log 2>&1
+0 7 * * * cd /absolute/path/to/2026.7.24 && /absolute/path/to/node --experimental-strip-types backend/scripts/run-source-discovery-daily.ts >> logs/source-discovery-cron.log 2>&1
 ```
 
 数据库必须使用持久化 PostgreSQL；不要把生产 Source Pool 放在 GitHub Actions 临时磁盘中。若使用 GitHub Actions，应把 `DATABASE_URL` 放在 repository secret，并让 workflow 只负责调用 Agent，数据始终写入 PostgreSQL。
@@ -125,10 +125,10 @@ CRON_TZ=Asia/Shanghai
 ## 导出与查询
 
 ```bash
-node --experimental-strip-types scripts/export-source-pool.ts
-node --experimental-strip-types scripts/query-source-pool.ts --category central_soe
-node --experimental-strip-types scripts/query-source-pool.ts --province 广东
-node --experimental-strip-types scripts/query-source-pool.ts --name 中国移动
+node --experimental-strip-types backend/scripts/export-source-pool.ts
+node --experimental-strip-types backend/scripts/query-source-pool.ts --category central_soe
+node --experimental-strip-types backend/scripts/query-source-pool.ts --province 广东
+node --experimental-strip-types backend/scripts/query-source-pool.ts --name 中国移动
 ```
 
 导出文件：

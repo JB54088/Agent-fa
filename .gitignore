@@ -14,10 +14,10 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/.vinext/
-/out/
+# next.js（前端工程在 frontend/）
+/frontend/.next/
+/frontend/.vinext/
+/frontend/out/
 
 # misc
 .DS_Store
@@ -52,8 +52,9 @@ yarn-error.log*
 # typescript
 next-env.d.ts
 *.tsbuildinfo
-/dist/
-/build/
+/frontend/dist/
+/frontend/.wrangler/
+/backend/.wrangler/
 /.wrangler/
 /.codex-node
 /outputs/
