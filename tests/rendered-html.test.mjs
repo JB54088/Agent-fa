@@ -24,7 +24,7 @@ test("the public login entry contains no recruitment data", async () => {
   const response = await render("/login");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /校招雷达/);
+  assert.match(html, /校招路标/);
   assert.match(html, /手机号登录/);
   assert.doesNotMatch(html, /招聘信息来源于公开渠道|招聘标题|官方报名/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);

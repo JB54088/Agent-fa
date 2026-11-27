@@ -66,15 +66,15 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
       <div className="login-page-orb login-page-orb-one" aria-hidden="true" />
       <div className="login-page-orb login-page-orb-two" aria-hidden="true" />
       <section className="login-page-card" aria-labelledby="login-page-title">
-        <div className="login-page-card-topline"><span>校招雷达</span><span className="login-page-secure-pill"><i />账户安全</span></div>
+        <div className="login-page-card-topline"><span>校招路标</span><span className="login-page-secure-pill"><i />账户安全</span></div>
         <div className="login-page-brand">
           <div className="brand-mark"><span>⌁</span></div>
-          <div><strong>校招雷达</strong><small>校园招聘信息雷达</small></div>
+          <div><strong>校招路标</strong><small>校园招聘信息聚合</small></div>
         </div>
         <div className="login-page-heading">
           <span className="eyebrow"><i />安全登录</span>
-          <h1 id="login-page-title">{mode === "login" ? "欢迎回来" : "注册校招雷达"}</h1>
-          <p>{mode === "login" ? "登录校招雷达，继续查看你的招聘机会和求职进度。" : "注册后默认成为普通求职者账号，可免费试用 3 天。管理员权限由后台统一管理。"}</p>
+          <h1 id="login-page-title">{mode === "login" ? "欢迎回来" : "注册校招路标"}</h1>
+          <p>{mode === "login" ? "登录校招路标，继续查看你的招聘机会和求职进度。" : "注册后默认成为普通求职者账号，可免费试用 3 天。管理员权限由后台统一管理。"}</p>
         </div>
         <div className="login-tabs" role="tablist" aria-label="账号操作">
           <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")}>手机号登录</button>
@@ -98,7 +98,7 @@ export default function LoginPageClient({ initialMode = "login" }: { initialMode
           <button className="primary-button login-submit" type="submit" disabled={busy} aria-busy={busy}>{busy ? "处理中…" : mode === "login" ? "登录并继续" : "注册并登录"} <span>→</span></button>
         </form>
         <p className="login-mode-switch"><span>{mode === "login" ? "还没有账号？" : "已经有账号？"}</span><button type="button" onClick={() => switchMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "立即注册" : "返回登录"}</button></p>
-        <div className="login-page-divider"><span>校招雷达</span><i /><span>公开来源 · 人工核验</span></div>
+        <div className="login-page-divider"><span>校招路标</span><i /><span>公开来源 · 人工核验</span></div>
         <p className="login-page-footnote">招聘信息及个人求职数据仅对已登录用户开放。</p>
       </section>
     </main>

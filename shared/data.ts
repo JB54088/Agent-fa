@@ -14,7 +14,7 @@ export type BrandConfig = {
 };
 
 export const siteConfig: BrandConfig = {
-  name: "校招雷达",
+  name: "校招路标",
   logoText: "⌁",
   edition: "2027届",
   homeTitle: "不错过每一次重要机会",

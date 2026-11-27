@@ -7,7 +7,7 @@ const { excelImportDedupeKey, normalizeExcelDate, normalizeExcelImportRow } = aw
 test("实际读取CSV招聘文件并解析出数据行", async () => {
   const file = new File([
     "\ufeff公司名称,招聘标题,招聘类别,官网,招聘链接,工作地点\n示例科技,2027届秋招,秋招,https://example.com/campus,https://example.com/apply,全国\n",
-  ], "校招雷达测试导入.csv", { type: "text/csv" });
+  ], "校招路标测试导入.csv", { type: "text/csv" });
   const parsed = await parseExcelUpload(file);
   assert.deepEqual(parsed.headers.slice(0, 3), ["公司名称", "招聘标题", "招聘类别"]);
   assert.equal(parsed.rows.length, 1);
@@ -23,7 +23,7 @@ test("忽略表格末尾的说明行", async () => {
   assert.equal(parsed.rows[0]["企业名称"], "示例科技");
 });
 
-test("识别校招雷达Excel模板字段并生成待审核数据", () => {
+test("识别校招路标Excel模板字段并生成待审核数据", () => {
   const row = normalizeExcelImportRow({
     企业名称: "示例科技有限公司",
     招聘项目名称: "2027届秋季校园招聘",

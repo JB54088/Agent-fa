@@ -93,7 +93,7 @@ test("records changes and keeps new collection items behind review", async () =>
   assert.equal(canPublishCollectionItem("PENDING"), false);
   assert.equal(canPublishCollectionItem("APPROVED"), true);
   assert.deepEqual(createReviewTask("raw-1", "NEW_ITEM"), { rawItemId: "raw-1", opportunityId: null, taskType: "NEW_ITEM", reviewStatus: "PENDING", automatedConfidence: null, reviewNotes: "所有采集结果必须经过管理员审核后才能发布。" });
-  assert.equal(typeof await contentHash("校招雷达"), "string");
+  assert.equal(typeof await contentHash("校招路标"), "string");
 });
 
 test("does not recreate a published official entry after a concrete opportunity is offline or pending review", () => {

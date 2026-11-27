@@ -1,9 +1,9 @@
-﻿# 校招雷达第一版产品设计
+# 校招路标第一版产品设计
 
 ## 1. 产品信息架构
 
 ```text
-校招雷达（siteConfig.name，可通过 system_configs 配置）
+校招路标（siteConfig.name，可通过 system_configs 配置）
 ├── 公开内容
 │   ├── 首页 / 总览
 │   ├── 招聘信息列表

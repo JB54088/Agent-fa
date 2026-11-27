@@ -14,7 +14,7 @@ const INTERNAL_EMAIL_DOMAIN = "accounts.school-recruitment-radar.invalid";
 async function main() {
   const phone = (process.env.ADMIN_PHONE_1 ?? "").replace(/\s+/g, "");
   const initialPassword = process.env.ADMIN_INITIAL_PASSWORD_1 ?? "";
-  const name = (process.env.ADMIN_NAME_1 ?? "校招雷达管理员").trim().slice(0, 80) || "校招雷达管理员";
+  const name = (process.env.ADMIN_NAME_1 ?? "校招路标管理员").trim().slice(0, 80) || "校招路标管理员";
 
   if (!PHONE_PATTERN.test(phone)) throw new Error("ADMIN_PHONE_1 必须是中国大陆 11 位手机号。");
   if (!initialPassword) throw new Error("ADMIN_INITIAL_PASSWORD_1 未配置。");
